@@ -32,6 +32,10 @@ function norm(name: string) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+export function nameKey(name: string) {
+  return name.toLowerCase().replace(/\b(jr|sr|ii|iii|iv|v)\b/g, '').replace(/[^a-z0-9]/g, '');
+}
+
 async function espn(path: string): Promise<any> {
   const res = await fetch(`${ESPN}${path}`);
   if (!res.ok) throw new Error(`ESPN ${path} returned ${res.status}`);
@@ -270,4 +274,21 @@ export async function getBrief(leg: EvidenceLeg): Promise<GameBrief> {
 
 export async function getEvidence(leg: EvidenceLeg): Promise<string> {
   return (await getBrief(leg)).text;
+}
+
+export async function teamAbbr(name: string): Promise<string | null> {
+  const teams = await loadTeams();
+  return teams.get(norm(name))?.abbr ?? null;
+}
+
+export async function injuryFor(teamName: string, playerName: string): Promise<string | null> {
+  const [teams, injuries] = await Promise.all([loadTeams(), loadInjuries()]);
+  const team = teams.get(norm(teamName));
+  const list = injuries.get(norm(team?.name ?? teamName)) ?? [];
+  const key = nameKey(playerName);
+  const hit = list.find((injury) => nameKey(injury.player) === key);
+  if (!hit) return null;
+  const status = hit.status === 'Injured Reserve' ? 'IR' : hit.status;
+  const detail = hit.detail.split('.')[0]?.trim();
+  return detail ? `${status} (${detail})` : status;
 }

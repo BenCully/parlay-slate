@@ -128,24 +128,66 @@ function scrollbarColumn(height: number, total: number, scroll: number) {
   return Array.from({ length: height }, (_, index) => (index >= top && index < top + thumb ? '█' : '░'));
 }
 
-export function presentScreen(render: (width: number) => string[]): Promise<void> {
+const theme = '\x1b[40m\x1b[97m\x1b[48;2;0;0;0m\x1b[38;2;255;255;255m';
+
+export type ScreenPage = {
+  label: string;
+  render: (width: number) => string[];
+};
+
+function paintHeader(labels: string[], active: number, width: number) {
+  const button = ' x ';
+  const room = Math.max(0, width - button.length);
+  const hits: { start: number; end: number }[] = [];
+  let column = 1;
+  let line = theme;
+  for (let index = 0; index < labels.length; index++) {
+    const text = ` ${labels[index]} `;
+    const gap = index === 0 ? 0 : 1;
+    if (column - 1 + gap + text.length > room) break;
+    if (gap) {
+      line += ' ';
+      column += 1;
+    }
+    hits.push({ start: column, end: column + text.length - 1 });
+    line += index === active ? `\x1b[7m${text}\x1b[27m${theme}` : text;
+    column += text.length;
+  }
+  const visible = column - 1;
+  if (visible < room) line += ' '.repeat(room - visible);
+  line += `\x1b[7m${button}\x1b[27m${theme}`;
+  return { line, hits };
+}
+
+export function presentScreen(input: ScreenPage[] | ((width: number) => string[])): Promise<void> {
+  const pages: ScreenPage[] = typeof input === 'function' ? [{ label: 'View', render: input }] : input;
+  if (!pages.length) return Promise.resolve();
+
   if (!process.stdout.isTTY || !process.stdin.isTTY) {
     const width = Math.max(20, process.stdout.columns || 100);
-    for (const line of render(width)) console.log(line);
+    for (const page of pages) {
+      if (pages.length > 1) console.log(`# ${page.label}`);
+      for (const line of page.render(width)) console.log(line);
+      console.log('');
+    }
     return Promise.resolve();
   }
 
   return new Promise((resolve) => {
     let scroll = 0;
+    let active = 0;
     let closed = false;
     let dragging = false;
     let pending = Buffer.alloc(0);
     let totalLines = 0;
     let viewHeight = 1;
+    let bodyTop = 1;
     let screenWidth = 80;
+    let tabHits: { start: number; end: number }[] = [];
     const stdin = process.stdin;
     const enableMouse = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
     const disableMouse = '\x1b[?1002l\x1b[?1000l\x1b[?1006l';
+    const tabbed = pages.length > 1;
 
     const restore = () => {
       if (closed) return;
@@ -154,8 +196,17 @@ export function presentScreen(render: (width: number) => string[]): Promise<void
       stdin.off('data', onData);
       if (stdin.isTTY) stdin.setRawMode(false);
       stdin.pause();
-      process.stdout.write(`${disableMouse}\x1b[?25h\x1b[?1049l`);
+      process.stdout.write(`\x1b[0m${disableMouse}\x1b[?25h\x1b[?1049l`);
       resolve();
+    };
+
+    const selectTab = (index: number) => {
+      const next = Math.max(0, Math.min(pages.length - 1, index));
+      if (next === active) return;
+      active = next;
+      scroll = 0;
+      dragging = false;
+      draw();
     };
 
     const jumpTo = (row: number) => {
@@ -167,11 +218,12 @@ export function presentScreen(render: (width: number) => string[]): Promise<void
     const draw = () => {
       const width = Math.max(20, process.stdout.columns || 80);
       const height = Math.max(4, process.stdout.rows || 24);
-      const body = height - 1;
+      const body = height - 2;
       const contentWidth = Math.max(10, width - 1);
       screenWidth = width;
       viewHeight = body;
-      const lines = render(contentWidth).flatMap((line) => (line.length <= contentWidth ? [line] : wrapText(line, contentWidth)));
+      bodyTop = 2;
+      const lines = pages[active].render(contentWidth).flatMap((line) => (line.length <= contentWidth ? [line] : wrapText(line, contentWidth)));
       totalLines = lines.length;
       const maxScroll = Math.max(0, lines.length - body);
       scroll = Math.max(0, Math.min(scroll, maxScroll));
@@ -179,11 +231,13 @@ export function presentScreen(render: (width: number) => string[]): Promise<void
       while (view.length < body) view.push('');
       const bar = scrollbarColumn(body, lines.length, scroll);
       const frame = view.map((line, index) => line.slice(0, contentWidth).padEnd(contentWidth) + bar[index]).join('\n');
-      const button = ' x ';
-      const hint = ' wheel scrolls';
-      const gap = Math.max(0, width - hint.length - button.length);
-      const status = `${hint}${' '.repeat(gap)}`.slice(0, Math.max(0, width - button.length)) + `\x1b[7m${button}\x1b[27m`;
-      process.stdout.write(`\x1b[H\x1b[2J${frame}\n${status}`);
+      const hint = tabbed ? ' wheel scrolls · tab switches' : ' wheel scrolls';
+      const shownHint = hint.length > width ? hint.slice(0, width) : hint;
+      const status = `${theme}${shownHint}${' '.repeat(width - shownHint.length)}`;
+      const header = paintHeader(tabbed ? pages.map((page) => page.label) : [], active, width);
+      tabHits = header.hits;
+      const painted = [header.line, frame, status].join('\n');
+      process.stdout.write(`${theme}\x1b[2J\x1b[H${painted}`);
     };
 
     const onMouse = (pb: number, x: number, y: number, release: boolean) => {
@@ -199,13 +253,19 @@ export function presentScreen(render: (width: number) => string[]): Promise<void
         dragging = false;
         return;
       }
-      if (!motion && y === viewHeight + 1 && x >= screenWidth - 2) {
-        restore();
+      if (!motion && y === 1) {
+        if (x >= screenWidth - 2) {
+          restore();
+          return;
+        }
+        const hit = tabHits.findIndex((tab) => x >= tab.start && x <= tab.end);
+        if (hit >= 0) selectTab(hit);
         return;
       }
-      if (x === screenWidth && y >= 1 && y <= viewHeight) {
+      const statusRow = bodyTop + viewHeight;
+      if (x === screenWidth && y >= bodyTop && y < statusRow) {
         dragging = !motion;
-        jumpTo(y);
+        jumpTo(y - bodyTop + 1);
         draw();
       }
     };
@@ -214,6 +274,19 @@ export function presentScreen(render: (width: number) => string[]): Promise<void
       const page = Math.max(1, viewHeight - 1);
       if (key === '\u0003') {
         restore();
+        return;
+      }
+      if (tabbed && (key === '\t' || key === '\x1b[C')) {
+        selectTab(active + 1 >= pages.length ? 0 : active + 1);
+        return;
+      }
+      if (tabbed && (key === '\x1b[Z' || key === '\x1b[D')) {
+        selectTab(active - 1 < 0 ? pages.length - 1 : active - 1);
+        return;
+      }
+      if (tabbed && /^[1-9]$/.test(key)) {
+        const index = Number(key) - 1;
+        if (index < pages.length) selectTab(index);
         return;
       }
       if (key === '\x1b[A' || key === 'k') scroll -= 1;
@@ -267,7 +340,7 @@ export function presentScreen(render: (width: number) => string[]): Promise<void
       }
     };
 
-    process.stdout.write(`\x1b[?1049h\x1b[?25l${enableMouse}`);
+    process.stdout.write(`\x1b[?1049h\x1b[?25l${enableMouse}${theme}`);
     stdin.setRawMode(true);
     stdin.resume();
     process.stdout.on('resize', draw);

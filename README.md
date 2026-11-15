@@ -30,7 +30,7 @@ npm start -- 2026-11-15
 npm run view
 ```
 
-`npm start` saves the slate to `last-run.json`. `npm run view` opens that same screen and does not call the Odds API or TypeSafe. Resize refits the table. The scroll wheel moves the bar on the right, and the x button in the corner closes the screen. Run `npm start` again when you want a fresh slate.
+`npm start` saves the slate to `last-run.json`. `npm run view` opens that same screen and does not call the Odds API or TypeSafe. The screen has two tabs, Games and Props. Click a tab, or press Tab, the arrow keys, or 1 and 2. Resize refits the table. The scroll wheel moves the bar on the right, and the x button in the top-right corner closes the screen. The background is black. Run `npm start` again when you want a fresh slate.
 
 With no arguments the script uses the current NFL week from ESPN (Thursday through Monday) and skips games that have already kicked off. A `YYYY-MM-DD` argument is one America/New_York calendar day, so Sunday night is included and Monday night is not.
 
@@ -45,7 +45,11 @@ node --env-file-if-exists=.env --import tsx parlays.ts 2026-11-15
 
 A table of every favorite. The Slip column is the bet to write down: `Take the over 46.5`, `Take Jaguars -10.5`, or `Pass` when that side is not favored. Under each team, a spread row and an over/under row give the line and the verify decision. The over/under row is the side the evidence supports more. Those two rows are not parlay legs. Tickets stay moneylines, and they print in a second table when at least two wins clear.
 
-The view stays open after the lookups finish. Resize the window and the table redraws to the new width. ↑ and ↓ scroll, and q closes it.
+The view stays open after the lookups finish. Resize the window and the table redraws to the new width. The scroll wheel and ↑ ↓ move through the rows. Click Games or Props to switch tabs. The x button closes the screen.
+
+The Props tab is the riskier board. For every team still to kick off it shows one anytime touchdown, the primary passing, receiving, and rushing yardage lines, and one extra stat. That extra row is a different market for each team, chosen from the short-priced side of receptions, passing touchdowns, completions, rush attempts, kicking points, and field goals. It uses a player already on that team’s lines, or the kicker, and it skips a tiny under such as a backup staying under 1.5 receptions. Those rows go through `verify` with the player’s ESPN game log. The slip reads `Take Allen anytime TD -135` or `Take Allen over 245.5 pass yds` when the log supports it, and `Pass` when it does not. Prop rows are not parlay legs.
+
+Player props use the same Odds API key, on the per-game endpoint. Each returned market costs one credit, about ten credits per game. The player log is ESPN’s public athlete gamelog. No new account.
 
 ```text
 ┌──────────────────────┬───────┬────────┬─────────────┬──────────────────────────────────────────────────────┐

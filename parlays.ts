@@ -5,9 +5,10 @@
 import { rerank } from 'jev-recipes/rerank';
 import { verify } from 'jev-recipes/verify';
 import { getBrief, type GameBrief } from './evidence.js';
+import { loadPropBoard, type SlateGame } from './props.js';
 import { writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { showSlate, type SavedSlate } from './screen.js';
+import { showSlate, type SavedProps, type SavedSlate } from './screen.js';
 
 const SPORT = 'americanfootball_nfl';
 const BOOKS = ['fanduel', 'draftkings', 'betmgm', 'williamhill_us'];
@@ -17,6 +18,7 @@ type Quote = { point: number; price: number };
 
 type Leg = {
   id: string;
+  eventId: string;
   game: string;
   pick: string;
   team: string;
@@ -134,6 +136,7 @@ async function getLegs(from: string, to: string): Promise<Leg[]> {
       const spreadOutcome = spreads.find((quote) => quote.name === outcome.name);
       return {
         id: `${game.id}:${outcome.name}`,
+        eventId: String(game.id),
         game: `${game.away_team} @ ${game.home_team}`,
         pick: `${outcome.name} to win`,
         team: outcome.name,
@@ -301,14 +304,70 @@ function kickoffLabel(iso: string) {
   });
 }
 
+function slateGames(legs: Leg[]): SlateGame[] {
+  const games = new Map<string, SlateGame>();
+  for (const leg of legs) {
+    const home = leg.home ? leg.team : leg.opponent;
+    const away = leg.home ? leg.opponent : leg.team;
+    const current = games.get(leg.eventId) ?? {
+      eventId: leg.eventId,
+      home,
+      away,
+      commence: leg.commence,
+      homeImplied: 0,
+      awayImplied: 0,
+    };
+    if (leg.home) current.homeImplied = leg.implied;
+    else current.awayImplied = leg.implied;
+    games.set(leg.eventId, current);
+  }
+  return [...games.values()].sort((a, b) => Math.max(b.homeImplied, b.awayImplied) - Math.max(a.homeImplied, a.awayImplied));
+}
+
+async function verifyAll(claims: { id: string; claim: string; evidence: string }[]) {
+  const checks = [];
+  const size = 50;
+  for (let index = 0; index < claims.length; index += size) {
+    const slice = claims.slice(index, index + size);
+    console.log(`Checking ${index + slice.length} of ${claims.length} claims...`);
+    const result = await verify({ claims: slice, minConfidence: 0.8 });
+    checks.push(...result.checks);
+  }
+  return checks;
+}
+
+async function propTab(pending: ReturnType<typeof loadPropBoard>): Promise<SavedProps> {
+  try {
+    const board = await pending;
+    let problem = '';
+    const checks = board.claims.length
+      ? await verifyAll(board.claims).catch((error: unknown) => {
+        problem = error instanceof Error ? error.message : 'The prop decision check failed.';
+        return [];
+      })
+      : [];
+    if (board.remaining != null) console.log(`Odds API credits remaining: ${board.remaining}.`);
+    return board.finish(checks, problem || undefined);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Player props failed.';
+    return { title: 'Player props', groups: [], note: message };
+  }
+}
+
 async function main() {
   const slate = await windowFor(dayArg);
-  const legs = (await getLegs(slate.from, slate.to)).filter((leg) => leg.implied >= MIN_IMPLIED);
+  const allLegs = await getLegs(slate.from, slate.to);
+  const legs = allLegs.filter((leg) => leg.implied >= MIN_IMPLIED);
+  const propBoard = loadPropBoard(slateGames(allLegs));
+  propBoard.catch(() => {});
   const games = new Set(legs.map((leg) => leg.game)).size;
   const title = `${slate.label}: ${games} upcoming game${games === 1 ? '' : 's'} with a favorite at 60% or better.`;
   if (!legs.length) {
-    await saveSlate({ savedAt: new Date().toISOString(), title, groups: [], note: 'No qualifying legs.' });
+    const props = await propTab(propBoard);
+    const saved = { savedAt: new Date().toISOString(), title, groups: [], note: 'No qualifying legs.', props };
+    await saveSlate(saved);
     console.log(`${title} No qualifying legs.`);
+    await showSlate(saved);
     return;
   }
 
@@ -353,9 +412,7 @@ async function main() {
     }
     return rows;
   });
-  const checks = claims.length
-    ? (await verify({ claims, minConfidence: 0.8 })).checks
-    : [];
+  const checks = claims.length ? await verifyAll(claims) : [];
   const verdict = new Map(checks.map((check) => [check.id, check]));
   const ordered = [...briefs].sort((a, b) => b.leg.implied - a.leg.implied);
 
@@ -395,12 +452,14 @@ async function main() {
     .filter((check) => check.status === 'ready' && check.verdict === 'supported')
     .map((check) => legs.find((leg) => leg.id === check.id)!)
     .filter(Boolean);
+  const props = await propTab(propBoard);
   if (keep.length < 2) {
     const names = keep.map((leg) => nick(leg.team));
     const only = names.length === 1 ? ` Only the ${names[0]} cleared 0.80.` : '';
     const note = `No parlay. A ticket needs two legs the brief supports at 0.80 or better.${only}`;
-    await saveSlate({ savedAt: new Date().toISOString(), title, groups, note });
-    await showSlate({ savedAt: new Date().toISOString(), title, groups, note });
+    const saved = { savedAt: new Date().toISOString(), title, groups, note, props };
+    await saveSlate(saved);
+    await showSlate(saved);
     return;
   }
 
@@ -427,7 +486,7 @@ async function main() {
     parlay.map((leg) => `${nick(leg.team)} ${priceText(leg.price)}`).join(' + '),
     `${listNames(parlay.map((leg) => nick(leg.team)))} each cleared 0.80. The hit rate multiplies their market prices. It is not a separate prediction.`,
   ]]);
-  const saved = { savedAt: new Date().toISOString(), title, groups, ticketGroups };
+  const saved = { savedAt: new Date().toISOString(), title, groups, ticketGroups, props };
   await saveSlate(saved);
   await showSlate(saved);
 }
