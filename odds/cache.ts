@@ -1,8 +1,9 @@
 // Disk cache for The Odds API. The key is the request path with apiKey removed.
 // A hit does not call the network and does not spend a credit.
+// A slate whose kickoff window moved still counts as a hit until ODDS_CACHE_HOURS.
 // ODDS_CACHE_HOURS, ODDS_CACHE, and ODDS_CACHE_DIR come from .env.settings.
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
 const DEFAULT_HOURS = 24 * 7;
@@ -57,6 +58,15 @@ export function oddsRequestKey(url: string) {
   return { request, hash };
 }
 
+/** Same sport and markets, ignoring the kickoff window. That window shifts every run. */
+function slateFamily(request: string) {
+  const parsed = new URL(request, 'https://api.the-odds-api.com');
+  parsed.searchParams.delete('commenceTimeFrom');
+  parsed.searchParams.delete('commenceTimeTo');
+  parsed.searchParams.sort();
+  return `${parsed.pathname}?${parsed.searchParams.toString()}`;
+}
+
 async function readHit(file: string): Promise<CacheRecord | null> {
   let raw: string;
   try {
@@ -76,6 +86,28 @@ async function readHit(file: string): Promise<CacheRecord | null> {
   return record;
 }
 
+async function readFamily(request: string): Promise<CacheRecord | null> {
+  const want = slateFamily(request);
+  let names: string[];
+  try {
+    names = await readdir(cacheDir());
+  } catch {
+    return null;
+  }
+  let best: CacheRecord | null = null;
+  let bestSaved = -Infinity;
+  for (const name of names) {
+    if (!name.endsWith('.json')) continue;
+    const hit = await readHit(`${cacheDir()}/${name}`);
+    if (!hit?.request || slateFamily(hit.request) !== want) continue;
+    const saved = Date.parse(hit.savedAt);
+    if (saved <= bestSaved) continue;
+    best = hit;
+    bestSaved = saved;
+  }
+  return best;
+}
+
 async function store(file: string, record: CacheRecord) {
   await mkdir(cacheDir(), { recursive: true });
   const temp = `${file}.${process.pid}.tmp`;
@@ -87,7 +119,7 @@ export async function oddsGet(url: string, init?: RequestInit): Promise<OddsResp
   const identity = oddsRequestKey(url);
   const file = `${cacheDir()}/${identity.hash}.json`;
   if (!cacheBypass()) {
-    const hit = await readHit(file);
+    const hit = await readHit(file) ?? await readFamily(identity.request);
     if (hit) return { body: hit.body, remaining: null, cached: true, savedAt: hit.savedAt };
   }
   const res = await fetch(url, init);

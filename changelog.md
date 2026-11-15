@@ -2,6 +2,12 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-15T20:45:00Z
+
+### Slate cache holds for the TTL
+
+A saved Odds API slate is reused until `ODDS_CACHE_HOURS` even when `commenceTimeFrom` and `commenceTimeTo` change. The sport, markets, region, and odds format still have to match. The newest save inside that lifetime wins. `--fresh` and `ODDS_CACHE=0` still fetch. Player props stay keyed by event. A failed response is still not cached.
+
 ## 2026-11-15T20:31:21Z
 
 ### Hockey, Basketball, and Baseball

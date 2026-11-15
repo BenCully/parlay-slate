@@ -24,7 +24,7 @@ Entries stay at the package root. Everything else is grouped by job.
 - `slate/board.ts` builds one Games board: moneylines, spreads, totals, and moneyline tickets. `slate/window.ts` is the Eastern day and the scoreboard fetch.
 - `props/board.ts` builds a Props tab from a `PropProfile`.
 - `espn/evidence.ts` is `createEvidence(base, style)`. `NFL_EVIDENCE`, `NCAA_EVIDENCE`, `SOCCER_EVIDENCE`, `HOCKEY_EVIDENCE`, `BASKETBALL_EVIDENCE`, and `BASEBALL_EVIDENCE` are the styles in use. Copy the closer one for a new sport and change the fields that differ. Do not add a sport branch in the middle of the client. `espn/players.ts` is `createPlayers` for one competition.
-- `odds/cache.ts` stores successful Odds API responses in gitignored `odds-cache/` at the package root. The cache key is the path and query with `apiKey` removed. `ODDS_CACHE_HOURS` in `.env.settings` is the lifetime, 168 if unset. `--fresh` or `ODDS_CACHE=0` fetches again. Do not log or store the key. `odds/books.ts` is the book order.
+- `odds/cache.ts` stores successful Odds API responses in gitignored `odds-cache/` at the package root. The cache key is the path and query with `apiKey` removed. A slate for the same sport and markets is reused until `ODDS_CACHE_HOURS` even when `commenceTimeFrom` and `commenceTimeTo` move. The lifetime is 168 hours if unset. `--fresh` or `ODDS_CACHE=0` fetches again. Do not log or store the key. `odds/books.ts` is the book order.
 - `ui/screen.ts` turns a `SavedSlate` into tabs. `ui/table.ts` is the live screen: layout, scroll, mouse, tabs, black background.
 
 A parent tab is a folder under `sports/`:
