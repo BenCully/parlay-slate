@@ -146,7 +146,7 @@ function tabRows(pages: ScreenPage[], indexes: number[]): TabRow[] {
   while (nodes.length) {
     const index = Math.max(0, Math.min(nodes.length - 1, indexes[depth] ?? 0));
     const branched = nodes.some((node) => node.children?.length);
-    if (nodes.length > 1 || (depth === 0 && branched)) rows.push({ nodes, index, depth });
+    if (nodes.length > 1 || branched) rows.push({ nodes, index, depth });
     const node = nodes[index];
     if (!node?.children?.length) break;
     nodes = node.children;
@@ -326,7 +326,8 @@ export function presentScreen(input: ScreenPage[] | ((width: number) => string[]
       const leafRow = rows.at(-1);
       if (leafRow && leafRow.nodes.length > 1) hintParts.push('tab games');
       if (rows[0] && rows[0].nodes.length > 1) hintParts.push('[ ] sport');
-      if (rows.length >= 3) hintParts.push(', . league');
+      const leagueRow = rows.find((row) => row.depth === 1);
+      if (leagueRow && leagueRow.nodes.length > 1 && rows.some((row) => row.depth === 2)) hintParts.push(', . league');
       const hint = hintParts.join(' · ');
       const shownHint = hint.length > width ? hint.slice(0, width) : hint;
       const status = `${theme}${shownHint}${' '.repeat(width - shownHint.length)}`;

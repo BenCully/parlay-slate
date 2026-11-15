@@ -45,6 +45,25 @@ export function easternRange(day: string, days = 1) {
   return { from: oddsStamp(from.toISOString()), to: oddsStamp(to.toISOString()) };
 }
 
+/** Games still on the scoreboard, from one hour before the first to six hours after the last. A board with nothing ahead uses one Eastern day. */
+export async function upcomingWindow(url: string, label: string, day: string | undefined, failure: (status: number) => string): Promise<OddsWindow> {
+  if (day) {
+    const range = easternRange(day);
+    return { ...range, label: `${label} ${day} (Eastern)` };
+  }
+  const { stamps } = await scoreboardEvents(url, failure);
+  const upcoming = stamps.filter((stamp) => stamp > Date.now() - 60 * 60 * 1000);
+  if (!upcoming.length) {
+    const range = easternRange(todayEastern());
+    return { ...range, label };
+  }
+  return {
+    from: oddsStamp(new Date(Math.min(...upcoming) - 60 * 60 * 1000).toISOString()),
+    to: oddsStamp(new Date(Math.max(...upcoming) + 6 * 60 * 60 * 1000).toISOString()),
+    label,
+  };
+}
+
 export async function scoreboardEvents(url: string, failure: (status: number) => string) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(failure(res.status));

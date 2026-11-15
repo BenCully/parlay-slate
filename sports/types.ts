@@ -6,7 +6,7 @@ import type { OddsWindow } from '../slate/window.js';
 export type BoardSource = {
   /** Odds API sport key, for example americanfootball_nfl. */
   oddsKey: string;
-  unit: 'points' | 'goals';
+  unit: 'points' | 'goals' | 'runs';
   query: string;
   /** Skip Draw and Tie moneylines. Soccer does. NFL does not. */
   threeWay: boolean;

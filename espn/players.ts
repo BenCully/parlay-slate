@@ -152,6 +152,22 @@ export function createPlayers(options: {
         values.push((yellow ?? 0) + (red ?? 0));
         continue;
       }
+      if (stat === 'powerPlayPoints') {
+        const goals = statNumber(row.stats[log.names.indexOf('powerPlayGoals')]);
+        const assists = statNumber(row.stats[log.names.indexOf('powerPlayAssists')]);
+        if (goals == null && assists == null) continue;
+        values.push((goals ?? 0) + (assists ?? 0));
+        continue;
+      }
+      if (stat === 'totalBases') {
+        const hits = statNumber(row.stats[log.names.indexOf('hits')]);
+        const doubles = statNumber(row.stats[log.names.indexOf('doubles')]);
+        const triples = statNumber(row.stats[log.names.indexOf('triples')]);
+        const homeRuns = statNumber(row.stats[log.names.indexOf('homeRuns')]);
+        if (hits == null || doubles == null || homeRuns == null) continue;
+        values.push(hits + doubles + 2 * (triples ?? 0) + 3 * homeRuns);
+        continue;
+      }
       const index = log.names.indexOf(stat);
       if (index < 0) continue;
       const value = statNumber(row.stats[index]);

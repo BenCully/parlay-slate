@@ -1,6 +1,6 @@
 // Team form and injuries from ESPN's public site API. No key.
 // A sport calls createEvidence with its site API base and an EvidenceStyle.
-// NFL_EVIDENCE, NCAA_EVIDENCE, and SOCCER_EVIDENCE are the styles in use.
+// NFL_EVIDENCE, NCAA_EVIDENCE, SOCCER_EVIDENCE, HOCKEY_EVIDENCE, BASKETBALL_EVIDENCE, and BASEBALL_EVIDENCE are the styles in use.
 // The league news feed is unused.
 
 const NFL_BASE = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl';
@@ -34,7 +34,7 @@ export type EvidenceStyle = {
   /** nfl-abbr uses the team abbreviation and keeps season types 2 and 3. id uses the numeric team id and keeps every completed game. */
   schedule: 'nfl-abbr' | 'id';
   longRest: 'off a bye' | 'off a break';
-  noun: 'points' | 'goals';
+  noun: 'points' | 'goals' | 'runs';
 };
 
 export const NFL_EVIDENCE: EvidenceStyle = {
@@ -65,6 +65,36 @@ export const SOCCER_EVIDENCE: EvidenceStyle = {
   noun: 'goals',
 };
 
+/** NHL. Last words are unique. Odds API spells Montréal with the accent; ESPN does not. */
+export const HOCKEY_EVIDENCE: EvidenceStyle = {
+  teamLimit: 40,
+  short: 'last-word',
+  match: 'football',
+  schedule: 'nfl-abbr',
+  longRest: 'off a break',
+  noun: 'goals',
+};
+
+/** NBA. Last words are unique. Odds API says Los Angeles Clippers; ESPN says LA Clippers. */
+export const BASKETBALL_EVIDENCE: EvidenceStyle = {
+  teamLimit: 40,
+  short: 'last-word',
+  match: 'football',
+  schedule: 'nfl-abbr',
+  longRest: 'off a break',
+  noun: 'points',
+};
+
+/** MLB. Red Sox and White Sox share a last word, so slips use the ESPN short name. */
+export const BASEBALL_EVIDENCE: EvidenceStyle = {
+  teamLimit: 40,
+  short: 'espn-short',
+  match: 'football',
+  schedule: 'nfl-abbr',
+  longRest: 'off a break',
+  noun: 'runs',
+};
+
 const DROP = new Set(['fc', 'afc', 'cf', 'sc', 'ac', 'as', 'sv', 'fsv', 'fk', 'vfb', 'tsg', 'rb', 'de', 'and']);
 
 const ALIASES: Record<string, string> = {
@@ -77,6 +107,10 @@ const ALIASES: Record<string, string> = {
   'inter': 'internazionale',
   'inter milan': 'internazionale',
   'slavia praha': 'slavia prague',
+  'los angeles clippers': 'la clippers',
+  'oakland athletics': 'athletics',
+  'sacramento athletics': 'athletics',
+  'las vegas athletics': 'athletics',
 };
 
 function fold(name: string) {
@@ -95,7 +129,7 @@ export function nameKey(name: string) {
 }
 
 function norm(name: string) {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  return fold(name).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
 function canon(name: string) {
@@ -143,7 +177,10 @@ function buildClient(base: string, style: EvidenceStyle) {
   }
 
   function findTeam(teams: Map<string, EspnTeam>, name: string) {
-    if (style.match === 'football') return teams.get(norm(name));
+    if (style.match === 'football') {
+      const key = norm(name);
+      return teams.get(key) ?? teams.get(ALIASES[key] ?? '');
+    }
     const key = canon(name);
     const direct = teams.get(key) ?? teams.get(ALIASES[key] ?? '');
     if (direct) return direct;

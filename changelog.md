@@ -2,6 +2,16 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-15T20:31:21Z
+
+### Hockey, Basketball, and Baseball
+
+Hockey, Basketball, and Baseball are parent tabs after Soccer. Hockey’s child is the NHL (`icehockey_nhl`). Basketball’s is the NBA (`basketball_nba`). Baseball’s is MLB (`baseball_mlb`). Each league has Games and Props. A parent with one league still shows that league. When the sport row does not fit, the labels shorten to FB, Soc, Hockey, Bask, and Base.
+
+Game lines and prop lines for these leagues go through `odds/cache.ts`, the same cache as football and soccer. With no date, the window is the ESPN scoreboard, from one hour before the first game still ahead to six hours after the last. A stale scoreboard uses one Eastern day. A date argument is still one Eastern day. Moneylines are 2-way. NHL spreads and totals are goals. NBA uses points. MLB uses runs, and slips use the ESPN short name so the Red Sox and the White Sox stay distinct.
+
+NHL props are an anytime goal, points, shots on goal, assists, and one extra of goalie saves or power-play points. NBA props are points, rebounds, assists, threes, and one extra of blocks or steals. MLB props are hits, home runs, RBIs, pitcher strikeouts, and one extra of total bases or stolen bases. `norm` folds accents, so Montréal matches Montreal. Los Angeles Clippers matches ESPN’s LA Clippers.
+
 ## 2026-11-15T20:14:29Z
 
 ### Folders

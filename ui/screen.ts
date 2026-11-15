@@ -129,12 +129,22 @@ function withNcaa(sport: SavedSport): SavedSport {
   };
 }
 
+const sportShort: Record<string, string> = {
+  Football: 'FB',
+  Soccer: 'Soc',
+  Hockey: 'Hockey',
+  Basketball: 'Bask',
+  Baseball: 'Base',
+};
+
 export function slatePages(saved: SavedSlate): ScreenPage[] {
   const sports = (saved.sports?.length ? saved.sports : [legacySport(saved)]).map((sport) => withNcaa(asFootball(sport)));
   return sports.map((sport) => {
+    const short = sportShort[sport.label];
     if (sport.leagues?.length) {
       return {
         label: sport.label,
+        short,
         children: sport.leagues.map((league) => ({
           label: league.label,
           short: league.short,
@@ -144,6 +154,7 @@ export function slatePages(saved: SavedSlate): ScreenPage[] {
     }
     return {
       label: sport.label,
+      short,
       children: [
         gamesPage(sport.games ?? { title: sport.label, groups: [], note: 'No games in this save.' }),
         propsPage(sport.props),
