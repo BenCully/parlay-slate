@@ -2,12 +2,26 @@
 // Lines come from The Odds API event odds (same key as the slate).
 // The brief is the player's ESPN game log. No extra account.
 import { injuryFor, nameKey } from './evidence.js';
+import { oddsGet } from './odds-cache.js';
 import { loadRosters, recentStat, type PlayerRef } from './players.js';
 
 const BOOKS = ['fanduel', 'draftkings', 'betmgm', 'williamhill_us'];
-const SPORT = 'americanfootball_nfl';
 
-const MARKETS = [
+type YesCopy = {
+  slip: (who: string, price: string) => string;
+  thing: string;
+  claim: (player: string, opponent: string, when: string) => string;
+};
+
+type MarketInfo = {
+  market: string;
+  label: string;
+  phrase: string;
+  stat: string;
+  yes?: YesCopy;
+};
+
+const NFL_MARKETS = [
   'player_anytime_td',
   'player_pass_yds',
   'player_reception_yds',
@@ -20,23 +34,31 @@ const MARKETS = [
   'player_field_goals',
 ];
 
-const CORE = [
-  { market: 'player_anytime_td', label: 'Anytime TD', phrase: 'rushing or receiving touchdowns', stat: 'touchdowns' },
+const NFL_CORE: MarketInfo[] = [
+  {
+    market: 'player_anytime_td',
+    label: 'Anytime TD',
+    phrase: 'rushing or receiving touchdowns',
+    stat: 'touchdowns',
+    yes: {
+      slip: (who, price) => `Take ${who} anytime TD ${price}`,
+      thing: 'anytime touchdown',
+      claim: (player, opponent, when) => `${player} scores a touchdown against ${opponent} on ${when}.`,
+    },
+  },
   { market: 'player_pass_yds', label: 'Pass yds', phrase: 'passing yards', stat: 'passingYards' },
   { market: 'player_reception_yds', label: 'Rec yds', phrase: 'receiving yards', stat: 'receivingYards' },
   { market: 'player_rush_yds', label: 'Rush yds', phrase: 'rushing yards', stat: 'rushingYards' },
-] as const;
+];
 
-const EXTRA = [
+const NFL_EXTRA: MarketInfo[] = [
   { market: 'player_receptions', label: 'Receptions', phrase: 'receptions', stat: 'receptions' },
   { market: 'player_pass_tds', label: 'Pass TDs', phrase: 'passing touchdowns', stat: 'passingTouchdowns' },
   { market: 'player_pass_completions', label: 'Completions', phrase: 'completions', stat: 'completions' },
   { market: 'player_rush_attempts', label: 'Rush att', phrase: 'rush attempts', stat: 'rushingAttempts' },
   { market: 'player_kicking_points', label: 'Kick pts', phrase: 'kicking points', stat: 'totalKickingPoints' },
   { market: 'player_field_goals', label: 'Field goals', phrase: 'field goals made', stat: 'fieldGoalsMade-fieldGoalAttempts' },
-] as const;
-
-type MarketInfo = { market: string; label: string; phrase: string; stat: string };
+];
 
 export type SlateGame = {
   eventId: string;
@@ -125,6 +147,11 @@ function points(value: number) {
 
 function nick(name: string) {
   return name.split(' ').at(-1) ?? name;
+}
+
+function namedTeam(name: string, label: (name: string) => string, profile: PropProfile) {
+  const who = label(name);
+  return profile.teamShort ? who : `the ${who}`;
 }
 
 function kickoffLabel(iso: string) {
@@ -225,17 +252,28 @@ async function mapPool<T, R>(items: T[], size: number, fn: (item: T) => Promise<
   return out;
 }
 
-async function fetchEvent(eventId: string, apiKey: string) {
-  const url = `https://api.the-odds-api.com/v4/sports/${SPORT}/events/${eventId}/odds` +
-    `?regions=us&oddsFormat=american&markets=${MARKETS.join(',')}`;
-  const res = await fetch(url, { headers: { 'x-api-key': apiKey } });
-  const remaining = res.headers.get('x-requests-remaining');
-  const body = await res.json() as any;
-  if (!res.ok) {
-    const message = body?.message || body?.error || res.statusText;
-    throw new Error(`Odds API ${res.status}: ${message}`);
-  }
-  return { body, remaining: remaining == null ? null : Number(remaining) };
+export type PropProfile = {
+  sport: string;
+  markets: string[];
+  core: MarketInfo[];
+  extra: MarketInfo[];
+  title: string;
+  note: string;
+  logLabel?: string;
+  loadRosters: typeof loadRosters;
+  injuryFor: typeof injuryFor;
+  recentStat: typeof recentStat;
+  allowOneSide?: boolean;
+  teamShort?: (name: string) => Promise<string | null>;
+  realExtra: (option: { market: string; side: 'Over' | 'Under' | 'Yes'; posted: { point: number | null }; ref: PlayerRef }) => boolean;
+  featureExtra: (option: { market: string; ref: PlayerRef }, featured: Set<string>) => boolean;
+};
+
+async function fetchEvent(eventId: string, apiKey: string, profile: PropProfile) {
+  const url = `https://api.the-odds-api.com/v4/sports/${profile.sport}/events/${eventId}/odds` +
+    `?regions=us&oddsFormat=american&markets=${profile.markets.join(',')}`;
+  const result = await oddsGet(url, { headers: { 'x-api-key': apiKey } });
+  return { body: result.body, remaining: result.cached ? null : result.remaining, cached: result.cached };
 }
 
 function support(check: PropCheck) {
@@ -264,38 +302,41 @@ function lineText(label: string, side: SideName, point: number | null, price: nu
   return `${label} ${side.toLowerCase()} ${points(point)} (${priceText(price)})`;
 }
 
-function slipText(player: string, label: string, side: SideName, point: number | null, price: number, check: PropCheck | undefined) {
+function slipText(player: string, info: MarketInfo, side: SideName, point: number | null, price: number, check: PropCheck | undefined) {
   if (check?.verdict !== 'supported') return 'Pass';
   const who = nick(player);
-  if (point == null || side === 'Yes') return `Take ${who} anytime TD ${priceText(price)}`;
-  return `Take ${who} ${side.toLowerCase()} ${points(point)} ${label.toLowerCase()}`;
+  if (info.yes && (point == null || side === 'Yes')) return info.yes.slip(who, priceText(price));
+  return `Take ${who} ${side.toLowerCase()} ${points(point ?? 0)} ${info.label.toLowerCase()}`;
 }
 
-function thingFor(label: string, side: SideName) {
-  if (side === 'Yes') return 'anytime touchdown';
-  return `${side.toLowerCase()} ${label.toLowerCase()}`;
+function thingFor(info: MarketInfo, side: SideName) {
+  if (side === 'Yes') return info.yes?.thing ?? 'anytime touchdown';
+  return `${side.toLowerCase()} ${info.label.toLowerCase()}`;
 }
 
-export async function loadPropBoard(games: SlateGame[]) {
+export async function loadPropBoard(games: SlateGame[], profile: PropProfile = nflProfile()) {
   const apiKey = process.env.ODDS_API_KEY;
   if (!apiKey) throw new Error('ODDS_API_KEY is not set.');
   const notes: string[] = [];
   let remaining: number | null = null;
+  let cachedGames = 0;
   if (!games.length) {
     return {
       claims: [] as Claim[],
       remaining,
       finish(_checks: Array<PropCheck & { id: string }>, problem?: string) {
-        return finishBoard([], new Map(), problem ? [problem, 'No upcoming games to price.'] : ['No upcoming games to price.']);
+        return finishBoard([], new Map(), problem ? [problem, 'No upcoming games to price.'] : ['No upcoming games to price.'], profile, new Map());
       },
     };
   }
 
-  console.log(`Pulling player props for ${games.length} game${games.length === 1 ? '' : 's'}...`);
+  const what = profile.logLabel ? `${profile.logLabel} player props` : 'player props';
+  console.log(`Pulling ${what} for ${games.length} game${games.length === 1 ? '' : 's'}...`);
   const events = await mapPool(games, 3, async (game) => {
     try {
-      const result = await fetchEvent(game.eventId, apiKey);
-      if (result.remaining != null) remaining = result.remaining;
+      const result = await fetchEvent(game.eventId, apiKey, profile);
+      if (result.cached) cachedGames += 1;
+      else if (result.remaining != null) remaining = result.remaining;
       return { game, books: (result.body.bookmakers ?? []) as any[], error: '' };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'props request failed';
@@ -304,7 +345,13 @@ export async function loadPropBoard(games: SlateGame[]) {
   });
 
   const teamNames = [...new Set(games.flatMap((game) => [game.home, game.away]))];
-  const rosters = await loadRosters(teamNames);
+  const shorts = new Map<string, string>();
+  if (profile.teamShort) {
+    const found = await Promise.all(teamNames.map(async (name) => [name, await profile.teamShort!(name)] as const));
+    for (const [name, short] of found) if (short) shorts.set(name, short);
+  }
+  const label = (name: string) => shorts.get(name) ?? nick(name);
+  const rosters = await profile.loadRosters(teamNames);
   if (rosters.failed.length) {
     notes.push(`ESPN roster missing for ${rosters.failed.map(nick).join(', ')}.`);
   }
@@ -321,20 +368,24 @@ export async function loadPropBoard(games: SlateGame[]) {
     return teams.map((team) => ({ game: event.game, team, books: event.books }));
   });
   const built = await mapPool(jobs, 6, async (job) => {
-    const markets = new Map(MARKETS.map((market) => [market, postedLines(outcomesFor(job.books, market))]));
-    const core = await Promise.all(CORE.map((info) => coreRow(job.game, job.team, info, markets.get(info.market) ?? [], rosters.match)));
+    const markets = new Map(profile.markets.map((market) => [market, postedLines(outcomesFor(job.books, market))]));
+    const core = await Promise.all(profile.core.map((info) => coreRow(job.game, job.team, info, markets.get(info.market) ?? [], rosters.match, profile, label)));
     const featured = new Set(core.flatMap((row) => row.kind === 'missing' ? [] : [nameKey(row.player.name)]));
-    const extra = await extraRow(job.game, job.team, markets, rosters.match, featured);
+    const extra = await extraRow(job.game, job.team, markets, rosters.match, featured, profile, label);
     return [...core, extra];
   });
 
   const claims = built.flat().flatMap(claimsFor);
+  if (cachedGames) {
+    console.log(`Odds cache hit for ${cachedGames} of ${games.length} prop request${games.length === 1 ? '' : 's'}.`);
+    notes.push(`${cachedGames} of ${games.length} prop boards used cached Odds API prices. npm start -- --fresh spends credits on new lines.`);
+  }
   return {
     claims,
     remaining,
     finish(checks: Array<PropCheck & { id: string }>, problem?: string) {
       const verdicts = new Map(checks.map((check) => [check.id, check]));
-      return finishBoard(built, verdicts, problem ? [problem, ...notes] : notes);
+      return finishBoard(built, verdicts, problem ? [problem, ...notes] : notes, profile, shorts);
     },
   };
 }
@@ -352,17 +403,17 @@ function claimsFor(row: Built): Claim[] {
 
 function claimText(player: string, info: MarketInfo, side: SideName, point: number | null, opponent: string, commence: string) {
   const when = kickoffLabel(commence);
-  if (info.market === 'player_anytime_td' || side === 'Yes') {
-    return `${player} scores a touchdown against ${opponent} on ${when}.`;
+  if (info.yes && (info.market === 'player_anytime_td' || side === 'Yes')) {
+    return info.yes.claim(player, opponent, when);
   }
   const word = side === 'Over' ? 'more than' : 'fewer than';
   return `${player} has ${word} ${points(point ?? 0)} ${info.phrase} against ${opponent} on ${when}.`;
 }
 
-async function describe(player: PlayerRef, info: MarketInfo, side: 'over' | 'under' | 'yes', point: number | null, team: string, opponent: string, home: boolean, commence: string): Promise<Brief> {
+async function describe(player: PlayerRef, info: MarketInfo, side: 'over' | 'under' | 'yes', point: number | null, team: string, opponent: string, home: boolean, commence: string, profile: PropProfile): Promise<Brief> {
   const [stat, injury] = await Promise.all([
-    recentStat(player, info.stat, info.phrase),
-    injuryFor(team, player.name),
+    profile.recentStat(player, info.stat, info.phrase),
+    profile.injuryFor(team, player.name),
   ]);
   const place = home ? 'at home' : 'on the road';
   const when = kickoffLabel(commence);
@@ -379,18 +430,20 @@ async function describe(player: PlayerRef, info: MarketInfo, side: 'over' | 'und
 async function coreRow(
   game: SlateGame,
   team: { name: string; home: boolean; opponent: string },
-  info: (typeof CORE)[number],
+  info: MarketInfo,
   lines: Posted[],
   match: (team: string, player: string) => PlayerRef | null,
+  profile: PropProfile,
+  label: (name: string) => string,
 ): Promise<Built> {
   const matched = lines.flatMap((line) => {
     const player = match(team.name, line.playerName);
     return player ? [{ line, player }] : [];
   });
   if (!matched.length) {
-    return { kind: 'missing', team: team.name, label: info.label, reason: `No ${info.label.toLowerCase()} line was posted for a ${nick(team.name)} player.` };
+    return { kind: 'missing', team: team.name, label: info.label, reason: `No ${info.label.toLowerCase()} line was posted for a ${label(team.name)} player.` };
   }
-  if (info.market === 'player_anytime_td') {
+  if (info.yes) {
     const priced = matched.flatMap((row) => {
       const yes = row.line.yesPrice;
       const touchdownOver = row.line.overPrice != null && row.line.underPrice == null ? row.line.overPrice : null;
@@ -398,7 +451,12 @@ async function coreRow(
       return price == null ? [] : [{ row, price }];
     }).sort((a, b) => implied(b.price) - implied(a.price));
     const best = priced[0];
-    if (!best) return { kind: 'missing', team: team.name, label: info.label, reason: `No anytime touchdown price was posted for the ${nick(team.name)}.` };
+    if (!best) {
+      const reason = info.market === 'player_anytime_td'
+        ? `No anytime touchdown price was posted for ${namedTeam(team.name, label, profile)}.`
+        : `No ${info.label.toLowerCase()} price was posted for ${namedTeam(team.name, label, profile)}.`;
+      return { kind: 'missing', team: team.name, label: info.label, reason };
+    }
     const price = best.price;
     return {
       kind: 'single',
@@ -414,16 +472,45 @@ async function coreRow(
       implied: implied(price),
       id: idFor(game.eventId, info.market, best.row.player.name, 'yes'),
       extra: false,
-      brief: await describe(best.row.player, info, 'yes', null, team.name, team.opponent, team.home, game.commence),
+      brief: await describe(best.row.player, info, 'yes', null, team.name, team.opponent, team.home, game.commence, profile),
     };
   }
   const best = matched
     .filter((row) => row.line.point != null && row.line.overPrice != null && row.line.underPrice != null)
     .sort((a, b) => b.line.point! - a.line.point!)[0];
-  if (!best) return { kind: 'missing', team: team.name, label: info.label, reason: `No ${info.label.toLowerCase()} over/under was posted for the ${nick(team.name)}.` };
+  if (!best && profile.allowOneSide) {
+    const oneSided: { row: (typeof matched)[number]; side: 'Over' | 'Under'; price: number }[] = [];
+    for (const row of matched) {
+      if (row.line.point == null) continue;
+      if (row.line.overPrice != null && row.line.underPrice == null) oneSided.push({ row, side: 'Over', price: row.line.overPrice });
+      else if (row.line.underPrice != null && row.line.overPrice == null) oneSided.push({ row, side: 'Under', price: row.line.underPrice });
+    }
+    oneSided.sort((a, b) => b.row.line.point! - a.row.line.point! || implied(b.price) - implied(a.price));
+    const picked = oneSided[0];
+    if (picked) {
+      const sideWord = picked.side === 'Over' ? 'over' : 'under';
+      return {
+        kind: 'single',
+        team: team.name,
+        opponent: team.opponent,
+        home: team.home,
+        commence: game.commence,
+        player: picked.row.player,
+        info,
+        side: picked.side,
+        point: picked.row.line.point,
+        price: picked.price,
+        implied: implied(picked.price),
+        id: idFor(game.eventId, info.market, picked.row.player.name, sideWord),
+        extra: false,
+        brief: await describe(picked.row.player, info, sideWord, picked.row.line.point, team.name, team.opponent, team.home, game.commence, profile),
+      };
+    }
+  }
+  if (!best) return { kind: 'missing', team: team.name, label: info.label, reason: `No ${info.label.toLowerCase()} over/under was posted for ${namedTeam(team.name, label, profile)}.` };
   const [overBrief, underBrief] = await Promise.all([
-    describe(best.player, info, 'over', best.line.point, team.name, team.opponent, team.home, game.commence),
-    describe(best.player, info, 'under', best.line.point, team.name, team.opponent, team.home, game.commence),
+    describe(best.player, info, 'over', best.line.point, team.name, team.opponent, team.home, game.commence, profile),
+    describe(best.player, info, 'under', best.line.point, team.name, team.opponent, team.home, game.commence, profile),
   ]);
   return {
     kind: 'yard',
@@ -447,10 +534,10 @@ type ExtraOption = {
   implied: number;
   market: string;
   player: string;
-  info: (typeof EXTRA)[number];
+  info: MarketInfo;
   posted: Posted;
   ref: PlayerRef;
-  side: 'Over' | 'Under';
+  side: 'Over' | 'Under' | 'Yes';
   price: number;
 };
 
@@ -478,12 +565,29 @@ async function extraRow(
   markets: Map<string, Posted[]>,
   match: (team: string, player: string) => PlayerRef | null,
   featured: Set<string>,
+  profile: PropProfile,
+  label: (name: string) => string,
 ): Promise<Built> {
   const options: ExtraOption[] = [];
-  for (const info of EXTRA) {
+  for (const info of profile.extra) {
     for (const posted of markets.get(info.market) ?? []) {
       const ref = match(team.name, posted.playerName);
-      if (!ref || posted.point == null) continue;
+      if (!ref) continue;
+      if (info.yes) {
+        if (posted.yesPrice == null) continue;
+        options.push({
+          implied: implied(posted.yesPrice),
+          market: info.market,
+          player: ref.name,
+          info,
+          posted,
+          ref,
+          side: 'Yes',
+          price: posted.yesPrice,
+        });
+        continue;
+      }
+      if (posted.point == null) continue;
       const sides: { side: 'Over' | 'Under'; price: number | null }[] = [
         { side: 'Over', price: posted.overPrice },
         { side: 'Under', price: posted.underPrice },
@@ -503,16 +607,16 @@ async function extraRow(
       }
     }
   }
-  const real = options.filter(isRealLine);
+  const real = options.filter((option) => profile.realExtra(option));
   const picked = pickLayeredExtra(team.name, [
-    real.filter((option) => isFeatured(option, featured)),
+    real.filter((option) => profile.featureExtra(option, featured)),
     real,
     options,
   ]);
   if (!picked) {
-    return { kind: 'missing', team: team.name, label: 'Extra', reason: `No other short-priced prop was posted for the ${nick(team.name)}.` };
+    return { kind: 'missing', team: team.name, label: 'Extra', reason: `No other short-priced prop was posted for ${namedTeam(team.name, label, profile)}.` };
   }
-  const sideWord = picked.side === 'Over' ? 'over' : 'under';
+  const sideWord = picked.side === 'Over' ? 'over' : picked.side === 'Under' ? 'under' : 'yes';
   return {
     kind: 'single',
     team: team.name,
@@ -527,7 +631,7 @@ async function extraRow(
     implied: picked.implied,
     id: idFor(game.eventId, picked.market, picked.ref.name, sideWord),
     extra: true,
-    brief: await describe(picked.ref, picked.info, sideWord, picked.posted.point, team.name, team.opponent, team.home, game.commence),
+    brief: await describe(picked.ref, picked.info, sideWord, picked.posted.point, team.name, team.opponent, team.home, game.commence, profile),
   };
 }
 
@@ -535,19 +639,18 @@ function idFor(eventId: string, market: string, player: string, side: string) {
   return `${eventId}:${market}:${nameKey(player)}:${side}`;
 }
 
-function finishBoard(groups: Built[][], verdicts: Map<string, PropCheck>, notes: string[]) {
-  const rows = groups.map((group) => group.map((row) => paint(row, verdicts)));
-  const base = 'Each team has an anytime touchdown, passing yards, receiving yards, and rushing yards. The last row is another stat with a short price, chosen for that team from receptions, passing touchdowns, completions, rush attempts, kicking points, and field goals. It stays on a player already in the team block, or the kicker, and skips tiny unders such as a backup staying under 1.5 receptions. Verify reads that player’s ESPN game log. A slip is filled in only when the log supports the side. These rows are not parlay legs.';
+function finishBoard(groups: Built[][], verdicts: Map<string, PropCheck>, notes: string[], profile: PropProfile, shorts: Map<string, string>) {
+  const rows = groups.map((group) => group.map((row) => paint(row, verdicts, shorts)));
   const extra = notes.filter(Boolean);
   return {
-    title: 'Player props for every team still to kick off. The last row on each team is a likely extra stat.',
+    title: profile.title,
     groups: rows,
-    note: [base, ...extra].join(' '),
+    note: [profile.note, ...extra].join(' '),
   };
 }
 
-function paint(row: Built, verdicts: Map<string, PropCheck>): string[] {
-  const team = nick(row.team);
+function paint(row: Built, verdicts: Map<string, PropCheck>, shorts: Map<string, string>): string[] {
+  const team = shorts.get(row.team) ?? nick(row.team);
   if (row.kind === 'missing') return [team, '', row.label, 'No line', 'Pass', row.reason];
   if (row.kind === 'yard') {
     const over = verdicts.get(row.overId);
@@ -562,8 +665,8 @@ function paint(row: Built, verdicts: Map<string, PropCheck>): string[] {
       row.player.name,
       lineText(row.info.label, side, row.point, price),
       sideLabel(check),
-      slipText(row.player.name, row.info.label, side, row.point, price, check),
-      comment(row, side, row.point, price, check, false, blurb),
+      slipText(row.player.name, row.info, side, row.point, price, check),
+      comment(row, side, row.point, price, check, false, blurb, shorts),
     ];
   }
   const check = verdicts.get(row.id);
@@ -573,13 +676,31 @@ function paint(row: Built, verdicts: Map<string, PropCheck>): string[] {
     row.player.name,
     lineText(row.info.label, row.side, row.point, row.price),
     sideLabel(check),
-    slipText(row.player.name, row.info.label, row.side, row.point, row.price, check),
-    `${comment(row, row.side, row.point, row.price, check, row.extra, row.brief.blurb)}${chance}`,
+    slipText(row.player.name, row.info, row.side, row.point, row.price, check),
+    `${comment(row, row.side, row.point, row.price, check, row.extra, row.brief.blurb, shorts)}${chance}`,
   ];
 }
 
-function comment(row: YardRow | SingleRow, side: SideName, point: number | null, price: number, check: PropCheck | undefined, extra: boolean, blurb: string) {
+function comment(row: YardRow | SingleRow, side: SideName, point: number | null, price: number, check: PropCheck | undefined, extra: boolean, blurb: string, shorts: Map<string, string>) {
   const place = row.home ? 'at home' : 'on the road';
   const lead = extra ? 'Extra. ' : '';
-  return `${lead}${row.player.name} (${row.player.pos || 'player'}) ${lineText(row.info.label, side, point, price)}, ${place} vs the ${nick(row.opponent)}. ${blurb} ${gateSentence(check, thingFor(row.info.label, side))}`;
+  const opponent = shorts.get(row.opponent);
+  const versus = opponent ?? `the ${nick(row.opponent)}`;
+  return `${lead}${row.player.name} (${row.player.pos || 'player'}) ${lineText(row.info.label, side, point, price)}, ${place} vs ${versus}. ${blurb} ${gateSentence(check, thingFor(row.info, side))}`;
+}
+
+function nflProfile(): PropProfile {
+  return {
+    sport: 'americanfootball_nfl',
+    markets: NFL_MARKETS,
+    core: NFL_CORE,
+    extra: NFL_EXTRA,
+    title: 'Player props for every team still to kick off. The last row on each team is a likely extra stat.',
+    note: 'Each team has an anytime touchdown, passing yards, receiving yards, and rushing yards. The last row is another stat with a short price, chosen for that team from receptions, passing touchdowns, completions, rush attempts, kicking points, and field goals. It stays on a player already in the team block, or the kicker, and skips tiny unders such as a backup staying under 1.5 receptions. Verify reads that player’s ESPN game log. A slip is filled in only when the log supports the side. These rows are not parlay legs.',
+    loadRosters,
+    injuryFor,
+    recentStat,
+    realExtra: (option) => isRealLine(option as ExtraOption),
+    featureExtra: (option, featured) => isFeatured(option as ExtraOption, featured),
+  };
 }

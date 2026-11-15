@@ -1,4 +1,6 @@
 node_modules/
 .env
+.env.settings
 *.log
 last-run.json
+odds-cache/

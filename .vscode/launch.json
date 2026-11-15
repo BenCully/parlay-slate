@@ -8,6 +8,7 @@
       "program": "${workspaceFolder}/parlays.ts",
       "cwd": "${workspaceFolder}",
       "runtimeArgs": [
+        "--env-file-if-exists=${workspaceFolder}/.env.settings",
         "--env-file-if-exists=${workspaceFolder}/.env",
         "--import",
         "tsx"
@@ -24,6 +25,7 @@
       "cwd": "${workspaceFolder}",
       "args": ["${input:slateDate}"],
       "runtimeArgs": [
+        "--env-file-if-exists=${workspaceFolder}/.env.settings",
         "--env-file-if-exists=${workspaceFolder}/.env",
         "--import",
         "tsx"

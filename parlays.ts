@@ -5,10 +5,12 @@
 import { rerank } from 'jev-recipes/rerank';
 import { verify } from 'jev-recipes/verify';
 import { getBrief, type GameBrief } from './evidence.js';
-import { loadPropBoard, type SlateGame } from './props.js';
+import { loadPropBoard, type PropProfile, type SlateGame } from './props.js';
+import { SOCCER_LEAGUES, soccerTools, type SoccerLeague } from './soccer.js';
 import { writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { showSlate, type SavedProps, type SavedSlate } from './screen.js';
+import { ageLabel, oddsGet } from './odds-cache.js';
+import { showSlate, type SavedBoard, type SavedLeague, type SavedProps, type SavedSlate } from './screen.js';
 
 const SPORT = 'americanfootball_nfl';
 const BOOKS = ['fanduel', 'draftkings', 'betmgm', 'williamhill_us'];
@@ -31,7 +33,7 @@ type Leg = {
   total: { point: number; overPrice: number; underPrice: number } | null;
 };
 
-const dayArg = process.argv[2];
+const dayArg = process.argv.slice(2).filter((arg) => arg !== '--fresh')[0];
 
 function startOfEasternDay(day: string) {
   const utcMidnight = Date.parse(`${day}T00:00:00Z`);
@@ -111,17 +113,27 @@ function outcomesFor(books: any[], market: string) {
   return [];
 }
 
-async function getLegs(from: string, to: string): Promise<Leg[]> {
-  const url = `https://api.the-odds-api.com/v4/sports/${SPORT}/odds?apiKey=${process.env.ODDS_API_KEY}` +
+function cacheSentence(cachedAt: string | null) {
+  if (!cachedAt) return '';
+  return `Game prices are from the odds cache, saved ${ageLabel(cachedAt)}. npm start -- --fresh spends credits on new lines.`;
+}
+
+function withCache(note: string | undefined, cachedAt: string | null) {
+  const extra = cacheSentence(cachedAt);
+  const text = [note, extra].filter(Boolean).join(' ');
+  return text || undefined;
+}
+
+async function getLegs(sport: string, from: string, to: string, threeWay: boolean): Promise<{ legs: Leg[]; cachedAt: string | null }> {
+  const url = `https://api.the-odds-api.com/v4/sports/${sport}/odds?apiKey=${process.env.ODDS_API_KEY}` +
     `&regions=us&markets=h2h,spreads,totals&oddsFormat=american&commenceTimeFrom=${from}&commenceTimeTo=${to}`;
-  const res = await fetch(url);
-  const body = await res.json() as any;
-  if (!res.ok || !Array.isArray(body)) {
-    const message = body?.message || body?.error || res.statusText;
-    throw new Error(`Odds API ${res.status}: ${message}`);
-  }
+  const result = await oddsGet(url);
+  const body = result.body;
+  if (!Array.isArray(body)) throw new Error('Odds API returned an unexpected payload.');
+  if (result.cached) console.log(`Odds cache hit for ${sport} (${ageLabel(result.savedAt)}).`);
+  else console.log(`Fetched ${sport} odds.${result.remaining == null ? '' : ` Credits remaining: ${result.remaining}.`}`);
   const now = Date.now();
-  return body.flatMap((game: any) => {
+  const legs = body.flatMap((game: any) => {
     if (Date.parse(game.commence_time) <= now) return [];
     const books: any[] = game.bookmakers ?? [];
     const moneylines = outcomesFor(books, 'h2h');
@@ -132,9 +144,10 @@ async function getLegs(from: string, to: string): Promise<Leg[]> {
     const total = over && under
       ? { point: Number(over.point), overPrice: Number(over.price), underPrice: Number(under.price) }
       : null;
-    return moneylines.map((outcome) => {
+    return moneylines.flatMap((outcome) => {
+      if (threeWay && /^(draw|tie)$/i.test(String(outcome.name))) return [];
       const spreadOutcome = spreads.find((quote) => quote.name === outcome.name);
-      return {
+      return [{
         id: `${game.id}:${outcome.name}`,
         eventId: String(game.id),
         game: `${game.away_team} @ ${game.home_team}`,
@@ -147,13 +160,16 @@ async function getLegs(from: string, to: string): Promise<Leg[]> {
         commence: game.commence_time,
         spread: spreadOutcome ? { point: Number(spreadOutcome.point), price: Number(spreadOutcome.price) } : null,
         total,
-      };
+      }];
     });
   });
+  return { legs, cachedAt: result.cached ? result.savedAt : null };
 }
 
+let teamShorts: Map<string, string> | undefined;
+
 function nick(name: string) {
-  return name.split(' ').at(-1) ?? name;
+  return teamShorts?.get(name) ?? name.split(' ').at(-1) ?? name;
 }
 
 function listNames(names: string[]) {
@@ -164,6 +180,7 @@ function listNames(names: string[]) {
 
 function restPhrase(rest: string) {
   if (rest.startsWith('off a bye')) return 'off a bye';
+  if (rest.startsWith('off a break')) return 'off a break';
   if (rest === 'season opener') return 'in their season opener';
   return `on ${rest}`;
 }
@@ -204,10 +221,10 @@ function lineContext(leg: Leg, brief: GameBrief) {
   ].join(' ');
 }
 
-function spreadClaim(leg: Leg) {
+function spreadClaim(leg: Leg, unit: string) {
   const point = leg.spread!.point;
   const when = kickoffLabel(leg.commence);
-  if (point < 0) return `${leg.team} wins by more than ${Math.abs(point)} points on ${when}.`;
+  if (point < 0) return `${leg.team} wins by more than ${Math.abs(point)} ${unit} on ${when}.`;
   if (point > 0) return `${leg.team} covers ${signed(point)} on ${when}.`;
   return `${leg.team} does not lose on ${when}.`;
 }
@@ -252,7 +269,9 @@ function totalSlip(side: 'Over' | 'Under', point: number, check: Check) {
 }
 
 function decisionComment(leg: Leg, brief: GameBrief, judgment: Judgment) {
-  const site = leg.home ? `hosting the ${nick(brief.opponent.name)}` : `at the ${nick(brief.opponent.name)}`;
+  const opp = nick(brief.opponent.name);
+  const article = teamShorts ? '' : 'the ';
+  const site = leg.home ? `hosting ${article}${opp}` : `at ${article}${opp}`;
   const facts = `${brief.pick.record}, ${restPhrase(brief.pick.rest)}, ${site} (${brief.opponent.record}, ${restPhrase(brief.opponent.rest)}).`;
   const notes = [brief.pick, brief.opponent]
     .filter((side) => side.injury !== 'no significant injuries listed')
@@ -354,26 +373,57 @@ async function propTab(pending: ReturnType<typeof loadPropBoard>): Promise<Saved
   }
 }
 
-async function main() {
-  const slate = await windowFor(dayArg);
-  const allLegs = await getLegs(slate.from, slate.to);
+type BoardSpec = {
+  sport: string;
+  unit: 'points' | 'goals';
+  query: string;
+  threeWay: boolean;
+  window: (day: string | undefined) => Promise<{ from: string; to: string; label: string }>;
+  getBrief: typeof getBrief;
+  profile?: PropProfile | null;
+  propsNote: string;
+};
+
+type BuiltBoard = SavedBoard & { props: SavedProps };
+
+async function buildBoard(spec: BoardSpec): Promise<BuiltBoard> {
+  try {
+  return await buildBoardInner(spec);
+  } finally {
+    teamShorts = undefined;
+  }
+}
+
+async function buildBoardInner(spec: BoardSpec): Promise<BuiltBoard> {
+  const slate = await spec.window(dayArg);
+  const pulled = await getLegs(spec.sport, slate.from, slate.to, spec.threeWay);
+  const allLegs = pulled.legs;
+  const cachedAt = pulled.cachedAt;
   const legs = allLegs.filter((leg) => leg.implied >= MIN_IMPLIED);
-  const propBoard = loadPropBoard(slateGames(allLegs));
-  propBoard.catch(() => {});
+  const propBoard = spec.profile === null ? null : loadPropBoard(slateGames(allLegs), spec.profile);
+  propBoard?.catch(() => {});
   const games = new Set(legs.map((leg) => leg.game)).size;
   const title = `${slate.label}: ${games} upcoming game${games === 1 ? '' : 's'} with a favorite at 60% or better.`;
+  const skippedProps = { title: 'Player props', groups: [] as string[][][], note: spec.propsNote };
+  console.log(title);
   if (!legs.length) {
-    const props = await propTab(propBoard);
-    const saved = { savedAt: new Date().toISOString(), title, groups: [], note: 'No qualifying legs.', props };
-    await saveSlate(saved);
-    console.log(`${title} No qualifying legs.`);
-    await showSlate(saved);
-    return;
+    const props = propBoard ? await propTab(propBoard) : skippedProps;
+    console.log('No qualifying legs.');
+    return { title, groups: [], note: withCache('No qualifying legs.', cachedAt), props };
   }
 
-  const briefs = await Promise.all(legs.map(async (leg) => ({ leg, brief: await getBrief(leg) })));
+  const briefs = await Promise.all(legs.map(async (leg) => ({ leg, brief: await spec.getBrief(leg) })));
+  if (spec.unit === 'goals') {
+    teamShorts = new Map();
+    for (const { leg, brief } of briefs) {
+      teamShorts.set(leg.team, brief.pick.short);
+      teamShorts.set(leg.opponent, brief.opponent.short);
+      teamShorts.set(brief.pick.name, brief.pick.short);
+      teamShorts.set(brief.opponent.name, brief.opponent.short);
+    }
+  }
   const ranked = await rerank({
-    query: 'Which NFL team is very likely to win this game?',
+    query: spec.query,
     items: briefs.map((row) => ({ id: row.leg.id, text: `${row.leg.pick}. ${row.brief.text}` })),
     topK: 8,
     minRelevance: 0.6,
@@ -391,7 +441,7 @@ async function main() {
     if (leg.spread) {
       rows.push({
         id: `${leg.id}:spread`,
-        claim: spreadClaim(leg),
+        claim: spreadClaim(leg, spec.unit),
         evidence: lineContext(leg, brief),
       });
     }
@@ -400,12 +450,12 @@ async function main() {
       rows.push(
         {
           id: `${leg.id}:over`,
-          claim: `${leg.game} goes over ${points(leg.total.point)} total points on ${when}.`,
+          claim: `${leg.game} goes over ${points(leg.total.point)} total ${spec.unit} on ${when}.`,
           evidence: lineContext(leg, brief),
         },
         {
           id: `${leg.id}:under`,
-          claim: `${leg.game} stays under ${points(leg.total.point)} total points on ${when}.`,
+          claim: `${leg.game} stays under ${points(leg.total.point)} total ${spec.unit} on ${when}.`,
           evidence: lineContext(leg, brief),
         },
       );
@@ -452,15 +502,13 @@ async function main() {
     .filter((check) => check.status === 'ready' && check.verdict === 'supported')
     .map((check) => legs.find((leg) => leg.id === check.id)!)
     .filter(Boolean);
-  const props = await propTab(propBoard);
+  const props = propBoard ? await propTab(propBoard) : skippedProps;
   if (keep.length < 2) {
     const names = keep.map((leg) => nick(leg.team));
-    const only = names.length === 1 ? ` Only the ${names[0]} cleared 0.80.` : '';
+    const onlyName = names.length === 1 ? (teamShorts ? names[0] : `the ${names[0]}`) : '';
+    const only = onlyName ? ` Only ${onlyName} cleared 0.80.` : '';
     const note = `No parlay. A ticket needs two legs the brief supports at 0.80 or better.${only}`;
-    const saved = { savedAt: new Date().toISOString(), title, groups, note, props };
-    await saveSlate(saved);
-    await showSlate(saved);
-    return;
+    return { title, groups, note: withCache(note, cachedAt), props };
   }
 
   const combos: Leg[][] = [];
@@ -486,7 +534,95 @@ async function main() {
     parlay.map((leg) => `${nick(leg.team)} ${priceText(leg.price)}`).join(' + '),
     `${listNames(parlay.map((leg) => nick(leg.team)))} each cleared 0.80. The hit rate multiplies their market prices. It is not a separate prediction.`,
   ]]);
-  const saved = { savedAt: new Date().toISOString(), title, groups, ticketGroups, props };
+  return { title, groups, ticketGroups, note: withCache(undefined, cachedAt), props };
+}
+
+async function soccerWindow(espn: string, label: string, day: string | undefined) {
+  if (day) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error('Date must be YYYY-MM-DD.');
+    const from = startOfEasternDay(day);
+    const to = startOfEasternDay(addDays(day, 1));
+    return { from: oddsStamp(from.toISOString()), to: oddsStamp(to.toISOString()), label: `${label} ${day} (Eastern)` };
+  }
+  const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/soccer/${espn}/scoreboard`);
+  if (!res.ok) throw new Error(`ESPN ${label} scoreboard returned ${res.status}`);
+  const board = await res.json() as any;
+  const stamps = (board.events ?? []).map((event: any) => Date.parse(event.date)).filter(Number.isFinite);
+  if (!stamps.length) {
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    const from = startOfEasternDay(today);
+    const to = startOfEasternDay(addDays(today, 4));
+    return { from: oddsStamp(from.toISOString()), to: oddsStamp(to.toISOString()), label };
+  }
+  return {
+    from: oddsStamp(new Date(Math.min(...stamps) - 60 * 60 * 1000).toISOString()),
+    to: oddsStamp(new Date(Math.max(...stamps) + 4 * 24 * 60 * 60 * 1000).toISOString()),
+    label,
+  };
+}
+
+async function soccerLeague(league: SoccerLeague): Promise<SavedLeague> {
+  try {
+    const tools = soccerTools(league);
+    const board = await buildBoard({
+      sport: league.sport,
+      unit: 'goals',
+      query: 'Which team is very likely to win this match?',
+      threeWay: true,
+      window: (day) => soccerWindow(league.espn, league.label, day),
+      getBrief: tools.getBrief,
+      profile: tools.profile,
+      propsNote: 'US books do not post player props for the Champions League.',
+    });
+    return {
+      label: league.label,
+      short: league.short,
+      games: { title: board.title, groups: board.groups, note: board.note, ticketGroups: board.ticketGroups },
+      props: board.props,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'This league failed.';
+    const safe = message.replace(/apiKey=[^&\s]+/gi, 'apiKey=***');
+    return {
+      label: league.label,
+      short: league.short,
+      games: { title: league.label, groups: [], note: safe },
+      props: { title: 'Player props', groups: [], note: safe },
+    };
+  }
+}
+
+async function main() {
+  const nfl = await buildBoard({
+    sport: SPORT,
+    unit: 'points',
+    query: 'Which NFL team is very likely to win this game?',
+    threeWay: false,
+    window: windowFor,
+    getBrief,
+    propsNote: '',
+  });
+  const leagues: SavedLeague[] = [];
+  for (const league of SOCCER_LEAGUES) {
+    console.log(`\n${league.label}`);
+    leagues.push(await soccerLeague(league));
+  }
+  const saved: SavedSlate = {
+    savedAt: new Date().toISOString(),
+    title: nfl.title,
+    groups: nfl.groups,
+    note: nfl.note,
+    ticketGroups: nfl.ticketGroups,
+    props: nfl.props,
+    sports: [
+      {
+        label: 'NFL',
+        games: { title: nfl.title, groups: nfl.groups, note: nfl.note, ticketGroups: nfl.ticketGroups },
+        props: nfl.props,
+      },
+      { label: 'Soccer', leagues },
+    ],
+  };
   await saveSlate(saved);
   await showSlate(saved);
 }

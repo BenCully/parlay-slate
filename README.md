@@ -1,6 +1,6 @@
 # Parlays
 
-Finds 2- and 3-leg NFL moneyline parlays.
+Finds 2- and 3-leg NFL moneyline parlays, and shows the same Games and Props boards for five soccer leagues.
 
 The script pulls the slate from [The Odds API](https://the-odds-api.com/liveapi/guides/v4/), keeps favorites the market already prices at 60% or better, and builds a short brief for each one from ESPN's public injury report and team schedule. [jev-recipes](https://github.com/agencyenterprise/jev-recipes) then drops any pick that brief does not support. It prints the ten parlays with the highest combined implied hit rate.
 
@@ -10,7 +10,7 @@ No extra account is required for the briefs. ESPN's public site API is unauthent
 
 - Node.js 22.23.4 or newer (`jev-recipes` requires it).
 - A [TypeSafe API key](https://console.typesafe.ai/settings/keys) (`TYPESAFE_API_KEY`). Live `rerank` and `verify` calls send the pick text and evidence to TypeSafe and use quota.
-- An [Odds API key](https://the-odds-api.com) (`ODDS_API_KEY`). Each run requests one odds snapshot.
+- An [Odds API key](https://the-odds-api.com) (`ODDS_API_KEY`). The first run for a slate spends credits. Later runs reuse `odds-cache/` for the number of hours in `ODDS_CACHE_HOURS`. `npm start -- --fresh` fetches new prices.
 
 ## Setup
 
@@ -18,21 +18,25 @@ No extra account is required for the briefs. ESPN's public site API is unauthent
 cd parlays
 npm install
 cp .env.example .env
+cp .env.settings.example .env.settings
 ```
 
-Put both keys in `.env`. That file is gitignored.
+Put both keys in `.env`. That file is gitignored. Cache settings go in `.env.settings`, which is also gitignored. `ODDS_CACHE_HOURS` is how long a saved response lasts. `ODDS_CACHE=0` ignores the cache. `ODDS_CACHE_DIR` changes the folder. A name in `.env` overrides the same name in `.env.settings`.
 
 ## Run
 
 ```bash
 npm start
 npm start -- 2026-11-15
+npm start -- --fresh
 npm run view
 ```
 
-`npm start` looks up the slate, writes `last-run.json`, then opens the screen. `npm run view` opens that file again and does not call the Odds API, ESPN, or TypeSafe. The screen has two tabs, Games and Props. Click a tab, or press Tab, the arrow keys, or 1 and 2. Resize refits the table. The scroll wheel moves the bar on the right, and the x button in the top-right corner closes the screen. The background is black.
+`npm start` looks up the slate, writes `last-run.json`, then opens the screen. Odds API responses are saved in gitignored `odds-cache/` and reused for `ODDS_CACHE_HOURS` (168 by default, which is 7 days). A cached board says when those prices were saved. `npm start -- --fresh` ignores that cache and spends credits. `npm run view` opens that file again and does not call the Odds API, ESPN, or TypeSafe. The top row is NFL and Soccer. NFL keeps Games and Props. Soccer has Premier League, Champions League, La Liga, Serie A, and Bundesliga, and each of those has Games and Props. Click a tab, or press Tab, Left, Right, or 1 and 2 for Games and Props. `[` and `]` change sport. `,` and `.` change league. Resize refits the table. The scroll wheel moves the bar on the right, and the x button in the top-right corner closes the screen. The background is black.
 
-With no arguments the script uses the current NFL week from ESPN (Thursday through Monday) and skips games that have already kicked off. A `YYYY-MM-DD` argument is one America/New_York calendar day, so Sunday night is included and Monday night is not.
+With no arguments the script uses the current NFL week from ESPN (Thursday through Monday) and skips games that have already kicked off. Each soccer league uses the games on its ESPN scoreboard and the following four days, so the rest of that matchweek is included. A `YYYY-MM-DD` argument is one America/New_York calendar day for the NFL and every league, so Sunday night is included and Monday night is not.
+
+Soccer moneylines include the draw. The draw is not a leg. A team still has to be priced at 60% or better. Spreads and totals are goals. The props are an anytime goal, shots, shots on target, assists, and a card. US books do not post player props for the Champions League, so that props tab says so and does not request them.
 
 ## Saved slate
 
@@ -52,15 +56,15 @@ The file is the finished screen, not the raw API responses. Each table cell is a
 The same command without npm is:
 
 ```bash
-node --env-file-if-exists=.env --import tsx parlays.ts
-node --env-file-if-exists=.env --import tsx parlays.ts 2026-11-15
+node --env-file-if-exists=.env.settings --env-file-if-exists=.env --import tsx parlays.ts
+node --env-file-if-exists=.env.settings --env-file-if-exists=.env --import tsx parlays.ts 2026-11-15
 ```
 
 ## What it prints
 
 A table of every favorite. The Slip column is the bet to write down: `Take the over 46.5`, `Take Jaguars -10.5`, or `Pass` when that side is not favored. Under each team, a spread row and an over/under row give the line and the verify decision. The over/under row is the side the evidence supports more. Those two rows are not parlay legs. Tickets stay moneylines, and they print in a second table when at least two wins clear.
 
-The view stays open after the lookups finish. Resize the window and the table redraws to the new width. The scroll wheel and ↑ ↓ move through the rows. Click Games or Props to switch tabs. The x button closes the screen.
+The view stays open after the lookups finish. Resize the window and the table redraws to the new width. The scroll wheel and ↑ ↓ move through the rows. Click a sport, a league, or Games and Props to switch. The x button closes the screen.
 
 The Props tab is the riskier board. For every team still to kick off it shows one anytime touchdown, the primary passing, receiving, and rushing yardage lines, and one extra stat. That extra row is a different market for each team, chosen from the short-priced side of receptions, passing touchdowns, completions, rush attempts, kicking points, and field goals. It uses a player already on that team’s lines, or the kicker, and it skips a tiny under such as a backup staying under 1.5 receptions. Those rows go through `verify` with the player’s ESPN game log. The slip reads `Take Allen anytime TD -135` or `Take Allen over 245.5 pass yds` when the log supports it, and `Pass` when it does not. Prop rows are not parlay legs.
 

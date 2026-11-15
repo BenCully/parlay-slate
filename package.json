@@ -6,7 +6,7 @@
     "node": ">=22.23.4"
   },
   "scripts": {
-    "start": "node --env-file-if-exists=.env --import tsx parlays.ts",
+    "start": "node --env-file-if-exists=.env.settings --env-file-if-exists=.env --import tsx parlays.ts",
     "view": "node --import tsx view.ts",
     "typecheck": "tsc --noEmit"
   },

@@ -132,12 +132,67 @@ const theme = '\x1b[40m\x1b[97m\x1b[48;2;0;0;0m\x1b[38;2;255;255;255m';
 
 export type ScreenPage = {
   label: string;
-  render: (width: number) => string[];
+  short?: string;
+  render?: (width: number) => string[];
+  children?: ScreenPage[];
 };
 
-function paintHeader(labels: string[], active: number, width: number) {
+type TabRow = { nodes: ScreenPage[]; index: number; depth: number };
+
+function tabRows(pages: ScreenPage[], indexes: number[]): TabRow[] {
+  const rows: TabRow[] = [];
+  let nodes = pages;
+  let depth = 0;
+  while (nodes.length) {
+    const index = Math.max(0, Math.min(nodes.length - 1, indexes[depth] ?? 0));
+    const branched = nodes.some((node) => node.children?.length);
+    if (nodes.length > 1 || (depth === 0 && branched)) rows.push({ nodes, index, depth });
+    const node = nodes[index];
+    if (!node?.children?.length) break;
+    nodes = node.children;
+    depth += 1;
+  }
+  return rows;
+}
+
+function leafPage(pages: ScreenPage[], indexes: number[]): ScreenPage | undefined {
+  let nodes = pages;
+  let depth = 0;
+  let node: ScreenPage | undefined;
+  while (nodes.length) {
+    const index = Math.max(0, Math.min(nodes.length - 1, indexes[depth] ?? 0));
+    node = nodes[index];
+    if (!node?.children?.length) return node;
+    nodes = node.children;
+    depth += 1;
+  }
+  return node;
+}
+
+function leaves(pages: ScreenPage[], prefix: string[] = []): { heading: string; render: (width: number) => string[] }[] {
+  const out: { heading: string; render: (width: number) => string[] }[] = [];
+  for (const page of pages) {
+    const heading = [...prefix, page.label];
+    if (page.children?.length) out.push(...leaves(page.children, heading));
+    else if (page.render) out.push({ heading: heading.join(' / '), render: page.render });
+  }
+  return out;
+}
+
+function usedWidth(labels: string[]) {
+  return labels.reduce((sum, label, index) => sum + label.length + 2 + (index === 0 ? 0 : 1), 0);
+}
+
+function fitLabels(nodes: ScreenPage[], width: number, close: boolean) {
+  const room = Math.max(0, width - (close ? 3 : 0));
+  const full = nodes.map((node) => node.label);
+  if (usedWidth(full) <= room) return full;
+  return nodes.map((node) => node.short || node.label);
+}
+
+function paintHeader(labels: string[], active: number, width: number, close: boolean) {
   const button = ' x ';
-  const room = Math.max(0, width - button.length);
+  const room = Math.max(0, width - (close ? button.length : 0));
   const hits: { start: number; end: number }[] = [];
   let column = 1;
   let line = theme;
@@ -154,9 +209,22 @@ function paintHeader(labels: string[], active: number, width: number) {
     column += text.length;
   }
   const visible = column - 1;
-  if (visible < room) line += ' '.repeat(room - visible);
-  line += `\x1b[7m${button}\x1b[27m${theme}`;
+  const target = close ? room : width;
+  if (visible < target) line += ' '.repeat(target - visible);
+  if (close) line += `\x1b[7m${button}\x1b[27m${theme}`;
   return { line, hits };
+}
+
+function visibleText(line: string) {
+  return line.replace(/\x1b\[[0-9;]*m/g, '');
+}
+
+export function headerText(pages: ScreenPage[], width: number, indexes: number[] = []) {
+  const rows = tabRows(pages, indexes);
+  const lines = rows.length
+    ? rows.map((row, index) => paintHeader(fitLabels(row.nodes, width, index === 0), row.index, width, index === 0).line)
+    : [paintHeader([], 0, width, true).line];
+  return lines.map(visibleText);
 }
 
 export function presentScreen(input: ScreenPage[] | ((width: number) => string[])): Promise<void> {
@@ -165,9 +233,10 @@ export function presentScreen(input: ScreenPage[] | ((width: number) => string[]
 
   if (!process.stdout.isTTY || !process.stdin.isTTY) {
     const width = Math.max(20, process.stdout.columns || 100);
-    for (const page of pages) {
-      if (pages.length > 1) console.log(`# ${page.label}`);
-      for (const line of page.render(width)) console.log(line);
+    const items = leaves(pages);
+    for (const item of items) {
+      if (items.length > 1) console.log(`# ${item.heading}`);
+      for (const line of item.render(width)) console.log(line);
       console.log('');
     }
     return Promise.resolve();
@@ -175,7 +244,9 @@ export function presentScreen(input: ScreenPage[] | ((width: number) => string[]
 
   return new Promise((resolve) => {
     let scroll = 0;
-    let active = 0;
+    let sport = 0;
+    let league = 0;
+    let leaf = 0;
     let closed = false;
     let dragging = false;
     let pending = Buffer.alloc(0);
@@ -183,11 +254,19 @@ export function presentScreen(input: ScreenPage[] | ((width: number) => string[]
     let viewHeight = 1;
     let bodyTop = 1;
     let screenWidth = 80;
-    let tabHits: { start: number; end: number }[] = [];
+    let headerCount = 1;
+    let rows: TabRow[] = [];
+    let rowHits: { start: number; end: number }[][] = [];
     const stdin = process.stdin;
     const enableMouse = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
     const disableMouse = '\x1b[?1002l\x1b[?1000l\x1b[?1006l';
-    const tabbed = pages.length > 1;
+
+    const nestedNow = () => {
+      const node = pages[Math.max(0, Math.min(pages.length - 1, sport))];
+      return Boolean(node?.children?.some((child) => child.children?.length));
+    };
+
+    const cursor = () => (nestedNow() ? [sport, league, leaf] : [sport, leaf]);
 
     const restore = () => {
       if (closed) return;
@@ -200,13 +279,22 @@ export function presentScreen(input: ScreenPage[] | ((width: number) => string[]
       resolve();
     };
 
-    const selectTab = (index: number) => {
-      const next = Math.max(0, Math.min(pages.length - 1, index));
-      if (next === active) return;
-      active = next;
+    const select = (depth: number, index: number) => {
+      const nested = nestedNow();
+      const current = nested ? [sport, league, leaf] : [sport, leaf];
+      if (current[depth] === index) return;
+      if (depth === 0) sport = index;
+      else if (nested && depth === 1) league = index;
+      else leaf = index;
       scroll = 0;
       dragging = false;
       draw();
+    };
+
+    const cycle = (depth: number, delta: number) => {
+      const row = tabRows(pages, cursor()).find((item) => item.depth === depth);
+      if (!row || row.nodes.length < 2) return;
+      select(depth, (row.index + delta + row.nodes.length) % row.nodes.length);
     };
 
     const jumpTo = (row: number) => {
@@ -217,13 +305,16 @@ export function presentScreen(input: ScreenPage[] | ((width: number) => string[]
 
     const draw = () => {
       const width = Math.max(20, process.stdout.columns || 80);
-      const height = Math.max(4, process.stdout.rows || 24);
-      const body = height - 2;
+      rows = tabRows(pages, cursor());
+      headerCount = Math.max(1, rows.length);
+      const height = Math.max(headerCount + 2, process.stdout.rows || 24);
+      const body = height - headerCount - 1;
       const contentWidth = Math.max(10, width - 1);
       screenWidth = width;
       viewHeight = body;
-      bodyTop = 2;
-      const lines = pages[active].render(contentWidth).flatMap((line) => (line.length <= contentWidth ? [line] : wrapText(line, contentWidth)));
+      bodyTop = headerCount + 1;
+      const page = leafPage(pages, cursor());
+      const lines = (page?.render?.(contentWidth) ?? ['']).flatMap((line) => (line.length <= contentWidth ? [line] : wrapText(line, contentWidth)));
       totalLines = lines.length;
       const maxScroll = Math.max(0, lines.length - body);
       scroll = Math.max(0, Math.min(scroll, maxScroll));
@@ -231,12 +322,19 @@ export function presentScreen(input: ScreenPage[] | ((width: number) => string[]
       while (view.length < body) view.push('');
       const bar = scrollbarColumn(body, lines.length, scroll);
       const frame = view.map((line, index) => line.slice(0, contentWidth).padEnd(contentWidth) + bar[index]).join('\n');
-      const hint = tabbed ? ' wheel scrolls · tab switches' : ' wheel scrolls';
+      const hintParts = ['wheel scrolls'];
+      const leafRow = rows.at(-1);
+      if (leafRow && leafRow.nodes.length > 1) hintParts.push('tab games');
+      if (rows[0] && rows[0].nodes.length > 1) hintParts.push('[ ] sport');
+      if (rows.length >= 3) hintParts.push(', . league');
+      const hint = hintParts.join(' · ');
       const shownHint = hint.length > width ? hint.slice(0, width) : hint;
       const status = `${theme}${shownHint}${' '.repeat(width - shownHint.length)}`;
-      const header = paintHeader(tabbed ? pages.map((page) => page.label) : [], active, width);
-      tabHits = header.hits;
-      const painted = [header.line, frame, status].join('\n');
+      const headers = rows.length
+        ? rows.map((row, index) => paintHeader(fitLabels(row.nodes, width, index === 0), row.index, width, index === 0))
+        : [paintHeader([], 0, width, true)];
+      rowHits = headers.map((header) => header.hits);
+      const painted = [...headers.map((header) => header.line), frame, status].join('\n');
       process.stdout.write(`${theme}\x1b[2J\x1b[H${painted}`);
     };
 
@@ -253,13 +351,15 @@ export function presentScreen(input: ScreenPage[] | ((width: number) => string[]
         dragging = false;
         return;
       }
-      if (!motion && y === 1) {
-        if (x >= screenWidth - 2) {
+      if (!motion && y >= 1 && y <= headerCount) {
+        if (y === 1 && x >= screenWidth - 2) {
           restore();
           return;
         }
-        const hit = tabHits.findIndex((tab) => x >= tab.start && x <= tab.end);
-        if (hit >= 0) selectTab(hit);
+        const row = rows[y - 1];
+        if (!row) return;
+        const hit = rowHits[y - 1]?.findIndex((tab) => x >= tab.start && x <= tab.end) ?? -1;
+        if (hit >= 0) select(row.depth, hit);
         return;
       }
       const statusRow = bodyTop + viewHeight;
@@ -272,21 +372,32 @@ export function presentScreen(input: ScreenPage[] | ((width: number) => string[]
 
     const onKey = (key: string) => {
       const page = Math.max(1, viewHeight - 1);
+      const current = tabRows(pages, cursor());
+      const leafRow = current.at(-1);
       if (key === '\u0003') {
         restore();
         return;
       }
-      if (tabbed && (key === '\t' || key === '\x1b[C')) {
-        selectTab(active + 1 >= pages.length ? 0 : active + 1);
+      if (leafRow && leafRow.nodes.length > 1 && (key === '\t' || key === '\x1b[C')) {
+        cycle(leafRow.depth, 1);
         return;
       }
-      if (tabbed && (key === '\x1b[Z' || key === '\x1b[D')) {
-        selectTab(active - 1 < 0 ? pages.length - 1 : active - 1);
+      if (leafRow && leafRow.nodes.length > 1 && (key === '\x1b[Z' || key === '\x1b[D')) {
+        cycle(leafRow.depth, -1);
         return;
       }
-      if (tabbed && /^[1-9]$/.test(key)) {
+      if (leafRow && /^[1-9]$/.test(key)) {
         const index = Number(key) - 1;
-        if (index < pages.length) selectTab(index);
+        if (index < leafRow.nodes.length) select(leafRow.depth, index);
+        return;
+      }
+      if (key === '[' || key === ']') {
+        const sportRow = current[0];
+        if (sportRow && sportRow.nodes.length > 1) cycle(sportRow.depth, key === ']' ? 1 : -1);
+        return;
+      }
+      if ((key === ',' || key === '.') && current.length >= 3) {
+        cycle(current[1].depth, key === '.' ? 1 : -1);
         return;
       }
       if (key === '\x1b[A' || key === 'k') scroll -= 1;
