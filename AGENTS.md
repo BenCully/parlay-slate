@@ -77,7 +77,7 @@ The background stays black. The top row is the sport (Football, Soccer, Hockey, 
 
 Never print `.env`, a key, or a request URL that contains a key. Odds failures should report status and the API message only.
 
-This repo is local and has no remote. Do not commit, push, or add a remote unless asked. `last-run.json`, `odds-cache/`, `.env`, and `.env.settings` stay gitignored. `.env.example` and `.env.settings.example` stay in git.
+`origin` is `gh:BenCully/parlay-slate.git` (https://github.com/BenCully/parlay-slate) and `main` tracks `origin/main`. Do not commit or push unless asked. `last-run.json`, `odds-cache/`, `.env`, and `.env.settings` stay gitignored. `.env.example` and `.env.settings.example` stay in git.
 
 ## Changelog
 

@@ -15,7 +15,7 @@ No extra account is required for the briefs. ESPN's public site API is unauthent
 ## Setup
 
 ```bash
-cd parlays
+cd parlay-slate
 npm install
 cp .env.example .env
 cp .env.settings.example .env.settings
@@ -46,7 +46,7 @@ NHL, NBA, and MLB moneylines are two-way. The NHL moneyline includes overtime. A
 
 ## Saved slate
 
-`npm start` overwrites `parlays/last-run.json` after the lookups finish, then prints `Saved` and the file path. The next `npm start` replaces that file. It is gitignored.
+`npm start` overwrites `parlay-slate/last-run.json` after the lookups finish, then prints `Saved` and the file path. The next `npm start` replaces that file. It is gitignored.
 
 The file is the finished screen, not the raw API responses. Each table cell is already decided. It stores:
 
@@ -68,28 +68,46 @@ node --env-file-if-exists=.env.settings --env-file-if-exists=.env --import tsx p
 
 ## What it prints
 
-A table of every favorite. The Slip column is the bet to write down: `Take the over 46.5`, `Take Jaguars -10.5`, or `Pass` when that side is not favored. Under each team, a spread row and an over/under row give the line and the verify decision. The over/under row is the side the evidence supports more. Those two rows are not parlay legs. Tickets stay moneylines, and they print in a second table when at least two wins clear.
+The screen opens after the lookups, on Football, then NFL, then Games. Every league has a Games page and a Props page. A Games page starts with a title such as `NFL 2026-11-15 (Eastern): 4 upcoming games with a favorite at 60% or better.` When those prices came from `odds-cache/`, a note under the table says when they were saved.
 
-The view stays open after the lookups finish. Resize the window and the table redraws to the new width. The scroll wheel and ↑ ↓ move through the rows. Click a sport, a league, or Games and Props to switch. `q` and the x button close the screen.
+The Games columns are Team, Price, Market, Decision, Slip, and Comment. Each favorite is three rows inside one border. The moneyline names the team. Price is the American odds and Market is the implied win probability. Decision is `Ready 0.82` when verify confidence clears 0.80, `Review 0.70` when the brief was checked and the confidence is under 0.80, or `Dropped` when rerank scored the brief under 0.60. Slip is `Take Rams -510` when verify supports the win, and `Pass` when it does not. A supported win under 0.80 still shows Take, and the comment says that leg was left out of the tickets. NCAA, soccer, and MLB slips use the ESPN short name, so a slip can read `Take Man City -180` or `Take Red Sox -150`. The comment gives the record, rest, venue, the top injury on each side, and the gate.
 
-The Props tab is the riskier board. For every team still to kick off it shows one anytime touchdown, the primary passing, receiving, and rushing yardage lines, and one extra stat. That extra row is a different market for each team, chosen from the short-priced side of receptions, passing touchdowns, completions, rush attempts, kicking points, and field goals. It uses a player already on that team’s lines, or the kicker, and it skips a tiny under such as a backup staying under 1.5 receptions. Those rows go through `verify` with the player’s ESPN game log. The slip reads `Take Allen anytime TD -135` or `Take Allen over 245.5 pass yds` when the log supports it, and `Pass` when it does not. Prop rows are not parlay legs.
-
-Player props use the same Odds API key, on the per-game endpoint. Each returned market costs one credit, about ten credits per game. The player log is ESPN’s public athlete gamelog. No new account.
+The next row is the spread. Price is the point and Market is the juice. Decision is `Ready`, `Review`, or `Pass`, with the confidence. Slip is `Take Rams -9.5` when the brief supports the number, and `Take Cardinals +9.5` when the brief cuts against it. Anything else is `Pass`. A missing spread shows `n/a`, `No line`, and `Pass`. The third row is Over or Under, whichever side the evidence supports more. Slip is `Take the over 38.5` or `Take the under 40.5` when verify supports that side, and `Pass` otherwise. The number is points in football and the NBA, goals in soccer and the NHL, and runs in MLB. Spreads and totals stay on this page. Tickets are moneylines.
 
 ```text
-┌──────────────────────┬───────┬────────┬─────────────┬──────────────────────────────────────────────────────┐
-│ Team                 │ Price │ Market │ Decision    │ Comment                                              │
-├──────────────────────┼───────┼────────┼─────────────┼──────────────────────────────────────────────────────┤
-│ Jacksonville Jaguars │  -620 │  86.1% │ Review 0.72 │ 6-2, on 10 days rest, at the Titans (1-7, off a bye). │
-│                      │       │        │             │ Verify leans toward the win at 0.72, short of 0.80.  │
-│                      │       │        │             │ Left out.                                            │
-└──────────────────────┴───────┴────────┴─────────────┴──────────────────────────────────────────────────────┘
+┌──────────────────┬───────┬────────┬─────────────┬────────────────┬───────────────────────────────────────────────────┐
+│ Team             │ Price │ Market │ Decision    │ Slip           │ Comment                                           │
+├──────────────────┼───────┼────────┼─────────────┼────────────────┼───────────────────────────────────────────────────┤
+│ Los Angeles Rams │  -510 │  83.6% │ Review 0.50 │ Take Rams -510 │ 5-4, on 7 days rest, at the Cardinals (3-6, on 7  │
+│                  │       │        │             │                │ days rest). Injuries: Rams, Joe Cardona (LS) out  │
+│                  │       │        │             │                │ (Ankle); Cardinals, Gardner Minshew II (QB) IR    │
+│                  │       │        │             │                │ (Right Elbow). Verify leans toward the win at     │
+│                  │       │        │             │                │ 0.50, short of 0.80. Left out.                    │
+│   Spread         │  -9.5 │   -115 │ Pass 0.94   │ Pass           │ Rams -9.5 (-115). Last 5 margin: Rams +6.2 per    │
+│                  │       │        │             │                │ game over the last 5; Cardinals -9.4 per game     │
+│                  │       │        │             │                │ over the last 5. Verify says the brief does not   │
+│                  │       │        │             │                │ establish the cover at 0.94.                      │
+│   Over           │  38.5 │   -110 │ Pass 0.97   │ Pass           │ Over 38.5 (-110). Rams last 5: 25.8 scored and    │
+│                  │       │        │             │                │ 19.6 allowed. Cardinals last 5: 18.2 scored and   │
+│                  │       │        │             │                │ 27.6 allowed. The over is the stronger side (0.01 │
+│                  │       │        │             │                │ vs 0.00). Verify says the brief does not          │
+│                  │       │        │             │                │ establish the over at 0.97.                       │
+└──────────────────┴───────┴────────┴─────────────┴────────────────┴───────────────────────────────────────────────────┘
 ```
 
-- The percent on a parlay line is the product of each leg's moneyline implied probability. It is the market's number, not a model probability.
-- The multiplier is the decimal-odds product. Prices come from FanDuel, then DraftKings, then BetMGM, then Caesars, then whichever book is listed first.
-- Legs never share a game. Only 2-leg and 3-leg parlays are built, and only the top 10 by hit rate are printed.
-- `No qualifying legs.` means nothing still to kick off was priced at 60% or better. `Not enough supported legs for a parlay.` means the briefs did not clear rerank and verify.
+When at least two moneylines are supported at 0.80 or better, a second table lists the tickets. Its columns are Hit, Payout, Ticket, and Comment. Hit is the product of the moneyline implied probabilities. Payout is the decimal-odds product. Prices come from FanDuel, then DraftKings, then BetMGM, then Caesars, then the first book that posted the market. A ticket reads `Rams -510 + Bills -180`. Legs never share a game. The table keeps 2-leg and 3-leg parlays, the top 10 by hit rate. The comment names the teams that cleared 0.80 and says the hit rate multiplies their market prices. Fewer than two cleared legs prints `No parlay. A ticket needs two legs the brief supports at 0.80 or better.` No favorite at 60% prints `No qualifying legs.`
+
+The Props page is its own table: Team, Player, Line, Decision, Slip, and Comment. Each team still to play is one group. Decision is `Ready 0.82`, `Review 0.70`, or `Pass 0.61`. A missing market is `No line` and `Pass`. A check that did not come back is `No call`. Slip is filled in only when that player's ESPN game log supports the side. Those rows stay off the tickets.
+
+Football, for the NFL and NCAA, shows an anytime touchdown, passing yards, receiving yards, rushing yards, and one extra short-priced stat. The extra comes from receptions, passing touchdowns, completions, rush attempts, kicking points, and field goals. It stays on a player already in that group, or the kicker, and it skips a tiny under such as a backup under 1.5 receptions. A supported slip reads `Take Allen anytime TD -135` or `Take Allen over 245.5 pass yds`.
+
+Soccer shows an anytime goal, shots, shots on target, assists, and a card. A line posted on only one side is shown. A missing market reads `No line`. A supported slip reads `Take Haaland anytime goal -125` or `Take Haaland card +150`. The Champions League page says US books do not post player props for that competition, and it does not request them.
+
+The NHL shows an anytime goal, points, shots on goal, assists, and one extra of goalie saves or power-play points. The NBA shows points, rebounds, assists, threes, and one extra of blocks or steals. MLB shows hits, home runs, RBIs, pitcher strikeouts, and one extra of total bases or stolen bases. Player props use the same Odds API key, on the per-game endpoint. Each returned market costs one credit. The player log is ESPN's public athlete gamelog.
+
+A window too narrow for the headers stacks each row: the name, then the other fields, then the comment. The status line reads `q quits · wheel scrolls · tab games · [ ] sport · , . league`, and it drops a hint when that row has only one choice.
+
+Before the screen, the terminal prints each league name, the board title, `Checking N of M claims...` while verify runs, `Odds cache hit` when prices were reused, the Odds API credits remaining after a live fetch, and `Saved` plus the path of `last-run.json`. A shell that is not a terminal prints every sport, league, and page as text, then exits. A league that throws shows the error on that league's Games and Props pages, and the other leagues still print.
 
 ## How a leg gets in
 
