@@ -27,7 +27,10 @@ Put both keys in `.env`. That file is gitignored.
 ```bash
 npm start
 npm start -- 2026-11-15
+npm run view
 ```
+
+`npm start` saves the slate to `last-run.json`. `npm run view` opens that same screen and does not call the Odds API or TypeSafe. Resize, scroll, and q work the same way. Run `npm start` again when you want a fresh slate.
 
 With no arguments the script uses the current NFL week from ESPN (Thursday through Monday) and skips games that have already kicked off. A `YYYY-MM-DD` argument is one America/New_York calendar day, so Sunday night is included and Monday night is not.
 

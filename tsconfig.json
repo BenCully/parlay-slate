@@ -12,5 +12,5 @@
     "forceConsistentCasingInFileNames": true,
     "verbatimModuleSyntax": true
   },
-  "include": ["parlays.ts", "evidence.ts", "table.ts"]
+  "include": ["parlays.ts", "evidence.ts", "table.ts", "screen.ts", "view.ts"]
 }

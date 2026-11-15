@@ -5,7 +5,9 @@
 import { rerank } from 'jev-recipes/rerank';
 import { verify } from 'jev-recipes/verify';
 import { getBrief, type GameBrief } from './evidence.js';
-import { presentScreen, renderTable, wrapParagraph } from './table.js';
+import { writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { showSlate, type SavedSlate } from './screen.js';
 
 const SPORT = 'americanfootball_nfl';
 const BOOKS = ['fanduel', 'draftkings', 'betmgm', 'williamhill_us'];
@@ -304,7 +306,11 @@ async function main() {
   const legs = (await getLegs(slate.from, slate.to)).filter((leg) => leg.implied >= MIN_IMPLIED);
   const games = new Set(legs.map((leg) => leg.game)).size;
   const title = `${slate.label}: ${games} upcoming game${games === 1 ? '' : 's'} with a favorite at 60% or better.`;
-  if (!legs.length) return console.log(`${title} No qualifying legs.`);
+  if (!legs.length) {
+    await saveSlate({ savedAt: new Date().toISOString(), title, groups: [], note: 'No qualifying legs.' });
+    console.log(`${title} No qualifying legs.`);
+    return;
+  }
 
   const briefs = await Promise.all(legs.map(async (leg) => ({ leg, brief: await getBrief(leg) })));
   const ranked = await rerank({
@@ -393,13 +399,8 @@ async function main() {
     const names = keep.map((leg) => nick(leg.team));
     const only = names.length === 1 ? ` Only the ${names[0]} cleared 0.80.` : '';
     const note = `No parlay. A ticket needs two legs the brief supports at 0.80 or better.${only}`;
-    await presentScreen((width) => [
-      ...wrapParagraph(title, width),
-      '',
-      ...renderTable(['Team', 'Price', 'Market', 'Decision', 'Slip', 'Comment'], groups, ['left', 'right', 'right', 'left', 'left', 'left'], width),
-      '',
-      ...wrapParagraph(note, width),
-    ]);
+    await saveSlate({ savedAt: new Date().toISOString(), title, groups, note });
+    await showSlate({ savedAt: new Date().toISOString(), title, groups, note });
     return;
   }
 
@@ -426,13 +427,16 @@ async function main() {
     parlay.map((leg) => `${nick(leg.team)} ${priceText(leg.price)}`).join(' + '),
     `${listNames(parlay.map((leg) => nick(leg.team)))} each cleared 0.80. The hit rate multiplies their market prices. It is not a separate prediction.`,
   ]]);
-  await presentScreen((width) => [
-    ...wrapParagraph(title, width),
-    '',
-    ...renderTable(['Team', 'Price', 'Market', 'Decision', 'Slip', 'Comment'], groups, ['left', 'right', 'right', 'left', 'left', 'left'], width),
-    '',
-    ...renderTable(['Hit', 'Payout', 'Ticket', 'Comment'], ticketGroups, ['right', 'right', 'left', 'left'], width),
-  ]);
+  const saved = { savedAt: new Date().toISOString(), title, groups, ticketGroups };
+  await saveSlate(saved);
+  await showSlate(saved);
+}
+
+const savedPath = fileURLToPath(new URL('./last-run.json', import.meta.url));
+
+async function saveSlate(saved: SavedSlate) {
+  await writeFile(savedPath, `${JSON.stringify(saved, null, 2)}\n`);
+  console.log(`Saved ${savedPath}`);
 }
 
 function totalRow(leg: Leg, brief: GameBrief, overCheck: Check | undefined, underCheck: Check | undefined) {
