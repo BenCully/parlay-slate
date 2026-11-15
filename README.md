@@ -30,9 +30,24 @@ npm start -- 2026-11-15
 npm run view
 ```
 
-`npm start` saves the slate to `last-run.json`. `npm run view` opens that same screen and does not call the Odds API or TypeSafe. The screen has two tabs, Games and Props. Click a tab, or press Tab, the arrow keys, or 1 and 2. Resize refits the table. The scroll wheel moves the bar on the right, and the x button in the top-right corner closes the screen. The background is black. Run `npm start` again when you want a fresh slate.
+`npm start` looks up the slate, writes `last-run.json`, then opens the screen. `npm run view` opens that file again and does not call the Odds API, ESPN, or TypeSafe. The screen has two tabs, Games and Props. Click a tab, or press Tab, the arrow keys, or 1 and 2. Resize refits the table. The scroll wheel moves the bar on the right, and the x button in the top-right corner closes the screen. The background is black.
 
 With no arguments the script uses the current NFL week from ESPN (Thursday through Monday) and skips games that have already kicked off. A `YYYY-MM-DD` argument is one America/New_York calendar day, so Sunday night is included and Monday night is not.
+
+## Saved slate
+
+`npm start` overwrites `parlays/last-run.json` after the lookups finish, then prints `Saved` and the file path. The next `npm start` replaces that file. It is gitignored.
+
+The file is the finished screen, not the raw API responses. Each table cell is already decided. It stores:
+
+- `savedAt`, the UTC time of that run.
+- `title`, the week or Eastern day and how many favorites qualified.
+- `groups`, the Games rows: each favorite, its spread, and its over/under.
+- `note`, when there is no parlay or no qualifying favorite.
+- `ticketGroups`, the moneyline tickets, only when at least two wins cleared 0.80.
+- `props`, the Props tab: its title, one group of rows per team, and the note under that table.
+
+`npm run view` reads `last-run.json` from the same directory as `view.ts` and draws it with the same screen. Prices and decisions stay as they were on that run. If the file is missing, the command prints `No saved slate. Run npm start once, then npm run view.` and exits. Run `npm start` when you want a new slate.
 
 The same command without npm is:
 

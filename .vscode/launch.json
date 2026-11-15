@@ -1,0 +1,54 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Start slate",
+      "program": "${workspaceFolder}/parlays.ts",
+      "cwd": "${workspaceFolder}",
+      "runtimeArgs": [
+        "--env-file-if-exists=${workspaceFolder}/.env",
+        "--import",
+        "tsx"
+      ],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Start slate for an Eastern day",
+      "program": "${workspaceFolder}/parlays.ts",
+      "cwd": "${workspaceFolder}",
+      "args": ["${input:slateDate}"],
+      "runtimeArgs": [
+        "--env-file-if-exists=${workspaceFolder}/.env",
+        "--import",
+        "tsx"
+      ],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "View saved slate",
+      "program": "${workspaceFolder}/view.ts",
+      "cwd": "${workspaceFolder}",
+      "runtimeArgs": ["--import", "tsx"],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "skipFiles": ["<node_internals>/**"]
+    }
+  ],
+  "inputs": [
+    {
+      "id": "slateDate",
+      "type": "promptString",
+      "description": "America/New_York day as YYYY-MM-DD. Sunday night is included. Monday night is not."
+    }
+  ]
+}

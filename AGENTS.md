@@ -13,6 +13,8 @@ npm run typecheck          # tsc --noEmit
 
 `npm start` writes `last-run.json`, then opens the screen. A non-TTY prints both tabs as text and exits. That is expected in an agent shell. Do not treat that as a mouse test.
 
+Run and Debug configs are in `.vscode/launch.json`: Start slate, Start slate for an Eastern day, and View saved slate. They launch `node` with `--import tsx`, same as the npm scripts. Keep `console` set to `integratedTerminal`. The Debug Console is not a TTY, so the screen, mouse, and x button will not work there. `.npmrc` sets `engine-strict=true`.
+
 ## Files
 
 - `parlays.ts` builds the Games tab: moneylines, spreads, totals, and moneyline tickets.
