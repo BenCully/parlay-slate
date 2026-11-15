@@ -322,7 +322,7 @@ export function presentScreen(input: ScreenPage[] | ((width: number) => string[]
       while (view.length < body) view.push('');
       const bar = scrollbarColumn(body, lines.length, scroll);
       const frame = view.map((line, index) => line.slice(0, contentWidth).padEnd(contentWidth) + bar[index]).join('\n');
-      const hintParts = ['wheel scrolls'];
+      const hintParts = ['q quits', 'wheel scrolls'];
       const leafRow = rows.at(-1);
       if (leafRow && leafRow.nodes.length > 1) hintParts.push('tab games');
       if (rows[0] && rows[0].nodes.length > 1) hintParts.push('[ ] sport');
@@ -374,7 +374,7 @@ export function presentScreen(input: ScreenPage[] | ((width: number) => string[]
       const page = Math.max(1, viewHeight - 1);
       const current = tabRows(pages, cursor());
       const leafRow = current.at(-1);
-      if (key === '\u0003') {
+      if (key === '\u0003' || key === 'q' || key === 'Q') {
         restore();
         return;
       }

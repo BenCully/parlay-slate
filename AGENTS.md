@@ -18,15 +18,37 @@ Run and Debug configs are in `.vscode/launch.json`: Start slate, Start slate for
 
 ## Files
 
-- `parlays.ts` builds every Games tab: moneylines, spreads, totals, and moneyline tickets.
-- `soccer.ts` is the five leagues and their prop markets.
-- `evidence.ts` is the team brief from ESPN (record, last 5, rest, injuries). No key. Soccer uses the competition path, for example `soccer/eng.1`.
-- `props.ts` builds the Props tab. `players.ts` matches roster names and reads ESPN gamelogs.
+Shared pipeline, used by every sport:
+
+- `parlays.ts` walks `sports/index.ts`, saves `last-run.json`, and opens the screen. It does not know a sport's markets or ESPN path.
+- `board.ts` builds one Games board: moneylines, spreads, totals, and moneyline tickets. It also starts that board's props.
+- `props.ts` builds a Props tab from a `PropProfile`. `players.ts` is `createPlayers` for one ESPN competition. `books.ts` is the book order.
+- `evidence.ts` is `createEvidence(base, style)`. `NFL_EVIDENCE` and `SOCCER_EVIDENCE` are the styles in use. Copy the closer one for a new sport and change the fields that differ. Do not add a sport branch in the middle of the client.
+- `window.ts` is the Eastern day range and the scoreboard fetch. Each sport decides its own kickoff window.
 - `odds-cache.ts` stores successful Odds API responses in gitignored `odds-cache/`. The cache key is the path and query with `apiKey` removed. `ODDS_CACHE_HOURS` in `.env.settings` is the lifetime, 168 if unset. `--fresh` or `ODDS_CACHE=0` fetches again. Do not log or store the key.
 - `screen.ts` turns a `SavedSlate` into the sport, league, and page tabs. `view.ts` only reads `last-run.json`.
 - `table.ts` is the live screen: layout, scroll, mouse, tabs, black background.
 
-Imports are NodeNext. Local imports use a `.js` suffix. `verbatimModuleSyntax` is on. Add every new `.ts` file to `tsconfig.json` `include`.
+A parent tab is a module under `sports/`:
+
+- `sports/index.ts` is the list. Append a sport there. Screen order is that list.
+- `sports/nfl.ts` is one Games and Props pair (`kind: 'board'`).
+- `sports/soccer.ts` is five leagues (`kind: 'leagues'`), each with Games and Props.
+- `sports/types.ts` is `Sport` and `BoardSource`.
+
+Imports are NodeNext. Local imports use a `.js` suffix. `verbatimModuleSyntax` is on. `tsconfig.json` includes every `.ts` file outside `node_modules`.
+
+## Adding a sport
+
+Add `sports/<name>.ts` that exports a `Sport`, then append it in `sports/index.ts`.
+
+- `kind: 'board'` is one parent tab with Games and Props. Use it for a single Odds API sport key.
+- `kind: 'leagues'` is a parent tab whose children are leagues. Each league has its own odds key, window, brief, and props.
+- `BoardSource.profile` is the prop markets. `null` shows `propsNote` and makes no prop request.
+- `shortNames` uses the ESPN short name in slips. Leave it false when the last word of the team name is already unique.
+- A dated run is one Eastern day for every sport. Build that with `easternRange`. The no-date window belongs in the sport file.
+- A thrown board becomes an error tab and the run continues with the next sport or league. `last-run.json` is left unchanged when every board throws.
+- The first `kind: 'board'` sport is also copied to the top-level fields of `last-run.json` so an old reader still opens.
 
 ## Do not change these rules unless asked
 
@@ -46,7 +68,7 @@ Imports are NodeNext. Local imports use a `.js` suffix. `verbatimModuleSyntax` i
 
 `presentScreen` owns the alt screen. Keep every rendered line at or under the content width (`columns - 1`). A wider line soft-wraps and breaks the box. Narrow terminals use the stacked layout.
 
-The background stays black. The top row is the sport (NFL, Soccer) and the x button. NFL then shows Games and Props. Soccer shows the league row, then Games and Props. Tab, Shift-Tab, Left, Right, 1, and 2 move Games and Props. `[` and `]` move the sport. `,` and `.` move the league. The wheel scrolls three lines. A click or drag on the bar jumps. `q` does not quit. Ctrl-C still restores the terminal. Parse stdin as a `Buffer`. Do not set stdin to utf8, or mouse bytes get corrupted. On exit, reset color and turn mouse tracking off.
+The background stays black. The top row is the sport (NFL, Soccer) and the x button. NFL then shows Games and Props. Soccer shows the league row, then Games and Props. Tab, Shift-Tab, Left, Right, 1, and 2 move Games and Props. `[` and `]` move the sport. `,` and `.` move the league. The wheel scrolls three lines. A click or drag on the bar jumps. `q` and the x button close the screen. Ctrl-C still restores the terminal. Parse stdin as a `Buffer`. Do not set stdin to utf8, or mouse bytes get corrupted. On exit, reset color and turn mouse tracking off.
 
 `SavedSlate` in `screen.ts` is the `last-run.json` contract. `sports` holds NFL plus the soccer leagues. Old files have no `sports` or `props` and must still open as the NFL parent. The Games page stays first under each sport or league.
 
@@ -56,6 +78,15 @@ Never print `.env`, a key, or a request URL that contains a key. Odds failures s
 
 This repo is local and has no remote. Do not commit, push, or add a remote unless asked. `last-run.json`, `odds-cache/`, `.env`, and `.env.settings` stay gitignored. `.env.example` and `.env.settings.example` stay in git.
 
+## Changelog
+
+`changelog.md` is the log of changes that have landed. After you implement a change, add an entry at the top. The heading is the UTC time the change landed, `YYYY-MM-DDTHH:MM:SSZ`, with no milliseconds.
+
+- Say what changed and anything a later session needs, including a behavior change.
+- Keep one entry per change. A docs-only tweak, a typecheck, or a comment edit does not get its own entry.
+- Keep secrets, keys, and request URLs out of the log.
+- The `2026-11-15T19:52:50Z` sport-module entry is the first one. Later work goes above it.
+
 ## Checks
 
-Run `npm run typecheck` after a code change. For a layout change, render at a few widths and confirm no line is longer than the width. Use `npm run view` for a screen change. Run `npm start` only when the saved slate itself must change.
+Run `npm run typecheck` after a code change. For a layout change, render at a few widths and confirm no line is longer than the width. Use `npm run view` for a screen change. Run `npm start` only when the saved slate itself must change. Update `changelog.md` in the same turn as the change.

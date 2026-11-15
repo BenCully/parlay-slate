@@ -32,11 +32,15 @@ npm start -- --fresh
 npm run view
 ```
 
-`npm start` looks up the slate, writes `last-run.json`, then opens the screen. Odds API responses are saved in gitignored `odds-cache/` and reused for `ODDS_CACHE_HOURS` (168 by default, which is 7 days). A cached board says when those prices were saved. `npm start -- --fresh` ignores that cache and spends credits. `npm run view` opens that file again and does not call the Odds API, ESPN, or TypeSafe. The top row is NFL and Soccer. NFL keeps Games and Props. Soccer has Premier League, Champions League, La Liga, Serie A, and Bundesliga, and each of those has Games and Props. Click a tab, or press Tab, Left, Right, or 1 and 2 for Games and Props. `[` and `]` change sport. `,` and `.` change league. Resize refits the table. The scroll wheel moves the bar on the right, and the x button in the top-right corner closes the screen. The background is black.
+`npm start` looks up the slate, writes `last-run.json`, then opens the screen. Odds API responses are saved in gitignored `odds-cache/` and reused for `ODDS_CACHE_HOURS` (168 by default, which is 7 days). A cached board says when those prices were saved. `npm start -- --fresh` ignores that cache and spends credits. `npm run view` opens that file again and does not call the Odds API, ESPN, or TypeSafe. The top row is NFL and Soccer. NFL keeps Games and Props. Soccer has Premier League, Champions League, La Liga, Serie A, and Bundesliga, and each of those has Games and Props. Click a tab, or press Tab, Left, Right, or 1 and 2 for Games and Props. `[` and `]` change sport. `,` and `.` change league. Resize refits the table. The scroll wheel moves the bar on the right. `q` and the x button in the top-right corner close the screen. The background is black.
 
 With no arguments the script uses the current NFL week from ESPN (Thursday through Monday) and skips games that have already kicked off. Each soccer league uses the games on its ESPN scoreboard and the following four days, so the rest of that matchweek is included. A `YYYY-MM-DD` argument is one America/New_York calendar day for the NFL and every league, so Sunday night is included and Monday night is not.
 
 Soccer moneylines include the draw. The draw is not a leg. A team still has to be priced at 60% or better. Spreads and totals are goals. The props are an anytime goal, shots, shots on target, assists, and a card. US books do not post player props for the Champions League, so that props tab says so and does not request them.
+
+## Where a sport lives
+
+`sports/index.ts` is the parent-tab list, in screen order. NFL is `sports/nfl.ts` (one Games and Props pair). Soccer is `sports/soccer.ts` (one pair per league). A new sport is a file in that folder plus one line in the list. The shared slate, props, ESPN, and odds code stays where it is.
 
 ## Saved slate
 
@@ -64,7 +68,7 @@ node --env-file-if-exists=.env.settings --env-file-if-exists=.env --import tsx p
 
 A table of every favorite. The Slip column is the bet to write down: `Take the over 46.5`, `Take Jaguars -10.5`, or `Pass` when that side is not favored. Under each team, a spread row and an over/under row give the line and the verify decision. The over/under row is the side the evidence supports more. Those two rows are not parlay legs. Tickets stay moneylines, and they print in a second table when at least two wins clear.
 
-The view stays open after the lookups finish. Resize the window and the table redraws to the new width. The scroll wheel and ↑ ↓ move through the rows. Click a sport, a league, or Games and Props to switch. The x button closes the screen.
+The view stays open after the lookups finish. Resize the window and the table redraws to the new width. The scroll wheel and ↑ ↓ move through the rows. Click a sport, a league, or Games and Props to switch. `q` and the x button close the screen.
 
 The Props tab is the riskier board. For every team still to kick off it shows one anytime touchdown, the primary passing, receiving, and rushing yardage lines, and one extra stat. That extra row is a different market for each team, chosen from the short-priced side of receptions, passing touchdowns, completions, rush attempts, kicking points, and field goals. It uses a player already on that team’s lines, or the kicker, and it skips a tiny under such as a backup staying under 1.5 receptions. Those rows go through `verify` with the player’s ESPN game log. The slip reads `Take Allen anytime TD -135` or `Take Allen over 245.5 pass yds` when the log supports it, and `Pass` when it does not. Prop rows are not parlay legs.
 
@@ -108,4 +112,4 @@ Both recipes judge only that text. They do not look up the game themselves.
 npm run typecheck
 ```
 
-This checks `parlays.ts` and `evidence.ts` and does not emit JavaScript. The run command executes the TypeScript files directly with `tsx`.
+This checks the TypeScript in this directory and does not emit JavaScript. The run command executes the TypeScript files directly with `tsx`.

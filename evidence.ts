@@ -1,5 +1,6 @@
 // Team form and injuries from ESPN's public site API. No key.
-// NFL uses football/nfl. Soccer leagues use their own competition path.
+// A sport calls createEvidence with its site API base and an EvidenceStyle.
+// NFL_EVIDENCE and SOCCER_EVIDENCE are the two styles in use.
 // The league news feed is unused.
 
 const NFL_BASE = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl';
@@ -23,7 +24,36 @@ type Played = {
 };
 type Season = { name: string; abbr: string; games: Played[] };
 type Injury = { player: string; pos: string; status: string; detail: string };
-type Mode = 'football' | 'soccer';
+
+export type EvidenceStyle = {
+  teamLimit: number;
+  /** last-word uses the final word of the ESPN display name. espn-short uses shortDisplayName. */
+  short: 'last-word' | 'espn-short';
+  /** football is an exact normalized display name. club folds club tokens, then aliases, then one unique contains-match. */
+  match: 'football' | 'club';
+  /** nfl-abbr uses the team abbreviation and keeps season types 2 and 3. id uses the numeric team id and keeps every completed game. */
+  schedule: 'nfl-abbr' | 'id';
+  longRest: 'off a bye' | 'off a break';
+  noun: 'points' | 'goals';
+};
+
+export const NFL_EVIDENCE: EvidenceStyle = {
+  teamLimit: 32,
+  short: 'last-word',
+  match: 'football',
+  schedule: 'nfl-abbr',
+  longRest: 'off a bye',
+  noun: 'points',
+};
+
+export const SOCCER_EVIDENCE: EvidenceStyle = {
+  teamLimit: 200,
+  short: 'espn-short',
+  match: 'club',
+  schedule: 'id',
+  longRest: 'off a break',
+  noun: 'goals',
+};
 
 const DROP = new Set(['fc', 'afc', 'cf', 'sc', 'ac', 'as', 'sv', 'fsv', 'fk', 'vfb', 'tsg', 'rb', 'de', 'and']);
 
@@ -62,7 +92,7 @@ function canon(name: string) {
   return fold(name).toLowerCase().split(/[^a-z0-9]+/).filter((token) => token && !DROP.has(token) && !/^\d+$/.test(token)).join(' ');
 }
 
-function createClient(base: string, mode: Mode) {
+function buildClient(base: string, style: EvidenceStyle) {
   let teamsPromise: Promise<Map<string, EspnTeam>> | undefined;
   let injuriesPromise: Promise<Map<string, Injury[]>> | undefined;
   const seasons = new Map<string, Promise<Season | null>>();
@@ -75,7 +105,7 @@ function createClient(base: string, mode: Mode) {
 
   function loadTeams() {
     return (teamsPromise ??= (async () => {
-      const limit = mode === 'football' ? 32 : 200;
+      const limit = style.teamLimit;
       const body = await espn(`/teams?limit=${limit}`);
       const rows = body.sports?.[0]?.leagues?.[0]?.teams ?? [];
       const map = new Map<string, EspnTeam>();
@@ -85,11 +115,11 @@ function createClient(base: string, mode: Mode) {
           name: String(team.displayName),
           abbr: String(team.abbreviation),
           id: String(team.id),
-          short: mode === 'soccer'
+          short: style.short === 'espn-short'
             ? String(team.shortDisplayName || team.displayName)
             : String(team.displayName).split(' ').at(-1) ?? String(team.displayName),
         };
-        if (mode === 'football') {
+        if (style.match === 'football') {
           map.set(norm(entry.name), entry);
           continue;
         }
@@ -103,7 +133,7 @@ function createClient(base: string, mode: Mode) {
   }
 
   function findTeam(teams: Map<string, EspnTeam>, name: string) {
-    if (mode === 'football') return teams.get(norm(name));
+    if (style.match === 'football') return teams.get(norm(name));
     const key = canon(name);
     const direct = teams.get(key) ?? teams.get(ALIASES[key] ?? '');
     if (direct) return direct;
@@ -166,7 +196,7 @@ function createClient(base: string, mode: Mode) {
         }
         list.sort((a, b) => injuryRank(a) - injuryRank(b));
         const label = String(group.displayName ?? '');
-        map.set(mode === 'football' ? norm(label) : canon(label), list);
+        map.set(style.match === 'football' ? norm(label) : canon(label), list);
       }
       return map;
     })());
@@ -182,11 +212,11 @@ function createClient(base: string, mode: Mode) {
     const cached = seasons.get(team.id);
     if (cached) return cached;
     const pending = (async (): Promise<Season | null> => {
-      const route = mode === 'football' ? team.abbr.toLowerCase() : team.id;
+      const route = style.schedule === 'nfl-abbr' ? team.abbr.toLowerCase() : team.id;
       const body = await espn(`/teams/${route}/schedule`);
       const games: Played[] = [];
       for (const event of body.events ?? []) {
-        if (mode === 'football') {
+        if (style.schedule === 'nfl-abbr') {
           const seasonType = event.seasonType?.type;
           if (seasonType !== 2 && seasonType !== 3) continue;
         }
@@ -241,7 +271,7 @@ function createClient(base: string, mode: Mode) {
     if (!previous) return 'season opener';
     const days = Math.round((commence - previous.date) / 86_400_000);
     if (days >= 12) {
-      const gap = mode === 'soccer' ? 'off a break' : 'off a bye';
+      const gap = style.longRest;
       return `${gap}, ${days} days rest`;
     }
     return `${days} days rest`;
@@ -254,7 +284,7 @@ function createClient(base: string, mode: Mode) {
     const scored = recent.reduce((sum, game) => sum + game.pointsFor, 0) / recent.length;
     const allowed = recent.reduce((sum, game) => sum + game.pointsAgainst, 0) / recent.length;
     const sign = margin > 0 ? '+' : '';
-    const noun = mode === 'soccer' ? 'goals' : 'points';
+    const noun = style.noun;
     const sentence = `Last ${recent.length} games: average margin ${sign}${margin.toFixed(1)}, ${scored.toFixed(1)} ${noun} scored, ${allowed.toFixed(1)} allowed.`;
     return { margin, scored, allowed, sentence };
   }
@@ -289,7 +319,7 @@ function createClient(base: string, mode: Mode) {
     const team = findTeam(teams, name);
     if (!team) return unknown('no ESPN team match');
     const season = await loadSeason(team);
-    const reportKey = mode === 'football' ? norm(team.name) : canon(team.name);
+    const reportKey = style.match === 'football' ? norm(team.name) : canon(team.name);
     const report = injuries.get(reportKey) ?? [];
     if (!season) return unknown('schedule unavailable');
     const record = recordOf(season.games);
@@ -343,13 +373,13 @@ function createClient(base: string, mode: Mode) {
     const teams = await loadTeams();
     const team = findTeam(teams, name);
     if (!team) return null;
-    return mode === 'football' ? team.abbr.toLowerCase() : team.id;
+    return style.schedule === 'nfl-abbr' ? team.abbr.toLowerCase() : team.id;
   }
 
   async function injuryFor(teamName: string, playerName: string): Promise<string | null> {
     const [teams, injuries] = await Promise.all([loadTeams(), loadInjuries()]);
     const team = findTeam(teams, teamName);
-    const reportKey = mode === 'football' ? norm(team?.name ?? teamName) : canon(team?.name ?? teamName);
+    const reportKey = style.match === 'football' ? norm(team?.name ?? teamName) : canon(team?.name ?? teamName);
     const list = injuries.get(reportKey) ?? [];
     const key = nameKey(playerName);
     const hit = list.find((injury) => nameKey(injury.player) === key);
@@ -379,8 +409,17 @@ export type GameBrief = {
   opponent: SideBrief;
 };
 
-const nfl = createClient(NFL_BASE, 'football');
-const soccerClients = new Map<string, ReturnType<typeof createClient>>();
+const clients = new Map<string, ReturnType<typeof buildClient>>();
+
+export function createEvidence(base: string, style: EvidenceStyle) {
+  const cached = clients.get(base);
+  if (cached) return cached;
+  const client = buildClient(base, style);
+  clients.set(base, client);
+  return client;
+}
+
+const nfl = createEvidence(NFL_BASE, NFL_EVIDENCE);
 
 export const getBrief = nfl.getBrief;
 export const getEvidence = nfl.getEvidence;
@@ -388,9 +427,5 @@ export const teamAbbr = nfl.teamAbbr;
 export const injuryFor = nfl.injuryFor;
 
 export function evidenceFor(espnSlug: string) {
-  const cached = soccerClients.get(espnSlug);
-  if (cached) return cached;
-  const client = createClient(`https://site.api.espn.com/apis/site/v2/sports/soccer/${espnSlug}`, 'soccer');
-  soccerClients.set(espnSlug, client);
-  return client;
+  return createEvidence(`https://site.api.espn.com/apis/site/v2/sports/soccer/${espnSlug}`, SOCCER_EVIDENCE);
 }

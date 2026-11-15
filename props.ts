@@ -1,64 +1,24 @@
-// Risky NFL props for the second tab.
+// Player props for one sport. The sport module supplies the markets and the ESPN lookups.
 // Lines come from The Odds API event odds (same key as the slate).
 // The brief is the player's ESPN game log. No extra account.
-import { injuryFor, nameKey } from './evidence.js';
+import { BOOKS } from './books.js';
+import { nameKey } from './evidence.js';
 import { oddsGet } from './odds-cache.js';
-import { loadRosters, recentStat, type PlayerRef } from './players.js';
+import type { PlayerRef } from './players.js';
 
-const BOOKS = ['fanduel', 'draftkings', 'betmgm', 'williamhill_us'];
-
-type YesCopy = {
+export type YesCopy = {
   slip: (who: string, price: string) => string;
   thing: string;
   claim: (player: string, opponent: string, when: string) => string;
 };
 
-type MarketInfo = {
+export type MarketInfo = {
   market: string;
   label: string;
   phrase: string;
   stat: string;
   yes?: YesCopy;
 };
-
-const NFL_MARKETS = [
-  'player_anytime_td',
-  'player_pass_yds',
-  'player_reception_yds',
-  'player_rush_yds',
-  'player_receptions',
-  'player_pass_tds',
-  'player_pass_completions',
-  'player_rush_attempts',
-  'player_kicking_points',
-  'player_field_goals',
-];
-
-const NFL_CORE: MarketInfo[] = [
-  {
-    market: 'player_anytime_td',
-    label: 'Anytime TD',
-    phrase: 'rushing or receiving touchdowns',
-    stat: 'touchdowns',
-    yes: {
-      slip: (who, price) => `Take ${who} anytime TD ${price}`,
-      thing: 'anytime touchdown',
-      claim: (player, opponent, when) => `${player} scores a touchdown against ${opponent} on ${when}.`,
-    },
-  },
-  { market: 'player_pass_yds', label: 'Pass yds', phrase: 'passing yards', stat: 'passingYards' },
-  { market: 'player_reception_yds', label: 'Rec yds', phrase: 'receiving yards', stat: 'receivingYards' },
-  { market: 'player_rush_yds', label: 'Rush yds', phrase: 'rushing yards', stat: 'rushingYards' },
-];
-
-const NFL_EXTRA: MarketInfo[] = [
-  { market: 'player_receptions', label: 'Receptions', phrase: 'receptions', stat: 'receptions' },
-  { market: 'player_pass_tds', label: 'Pass TDs', phrase: 'passing touchdowns', stat: 'passingTouchdowns' },
-  { market: 'player_pass_completions', label: 'Completions', phrase: 'completions', stat: 'completions' },
-  { market: 'player_rush_attempts', label: 'Rush att', phrase: 'rush attempts', stat: 'rushingAttempts' },
-  { market: 'player_kicking_points', label: 'Kick pts', phrase: 'kicking points', stat: 'totalKickingPoints' },
-  { market: 'player_field_goals', label: 'Field goals', phrase: 'field goals made', stat: 'fieldGoalsMade-fieldGoalAttempts' },
-];
 
 export type SlateGame = {
   eventId: string;
@@ -260,9 +220,16 @@ export type PropProfile = {
   title: string;
   note: string;
   logLabel?: string;
-  loadRosters: typeof loadRosters;
-  injuryFor: typeof injuryFor;
-  recentStat: typeof recentStat;
+  loadRosters: (teamNames: string[]) => Promise<{
+    match: (team: string, player: string) => PlayerRef | null;
+    failed: string[];
+  }>;
+  injuryFor: (teamName: string, playerName: string) => Promise<string | null>;
+  recentStat: (
+    player: PlayerRef,
+    stat: string,
+    phrase: string,
+  ) => Promise<(side: 'over' | 'under' | 'yes', point: number | null) => string>;
   allowOneSide?: boolean;
   teamShort?: (name: string) => Promise<string | null>;
   realExtra: (option: { market: string; side: 'Over' | 'Under' | 'Yes'; posted: { point: number | null }; ref: PlayerRef }) => boolean;
@@ -314,7 +281,7 @@ function thingFor(info: MarketInfo, side: SideName) {
   return `${side.toLowerCase()} ${info.label.toLowerCase()}`;
 }
 
-export async function loadPropBoard(games: SlateGame[], profile: PropProfile = nflProfile()) {
+export async function loadPropBoard(games: SlateGame[], profile: PropProfile) {
   const apiKey = process.env.ODDS_API_KEY;
   if (!apiKey) throw new Error('ODDS_API_KEY is not set.');
   const notes: string[] = [];
@@ -541,24 +508,6 @@ type ExtraOption = {
   price: number;
 };
 
-function isRealLine(option: ExtraOption) {
-  const point = option.posted.point ?? 0;
-  const over = option.side === 'Over';
-  if (option.market === 'player_receptions') return over ? point >= 3.5 : point >= 4.5;
-  if (option.market === 'player_pass_completions') return point >= 14.5;
-  if (option.market === 'player_rush_attempts') return option.ref.pos === 'QB' ? point >= 3.5 : point >= 8.5;
-  if (option.market === 'player_kicking_points') return point >= 4.5;
-  if (option.market === 'player_field_goals') return point >= 1.5;
-  if (option.market === 'player_pass_tds') return true;
-  return false;
-}
-
-function isFeatured(option: ExtraOption, featured: Set<string>) {
-  if (featured.has(nameKey(option.ref.name))) return true;
-  const kicker = option.ref.pos === 'PK' || option.ref.pos === 'K';
-  return kicker && (option.market === 'player_kicking_points' || option.market === 'player_field_goals');
-}
-
 async function extraRow(
   game: SlateGame,
   team: { name: string; home: boolean; opponent: string },
@@ -689,18 +638,3 @@ function comment(row: YardRow | SingleRow, side: SideName, point: number | null,
   return `${lead}${row.player.name} (${row.player.pos || 'player'}) ${lineText(row.info.label, side, point, price)}, ${place} vs ${versus}. ${blurb} ${gateSentence(check, thingFor(row.info, side))}`;
 }
 
-function nflProfile(): PropProfile {
-  return {
-    sport: 'americanfootball_nfl',
-    markets: NFL_MARKETS,
-    core: NFL_CORE,
-    extra: NFL_EXTRA,
-    title: 'Player props for every team still to kick off. The last row on each team is a likely extra stat.',
-    note: 'Each team has an anytime touchdown, passing yards, receiving yards, and rushing yards. The last row is another stat with a short price, chosen for that team from receptions, passing touchdowns, completions, rush attempts, kicking points, and field goals. It stays on a player already in the team block, or the kicker, and skips tiny unders such as a backup staying under 1.5 receptions. Verify reads that player’s ESPN game log. A slip is filled in only when the log supports the side. These rows are not parlay legs.',
-    loadRosters,
-    injuryFor,
-    recentStat,
-    realExtra: (option) => isRealLine(option as ExtraOption),
-    featureExtra: (option, featured) => isFeatured(option as ExtraOption, featured),
-  };
-}

@@ -1,9 +1,6 @@
 // Player names and recent stat lines from ESPN's public site API. No key.
-// Rosters come from the team site API. Game logs come from the common v3 athlete endpoint.
-import { nameKey, teamAbbr } from './evidence.js';
-
-const ROSTER = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl';
-const GAMELOG = 'https://site.web.api.espn.com/apis/common/v3/sports/football/nfl/athletes';
+// A sport calls createPlayers with that competition's roster and gamelog bases.
+import { nameKey } from './evidence.js';
 
 export type PlayerRef = {
   id: string;
@@ -17,7 +14,7 @@ type Log = {
   rows: { date: number; stats: string[] }[];
 };
 
-type Players = {
+export type Players = {
   loadRosters: (teamNames: string[]) => Promise<{
     match: (team: string, player: string) => PlayerRef | null;
     failed: string[];
@@ -183,16 +180,3 @@ export function createPlayers(options: {
 
   return { loadRosters, recentStat };
 }
-
-const nflPlayers = createPlayers({
-  rosterBase: ROSTER,
-  gamelogBase: GAMELOG,
-  teamPath: async (name) => {
-    const abbr = await teamAbbr(name);
-    return abbr ? abbr.toLowerCase() : null;
-  },
-  seasonLabel: '2026 regular-season',
-});
-
-export const loadRosters = nflPlayers.loadRosters;
-export const recentStat = nflPlayers.recentStat;

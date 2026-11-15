@@ -12,5 +12,6 @@
     "forceConsistentCasingInFileNames": true,
     "verbatimModuleSyntax": true
   },
-  "include": ["parlays.ts", "evidence.ts", "odds-cache.ts", "players.ts", "props.ts", "soccer.ts", "table.ts", "screen.ts", "view.ts"]
+  "include": ["**/*.ts"],
+  "exclude": ["node_modules"]
 }
