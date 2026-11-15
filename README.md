@@ -32,7 +32,7 @@ npm start -- --fresh
 npm run view
 ```
 
-`npm start` looks up the slate, writes `last-run.json`, then opens the screen. Odds API responses are saved in gitignored `odds-cache/` and reused for `ODDS_CACHE_HOURS` (168 by default, which is 7 days). A cached board says when those prices were saved. `npm start -- --fresh` ignores that cache and spends credits. `npm run view` opens that file again and does not call the Odds API, ESPN, or TypeSafe. The top row is NFL and Soccer. NFL keeps Games and Props. Soccer has Premier League, Champions League, La Liga, Serie A, and Bundesliga, and each of those has Games and Props. Click a tab, or press Tab, Left, Right, or 1 and 2 for Games and Props. `[` and `]` change sport. `,` and `.` change league. Resize refits the table. The scroll wheel moves the bar on the right. `q` and the x button in the top-right corner close the screen. The background is black.
+`npm start` looks up the slate, writes `last-run.json`, then opens the screen. Odds API responses are saved in gitignored `odds-cache/` and reused for `ODDS_CACHE_HOURS` (168 by default, which is 7 days). A cached board says when those prices were saved. `npm start -- --fresh` ignores that cache and spends credits. `npm run view` opens that file again and does not call the Odds API, ESPN, or TypeSafe. The top row is Football and Soccer. Football has NFL and NCAA, and each of those has Games and Props. Soccer has Premier League, Champions League, La Liga, Serie A, and Bundesliga, and each of those has Games and Props. Click a tab, or press Tab, Left, Right, or 1 and 2 for Games and Props. `[` and `]` change sport. `,` and `.` change league. Resize refits the table. The scroll wheel moves the bar on the right. `q` and the x button in the top-right corner close the screen. The background is black.
 
 With no arguments the script uses the current NFL week from ESPN (Thursday through Monday) and skips games that have already kicked off. Each soccer league uses the games on its ESPN scoreboard and the following four days, so the rest of that matchweek is included. A `YYYY-MM-DD` argument is one America/New_York calendar day for the NFL and every league, so Sunday night is included and Monday night is not.
 
@@ -40,7 +40,7 @@ Soccer moneylines include the draw. The draw is not a leg. A team still has to b
 
 ## Where a sport lives
 
-`sports/index.ts` is the parent-tab list, in screen order. NFL is `sports/nfl.ts` (one Games and Props pair). Soccer is `sports/soccer.ts` (one pair per league). A new sport is a file in that folder plus one line in the list. The shared slate, props, ESPN, and odds code stays where it is.
+`sports/index.ts` is the parent-tab list, in screen order. Football is `sports/football.ts`, with NFL and NCAA under it. Soccer is `sports/soccer.ts` (one pair per league). A new sport is a file in that folder plus one line in the list. The shared slate, props, ESPN, and odds code stays where it is.
 
 ## Saved slate
 

@@ -32,7 +32,7 @@ Shared pipeline, used by every sport:
 A parent tab is a module under `sports/`:
 
 - `sports/index.ts` is the list. Append a sport there. Screen order is that list.
-- `sports/nfl.ts` is one Games and Props pair (`kind: 'board'`).
+- `sports/football.ts` is the Football parent. `sports/nfl.ts` and `sports/ncaa.ts` are its children, each with Games and Props. NCAA is `americanfootball_ncaaf` (FBS), not the FCS key.
 - `sports/soccer.ts` is five leagues (`kind: 'leagues'`), each with Games and Props.
 - `sports/types.ts` is `Sport` and `BoardSource`.
 
@@ -48,11 +48,12 @@ Add `sports/<name>.ts` that exports a `Sport`, then append it in `sports/index.t
 - `shortNames` uses the ESPN short name in slips. Leave it false when the last word of the team name is already unique.
 - A dated run is one Eastern day for every sport. Build that with `easternRange`. The no-date window belongs in the sport file.
 - A thrown board becomes an error tab and the run continues with the next sport or league. `last-run.json` is left unchanged when every board throws.
-- The first `kind: 'board'` sport is also copied to the top-level fields of `last-run.json` so an old reader still opens.
+- The NFL league is copied to the top-level fields of `last-run.json` so an old reader still opens. If there is no NFL league, the first board is copied.
 
 ## Do not change these rules unless asked
 
-- NFL (`americanfootball_nfl`) plus Premier League (`soccer_epl`), Champions League (`soccer_uefa_champs_league`), La Liga (`soccer_spain_la_liga`), Serie A (`soccer_italy_serie_a`), and Bundesliga (`soccer_germany_bundesliga`). Book order is FanDuel, DraftKings, BetMGM, Caesars (`williamhill_us`), then the first book that posted the market.
+- Football is the parent of NFL (`americanfootball_nfl`) and NCAA (`americanfootball_ncaaf`). Soccer is Premier League (`soccer_epl`), Champions League (`soccer_uefa_champs_league`), La Liga (`soccer_spain_la_liga`), Serie A (`soccer_italy_serie_a`), and Bundesliga (`soccer_germany_bundesliga`). Book order is FanDuel, DraftKings, BetMGM, Caesars (`williamhill_us`), then the first book that posted the market.
+- NCAA uses the same prop markets as the NFL. Slips use the ESPN short name, so Tigers and Bulldogs stay distinct. The no-date window is the ESPN college scoreboard, from one hour before the first kickoff to six hours after the last. A date argument is still one Eastern day.
 - Soccer moneylines are 3-way. Skip Draw and Tie. The 0.60 favorite gate stays. Spread and total copy says goals. A date argument is still one Eastern day for every sport. With no date, each soccer league uses its ESPN scoreboard, then four days past the last listed kickoff so the rest of that matchweek is included.
 - Soccer props are anytime goal, shots, shots on target, assists, and one card. US books do not post player props for the Champions League, so that props tab is a note and makes no prop request.
 - A moneyline favorite needs implied probability `>= 0.60`. `rerank` uses `minRelevance: 0.6` and `topK: 8`. The NFL query is "which NFL team is very likely to win". Soccer uses "which team is very likely to win this match". `verify` uses `minConfidence: 0.8`.
@@ -68,9 +69,9 @@ Add `sports/<name>.ts` that exports a `Sport`, then append it in `sports/index.t
 
 `presentScreen` owns the alt screen. Keep every rendered line at or under the content width (`columns - 1`). A wider line soft-wraps and breaks the box. Narrow terminals use the stacked layout.
 
-The background stays black. The top row is the sport (NFL, Soccer) and the x button. NFL then shows Games and Props. Soccer shows the league row, then Games and Props. Tab, Shift-Tab, Left, Right, 1, and 2 move Games and Props. `[` and `]` move the sport. `,` and `.` move the league. The wheel scrolls three lines. A click or drag on the bar jumps. `q` and the x button close the screen. Ctrl-C still restores the terminal. Parse stdin as a `Buffer`. Do not set stdin to utf8, or mouse bytes get corrupted. On exit, reset color and turn mouse tracking off.
+The background stays black. The top row is the sport (Football, Soccer) and the x button. Football then shows NFL and NCAA, and each of those shows Games and Props. Soccer shows the league row, then Games and Props. Tab, Shift-Tab, Left, Right, 1, and 2 move Games and Props. `[` and `]` move the sport. `,` and `.` move the league. The wheel scrolls three lines. A click or drag on the bar jumps. `q` and the x button close the screen. Ctrl-C still restores the terminal. Parse stdin as a `Buffer`. Do not set stdin to utf8, or mouse bytes get corrupted. On exit, reset color and turn mouse tracking off.
 
-`SavedSlate` in `screen.ts` is the `last-run.json` contract. `sports` holds NFL plus the soccer leagues. Old files have no `sports` or `props` and must still open as the NFL parent. The Games page stays first under each sport or league.
+`SavedSlate` in `screen.ts` is the `last-run.json` contract. `sports` holds Football (NFL and NCAA) plus the soccer leagues. An old file with a direct NFL board opens as Football, with that board under NFL, and an NCAA tab that says to run `npm start`. A file with no `sports` does the same from its top-level NFL board. The Games page stays first under each league.
 
 ## Secrets and git
 

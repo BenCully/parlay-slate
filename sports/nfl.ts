@@ -1,7 +1,7 @@
 import { injuryFor, nameKey, teamAbbr, getBrief } from '../evidence.js';
 import { createPlayers } from '../players.js';
 import type { MarketInfo, PropProfile } from '../props.js';
-import type { Sport } from './types.js';
+import type { LeagueDef } from './types.js';
 import { easternRange, oddsStamp, scoreboardEvents, todayEastern, type OddsWindow } from '../window.js';
 
 const SCOREBOARD = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard';
@@ -73,19 +73,33 @@ function featureExtra(option: { market: string; ref: { name: string; pos: string
   return kicker && (option.market === 'player_kicking_points' || option.market === 'player_field_goals');
 }
 
-const profile: PropProfile = {
-  sport: 'americanfootball_nfl',
-  markets,
-  core,
-  extra,
-  title: 'Player props for every team still to kick off. The last row on each team is a likely extra stat.',
-  note: 'Each team has an anytime touchdown, passing yards, receiving yards, and rushing yards. The last row is another stat with a short price, chosen for that team from receptions, passing touchdowns, completions, rush attempts, kicking points, and field goals. It stays on a player already in the team block, or the kicker, and skips tiny unders such as a backup staying under 1.5 receptions. Verify reads that player’s ESPN game log. A slip is filled in only when the log supports the side. These rows are not parlay legs.',
+export function footballProfile(sport: string, tools: {
+  loadRosters: PropProfile['loadRosters'];
+  injuryFor: PropProfile['injuryFor'];
+  recentStat: PropProfile['recentStat'];
+  teamShort?: PropProfile['teamShort'];
+}): PropProfile {
+  return {
+    sport,
+    markets,
+    core,
+    extra,
+    title: 'Player props for every team still to kick off. The last row on each team is a likely extra stat.',
+    note: 'Each team has an anytime touchdown, passing yards, receiving yards, and rushing yards. The last row is another stat with a short price, chosen for that team from receptions, passing touchdowns, completions, rush attempts, kicking points, and field goals. It stays on a player already in the team block, or the kicker, and skips tiny unders such as a backup staying under 1.5 receptions. Verify reads that player’s ESPN game log. A slip is filled in only when the log supports the side. These rows are not parlay legs.',
+    loadRosters: tools.loadRosters,
+    injuryFor: tools.injuryFor,
+    recentStat: tools.recentStat,
+    teamShort: tools.teamShort,
+    realExtra,
+    featureExtra,
+  };
+}
+
+const profile = footballProfile('americanfootball_nfl', {
   loadRosters: players.loadRosters,
   injuryFor,
   recentStat: players.recentStat,
-  realExtra,
-  featureExtra,
-};
+});
 
 async function windowFor(day: string | undefined): Promise<OddsWindow> {
   if (day) {
@@ -102,9 +116,9 @@ async function windowFor(day: string | undefined): Promise<OddsWindow> {
   };
 }
 
-export const nfl: Sport = {
+export const nflLeague: LeagueDef = {
   label: 'NFL',
-  kind: 'board',
+  short: 'NFL',
   source: {
     oddsKey: 'americanfootball_nfl',
     unit: 'points',

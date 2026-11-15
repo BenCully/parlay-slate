@@ -46,6 +46,16 @@ export const NFL_EVIDENCE: EvidenceStyle = {
   noun: 'points',
 };
 
+/** College football. The directory is every division, so the limit has to cover the whole list. Short names keep Tigers and Bulldogs apart. */
+export const NCAA_EVIDENCE: EvidenceStyle = {
+  teamLimit: 1000,
+  short: 'espn-short',
+  match: 'football',
+  schedule: 'nfl-abbr',
+  longRest: 'off a bye',
+  noun: 'points',
+};
+
 export const SOCCER_EVIDENCE: EvidenceStyle = {
   teamLimit: 200,
   short: 'espn-short',

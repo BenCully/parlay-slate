@@ -76,7 +76,7 @@ async function main() {
     process.exit(1);
   }
 
-  const first = sports.find((sport) => sport.games);
+  const first = openedBoard(sports);
   const saved: SavedSlate = {
     savedAt: new Date().toISOString(),
     title: first?.games?.title ?? '',
@@ -88,6 +88,15 @@ async function main() {
   };
   await saveSlate(saved);
   await showSlate(saved);
+}
+
+function openedBoard(sports: SavedSport[]) {
+  for (const sport of sports) {
+    if (sport.games) return sport;
+    const league = sport.leagues?.find((item) => item.label === 'NFL') ?? sport.leagues?.[0];
+    if (league) return league;
+  }
+  return undefined;
 }
 
 const savedPath = fileURLToPath(new URL('./last-run.json', import.meta.url));

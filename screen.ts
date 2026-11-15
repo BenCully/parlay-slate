@@ -87,6 +87,8 @@ function propsPage(props: SavedBoard | undefined): ScreenPage {
   return { label: 'Props', render: (width) => renderProps(props, width) };
 }
 
+const ncaaMissing = 'NCAA lines are not in this save. Run npm start to load the current college week.';
+
 function legacySport(saved: SavedSlate): SavedSport {
   return {
     label: 'NFL',
@@ -100,8 +102,35 @@ function legacySport(saved: SavedSlate): SavedSport {
   };
 }
 
+function asFootball(sport: SavedSport): SavedSport {
+  if (sport.label !== 'NFL' || sport.leagues?.length) return sport;
+  return {
+    label: 'Football',
+    leagues: [{
+      label: 'NFL',
+      short: 'NFL',
+      games: sport.games ?? { title: 'NFL', groups: [], note: 'No games in this save.' },
+      props: sport.props ?? { title: 'Player props', groups: [] },
+    }],
+  };
+}
+
+function withNcaa(sport: SavedSport): SavedSport {
+  if (sport.label !== 'Football' || !sport.leagues) return sport;
+  if (sport.leagues.some((league) => league.label === 'NCAA')) return sport;
+  return {
+    ...sport,
+    leagues: [...sport.leagues, {
+      label: 'NCAA',
+      short: 'NCAA',
+      games: { title: 'NCAA', groups: [], note: ncaaMissing },
+      props: { title: 'Player props', groups: [], note: ncaaMissing },
+    }],
+  };
+}
+
 export function slatePages(saved: SavedSlate): ScreenPage[] {
-  const sports = saved.sports?.length ? saved.sports : [legacySport(saved)];
+  const sports = (saved.sports?.length ? saved.sports : [legacySport(saved)]).map((sport) => withNcaa(asFootball(sport)));
   return sports.map((sport) => {
     if (sport.leagues?.length) {
       return {

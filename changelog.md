@@ -2,6 +2,14 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-15T20:07:35Z
+
+### Football parent, with NFL and NCAA
+
+The NFL parent tab is now Football. NFL and NCAA sit under it, and each has Games and Props. NCAA is `americanfootball_ncaaf` (FBS) and uses the same prop markets as the NFL. Slips use the ESPN short name. The no-date window is the ESPN college scoreboard, from one hour before the first kickoff to six hours after the last.
+
+A save from before this change opens as Football, with the old NFL board under NFL. Its NCAA tab says to run `npm start`. The top-level fields of a new `last-run.json` stay the NFL board.
+
 ## 2026-11-15T19:57:45Z
 
 ### q closes the screen
