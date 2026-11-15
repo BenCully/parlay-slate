@@ -118,6 +118,16 @@ export function wrapParagraph(text: string, width: number) {
   return wrapText(text, Math.max(1, width));
 }
 
+function scrollbarColumn(height: number, total: number, scroll: number) {
+  if (height <= 0) return [];
+  if (total <= height) return Array(height).fill('█');
+  const thumb = Math.max(1, Math.min(height, Math.round((height / total) * height)));
+  const travel = height - thumb;
+  const maxScroll = total - height;
+  const top = travel === 0 || maxScroll <= 0 ? 0 : Math.round((scroll / maxScroll) * travel);
+  return Array.from({ length: height }, (_, index) => (index >= top && index < top + thumb ? '█' : '░'));
+}
+
 export function presentScreen(render: (width: number) => string[]): Promise<void> {
   if (!process.stdout.isTTY || !process.stdin.isTTY) {
     const width = Math.max(20, process.stdout.columns || 100);
@@ -128,56 +138,140 @@ export function presentScreen(render: (width: number) => string[]): Promise<void
   return new Promise((resolve) => {
     let scroll = 0;
     let closed = false;
+    let dragging = false;
+    let pending = Buffer.alloc(0);
+    let totalLines = 0;
+    let viewHeight = 1;
+    let screenWidth = 80;
     const stdin = process.stdin;
-    const status = ' ↑↓ scroll    q quit';
+    const enableMouse = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
+    const disableMouse = '\x1b[?1002l\x1b[?1000l\x1b[?1006l';
 
     const restore = () => {
       if (closed) return;
       closed = true;
       process.stdout.off('resize', draw);
-      stdin.off('data', onKey);
+      stdin.off('data', onData);
       if (stdin.isTTY) stdin.setRawMode(false);
       stdin.pause();
-      process.stdout.write('\x1b[?25h\x1b[?1049l');
+      process.stdout.write(`${disableMouse}\x1b[?25h\x1b[?1049l`);
       resolve();
+    };
+
+    const jumpTo = (row: number) => {
+      const maxScroll = Math.max(0, totalLines - viewHeight);
+      const span = Math.max(1, viewHeight - 1);
+      scroll = Math.round(((row - 1) / span) * maxScroll);
     };
 
     const draw = () => {
       const width = Math.max(20, process.stdout.columns || 80);
       const height = Math.max(4, process.stdout.rows || 24);
       const body = height - 1;
-      const lines = render(width).flatMap((line) => (line.length <= width ? [line] : wrapText(line, width)));
+      const contentWidth = Math.max(10, width - 1);
+      screenWidth = width;
+      viewHeight = body;
+      const lines = render(contentWidth).flatMap((line) => (line.length <= contentWidth ? [line] : wrapText(line, contentWidth)));
+      totalLines = lines.length;
       const maxScroll = Math.max(0, lines.length - body);
       scroll = Math.max(0, Math.min(scroll, maxScroll));
       const view = lines.slice(scroll, scroll + body);
       while (view.length < body) view.push('');
-      const hint = (scroll < maxScroll ? ` ${scroll + 1}-${Math.min(lines.length, scroll + body)}/${lines.length}` : '') + status;
-      const frame = view.map((line) => line.slice(0, width).padEnd(width)).join('\n');
-      process.stdout.write(`\x1b[H\x1b[2J${frame}\n${hint.slice(0, width).padEnd(width)}`);
+      const bar = scrollbarColumn(body, lines.length, scroll);
+      const frame = view.map((line, index) => line.slice(0, contentWidth).padEnd(contentWidth) + bar[index]).join('\n');
+      const button = ' x ';
+      const hint = ' wheel scrolls';
+      const gap = Math.max(0, width - hint.length - button.length);
+      const status = `${hint}${' '.repeat(gap)}`.slice(0, Math.max(0, width - button.length)) + `\x1b[7m${button}\x1b[27m`;
+      process.stdout.write(`\x1b[H\x1b[2J${frame}\n${status}`);
     };
 
-    const onKey = (key: string) => {
-      const page = Math.max(1, (process.stdout.rows || 24) - 2);
-      if (key === 'q' || key === 'Q' || key === '\u0003') {
+    const onMouse = (pb: number, x: number, y: number, release: boolean) => {
+      if ((pb & 64) !== 0 && !release) {
+        scroll += (pb & 1) === 0 ? -3 : 3;
+        draw();
+        return;
+      }
+      const motion = (pb & 32) !== 0;
+      const left = (pb & 67) === 0;
+      if (!left) return;
+      if (release) {
+        dragging = false;
+        return;
+      }
+      if (!motion && y === viewHeight + 1 && x >= screenWidth - 2) {
         restore();
         return;
       }
-      if (key === '\u001b[A' || key === 'k') scroll -= 1;
-      else if (key === '\u001b[B' || key === 'j') scroll += 1;
-      else if (key === '\u001b[5~') scroll -= page;
-      else if (key === '\u001b[6~' || key === ' ') scroll += page;
+      if (x === screenWidth && y >= 1 && y <= viewHeight) {
+        dragging = !motion;
+        jumpTo(y);
+        draw();
+      }
+    };
+
+    const onKey = (key: string) => {
+      const page = Math.max(1, viewHeight - 1);
+      if (key === '\u0003') {
+        restore();
+        return;
+      }
+      if (key === '\x1b[A' || key === 'k') scroll -= 1;
+      else if (key === '\x1b[B' || key === 'j') scroll += 1;
+      else if (key === '\x1b[5~') scroll -= page;
+      else if (key === '\x1b[6~' || key === ' ') scroll += page;
       else if (key === 'g') scroll = 0;
       else if (key === 'G') scroll = Number.MAX_SAFE_INTEGER;
       else return;
       draw();
     };
 
-    process.stdout.write('\x1b[?1049h\x1b[?25l');
+    const dropByte = (): { key: string } => {
+      const key = String.fromCharCode(pending[0]);
+      pending = pending.subarray(1);
+      return { key };
+    };
+
+    const takeInput = (): { key: string; mouse?: [number, number, number, boolean] } | null => {
+      if (!pending.length) return null;
+      if (pending[0] !== 0x1b) return dropByte();
+      if (pending.length < 3) return null;
+      if (pending[1] === 0x5b && pending[2] === 0x3c) {
+        const match = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])/.exec(pending.toString('utf8'));
+        if (!match) return pending.length > 64 ? dropByte() : null;
+        pending = pending.subarray(Buffer.byteLength(match[0]));
+        return { key: '', mouse: [Number(match[1]), Number(match[2]), Number(match[3]), match[4] === 'm'] };
+      }
+      if (pending[1] === 0x5b && pending[2] === 0x4d) {
+        if (pending.length < 6) return null;
+        const pb = pending[3] - 32;
+        const x = pending[4] - 32;
+        const y = pending[5] - 32;
+        pending = pending.subarray(6);
+        return { key: '', mouse: [pb, x, y, (pb & 3) === 3 && (pb & 64) === 0] };
+      }
+      const match = /^\x1b\[[\d;]*[A-Za-z~]/.exec(pending.toString('utf8'));
+      if (!match) return pending.length > 16 ? dropByte() : null;
+      pending = pending.subarray(Buffer.byteLength(match[0]));
+      return { key: match[0] };
+    };
+
+    const onData = (chunk: Buffer) => {
+      pending = Buffer.concat([pending, chunk]);
+      for (;;) {
+        const next = takeInput();
+        if (!next) return;
+        if (next.mouse) onMouse(...next.mouse);
+        else onKey(next.key);
+        if (closed) return;
+      }
+    };
+
+    process.stdout.write(`\x1b[?1049h\x1b[?25l${enableMouse}`);
     stdin.setRawMode(true);
     stdin.resume();
-    stdin.setEncoding('utf8');
     process.stdout.on('resize', draw);
-    stdin.on('data', onKey);
+    stdin.on('data', onData);
     draw();
   });
 }
