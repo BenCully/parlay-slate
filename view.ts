@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { showSlate, type SavedSlate } from './screen.js';
+import { showSlate, type SavedSlate } from './ui/screen.js';
 
 const path = fileURLToPath(new URL('./last-run.json', import.meta.url));
 

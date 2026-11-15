@@ -1,6 +1,6 @@
 # Parlays
 
-Parlay finder for the NFL and five soccer leagues. Private ESM package in this directory. Node `>=22.23.4`. Two keys only, both in gitignored `.env`: `TYPESAFE_API_KEY` and `ODDS_API_KEY`. Cache settings are in gitignored `.env.settings` (`ODDS_CACHE_HOURS`, `ODDS_CACHE`, `ODDS_CACHE_DIR`). See `.env.settings.example`. `.env` is loaded after `.env.settings`, so a duplicate name in `.env` wins. The shell wins over both files.
+Parlay finder for football and soccer. Football is NFL and NCAA. Soccer is five leagues. Private ESM package in this directory. Node `>=22.23.4`. Two keys only, both in gitignored `.env`: `TYPESAFE_API_KEY` and `ODDS_API_KEY`. Cache settings are in gitignored `.env.settings` (`ODDS_CACHE_HOURS`, `ODDS_CACHE`, `ODDS_CACHE_DIR`). See `.env.settings.example`. `.env` is loaded after `.env.settings`, so a duplicate name in `.env` wins. The shell wins over both files.
 
 ## Commands
 
@@ -18,23 +18,20 @@ Run and Debug configs are in `.vscode/launch.json`: Start slate, Start slate for
 
 ## Files
 
-Shared pipeline, used by every sport:
+Entries stay at the package root. Everything else is grouped by job.
 
-- `parlays.ts` walks `sports/index.ts`, saves `last-run.json`, and opens the screen. It does not know a sport's markets or ESPN path.
-- `board.ts` builds one Games board: moneylines, spreads, totals, and moneyline tickets. It also starts that board's props.
-- `props.ts` builds a Props tab from a `PropProfile`. `players.ts` is `createPlayers` for one ESPN competition. `books.ts` is the book order.
-- `evidence.ts` is `createEvidence(base, style)`. `NFL_EVIDENCE` and `SOCCER_EVIDENCE` are the styles in use. Copy the closer one for a new sport and change the fields that differ. Do not add a sport branch in the middle of the client.
-- `window.ts` is the Eastern day range and the scoreboard fetch. Each sport decides its own kickoff window.
-- `odds-cache.ts` stores successful Odds API responses in gitignored `odds-cache/`. The cache key is the path and query with `apiKey` removed. `ODDS_CACHE_HOURS` in `.env.settings` is the lifetime, 168 if unset. `--fresh` or `ODDS_CACHE=0` fetches again. Do not log or store the key.
-- `screen.ts` turns a `SavedSlate` into the sport, league, and page tabs. `view.ts` only reads `last-run.json`.
-- `table.ts` is the live screen: layout, scroll, mouse, tabs, black background.
+- `parlays.ts` walks `sports/index.ts`, saves `last-run.json`, and opens the screen. `view.ts` only reads that file.
+- `slate/board.ts` builds one Games board: moneylines, spreads, totals, and moneyline tickets. `slate/window.ts` is the Eastern day and the scoreboard fetch.
+- `props/board.ts` builds a Props tab from a `PropProfile`.
+- `espn/evidence.ts` is `createEvidence(base, style)`. `NFL_EVIDENCE`, `NCAA_EVIDENCE`, and `SOCCER_EVIDENCE` are the styles in use. Copy the closer one for a new sport and change the fields that differ. Do not add a sport branch in the middle of the client. `espn/players.ts` is `createPlayers` for one competition.
+- `odds/cache.ts` stores successful Odds API responses in gitignored `odds-cache/` at the package root. The cache key is the path and query with `apiKey` removed. `ODDS_CACHE_HOURS` in `.env.settings` is the lifetime, 168 if unset. `--fresh` or `ODDS_CACHE=0` fetches again. Do not log or store the key. `odds/books.ts` is the book order.
+- `ui/screen.ts` turns a `SavedSlate` into tabs. `ui/table.ts` is the live screen: layout, scroll, mouse, tabs, black background.
 
-A parent tab is a module under `sports/`:
+A parent tab is a folder under `sports/`:
 
-- `sports/index.ts` is the list. Append a sport there. Screen order is that list.
-- `sports/football.ts` is the Football parent. `sports/nfl.ts` and `sports/ncaa.ts` are its children, each with Games and Props. NCAA is `americanfootball_ncaaf` (FBS), not the FCS key.
-- `sports/soccer.ts` is five leagues (`kind: 'leagues'`), each with Games and Props.
-- `sports/types.ts` is `Sport` and `BoardSource`.
+- `sports/index.ts` is the list. Append a sport there. Screen order is that list. `sports/types.ts` is `Sport` and `BoardSource`.
+- `sports/football/` is the Football parent. `nfl.ts` and `ncaa.ts` are its children, each with Games and Props. `props.ts` is the shared football prop list. NCAA is `americanfootball_ncaaf` (FBS), not the FCS key.
+- `sports/soccer/` is five leagues, each with Games and Props.
 
 Imports are NodeNext. Local imports use a `.js` suffix. `verbatimModuleSyntax` is on. `tsconfig.json` includes every `.ts` file outside `node_modules`.
 
@@ -56,12 +53,12 @@ Add `sports/<name>.ts` that exports a `Sport`, then append it in `sports/index.t
 - NCAA uses the same prop markets as the NFL. Slips use the ESPN short name, so Tigers and Bulldogs stay distinct. The no-date window is the ESPN college scoreboard, from one hour before the first kickoff to six hours after the last. A date argument is still one Eastern day.
 - Soccer moneylines are 3-way. Skip Draw and Tie. The 0.60 favorite gate stays. Spread and total copy says goals. A date argument is still one Eastern day for every sport. With no date, each soccer league uses its ESPN scoreboard, then four days past the last listed kickoff so the rest of that matchweek is included.
 - Soccer props are anytime goal, shots, shots on target, assists, and one card. US books do not post player props for the Champions League, so that props tab is a note and makes no prop request.
-- A moneyline favorite needs implied probability `>= 0.60`. `rerank` uses `minRelevance: 0.6` and `topK: 8`. The NFL query is "which NFL team is very likely to win". Soccer uses "which team is very likely to win this match". `verify` uses `minConfidence: 0.8`.
+- A moneyline favorite needs implied probability `>= 0.60`. `rerank` uses `minRelevance: 0.6` and `topK: 8`. The NFL query is "which NFL team is very likely to win". NCAA asks which college football team is very likely to win. Soccer asks which team is very likely to win this match. `verify` uses `minConfidence: 0.8`.
 - Do not lower a gate to force a ticket. Spread, total, and prop rows are decisions, not parlay legs. Tickets are 2- and 3-leg moneylines, one leg per game, top 10 by the product of the market implied probabilities.
 - Slip text is `Take ...` only when verify verdict is `supported`. A contradicted spread flips to the opponent's opposite number. Anything else is `Pass`.
 - `verify` rejects an empty `claims` array and rejects more than 100 claims. Chunk at 50. Claim ids must be unique. Run the game check before the prop check so the two calls do not overlap.
 - Odds API timestamps are `YYYY-MM-DDTHH:MM:SSZ` with no milliseconds (`oddsStamp`). A date argument is Eastern midnight to the next Eastern midnight, so Sunday night is in and Monday night is out.
-- Props are one request per game on `/events/{id}/odds`. Cost is one credit per market returned. Ask before adding markets. Do not add a paid source or a new key. ESPN's public site API is the free evidence source. Repeat runs must use `odds-cache.ts` instead of calling The Odds API again.
+- Props are one request per game on `/events/{id}/odds`. Cost is one credit per market returned. Ask before adding markets. Do not add a paid source or a new key. ESPN's public site API is the free evidence source. Repeat runs must use `odds/cache.ts` instead of calling The Odds API again.
 - If a book did not post a star, show the best line that was posted for that team. Do not invent a player. The extra prop stays on a player already in that team's block, or the kicker, and it skips a tiny under such as a backup under 1.5 receptions.
 - Anytime-touchdown evidence is rushing plus receiving touchdowns. Passing touchdowns are not scores for the passer. Drop healthy scratches (`Out` plus coach's decision, rest, or not injury related).
 

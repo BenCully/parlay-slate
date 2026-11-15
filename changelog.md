@@ -2,6 +2,12 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-15T20:14:29Z
+
+### Folders
+
+`parlays.ts` and `view.ts` stay at the package root. The Games board and windows are `slate/`. Props are `props/`. ESPN evidence and players are `espn/`. The odds cache and book order are `odds/`, and saved responses stay in `odds-cache/` at the root. The screen is `ui/`. Football is `sports/football/` (NFL, NCAA, and the shared prop list). Soccer is `sports/soccer/`.
+
 ## 2026-11-15T20:07:35Z
 
 ### Football parent, with NFL and NCAA

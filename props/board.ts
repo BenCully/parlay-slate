@@ -1,10 +1,10 @@
 // Player props for one sport. The sport module supplies the markets and the ESPN lookups.
 // Lines come from The Odds API event odds (same key as the slate).
 // The brief is the player's ESPN game log. No extra account.
-import { BOOKS } from './books.js';
-import { nameKey } from './evidence.js';
-import { oddsGet } from './odds-cache.js';
-import type { PlayerRef } from './players.js';
+import { BOOKS } from '../odds/books.js';
+import { nameKey } from '../espn/evidence.js';
+import { oddsGet } from '../odds/cache.js';
+import type { PlayerRef } from '../espn/players.js';
 
 export type YesCopy = {
   slip: (who: string, price: string) => string;

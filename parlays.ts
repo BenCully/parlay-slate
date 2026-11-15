@@ -4,8 +4,8 @@
 //      npm start -- 2026-11-15  one Eastern calendar day
 import { writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { buildBoard, type BuiltBoard } from './board.js';
-import { showSlate, type SavedBoard, type SavedLeague, type SavedSlate, type SavedSport } from './screen.js';
+import { buildBoard, type BuiltBoard } from './slate/board.js';
+import { showSlate, type SavedBoard, type SavedLeague, type SavedSlate, type SavedSport } from './ui/screen.js';
 import { SPORTS, type LeagueDef } from './sports/index.js';
 
 const day = process.argv.slice(2).filter((arg) => arg !== '--fresh')[0];

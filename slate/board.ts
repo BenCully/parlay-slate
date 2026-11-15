@@ -1,12 +1,12 @@
 // One Games board and its Props board. The sport module supplies the odds key, the window, and the brief.
 import { rerank } from 'jev-recipes/rerank';
 import { verify } from 'jev-recipes/verify';
-import { BOOKS } from './books.js';
-import type { GameBrief } from './evidence.js';
-import { ageLabel, oddsGet } from './odds-cache.js';
-import { loadPropBoard, type SlateGame } from './props.js';
-import type { SavedBoard, SavedProps } from './screen.js';
-import type { BoardSource } from './sports/types.js';
+import { BOOKS } from '../odds/books.js';
+import type { GameBrief } from '../espn/evidence.js';
+import { ageLabel, oddsGet } from '../odds/cache.js';
+import { loadPropBoard, type SlateGame } from '../props/board.js';
+import type { SavedBoard, SavedProps } from '../ui/screen.js';
+import type { BoardSource } from '../sports/types.js';
 
 const MIN_IMPLIED = 0.6;
 

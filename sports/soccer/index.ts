@@ -1,8 +1,8 @@
-import { evidenceFor, nameKey } from '../evidence.js';
-import { createPlayers } from '../players.js';
-import type { PropProfile } from '../props.js';
-import type { LeagueDef, Sport } from './types.js';
-import { easternRange, oddsStamp, scoreboardEvents, todayEastern, type OddsWindow } from '../window.js';
+import { evidenceFor, nameKey } from '../../espn/evidence.js';
+import { createPlayers } from '../../espn/players.js';
+import type { PropProfile } from '../../props/board.js';
+import type { LeagueDef, Sport } from '../types.js';
+import { easternRange, oddsStamp, scoreboardEvents, todayEastern, type OddsWindow } from '../../slate/window.js';
 
 type SoccerLeague = {
   label: string;

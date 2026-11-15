@@ -1,6 +1,6 @@
 // Team form and injuries from ESPN's public site API. No key.
 // A sport calls createEvidence with its site API base and an EvidenceStyle.
-// NFL_EVIDENCE and SOCCER_EVIDENCE are the two styles in use.
+// NFL_EVIDENCE, NCAA_EVIDENCE, and SOCCER_EVIDENCE are the styles in use.
 // The league news feed is unused.
 
 const NFL_BASE = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl';

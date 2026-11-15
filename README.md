@@ -1,6 +1,6 @@
 # Parlays
 
-Finds 2- and 3-leg NFL moneyline parlays, and shows the same Games and Props boards for five soccer leagues.
+Finds 2- and 3-leg moneyline parlays for the NFL, NCAA football, and five soccer leagues. Each league has a Games board and a Props board.
 
 The script pulls the slate from [The Odds API](https://the-odds-api.com/liveapi/guides/v4/), keeps favorites the market already prices at 60% or better, and builds a short brief for each one from ESPN's public injury report and team schedule. [jev-recipes](https://github.com/agencyenterprise/jev-recipes) then drops any pick that brief does not support. It prints the ten parlays with the highest combined implied hit rate.
 
@@ -34,13 +34,13 @@ npm run view
 
 `npm start` looks up the slate, writes `last-run.json`, then opens the screen. Odds API responses are saved in gitignored `odds-cache/` and reused for `ODDS_CACHE_HOURS` (168 by default, which is 7 days). A cached board says when those prices were saved. `npm start -- --fresh` ignores that cache and spends credits. `npm run view` opens that file again and does not call the Odds API, ESPN, or TypeSafe. The top row is Football and Soccer. Football has NFL and NCAA, and each of those has Games and Props. Soccer has Premier League, Champions League, La Liga, Serie A, and Bundesliga, and each of those has Games and Props. Click a tab, or press Tab, Left, Right, or 1 and 2 for Games and Props. `[` and `]` change sport. `,` and `.` change league. Resize refits the table. The scroll wheel moves the bar on the right. `q` and the x button in the top-right corner close the screen. The background is black.
 
-With no arguments the script uses the current NFL week from ESPN (Thursday through Monday) and skips games that have already kicked off. Each soccer league uses the games on its ESPN scoreboard and the following four days, so the rest of that matchweek is included. A `YYYY-MM-DD` argument is one America/New_York calendar day for the NFL and every league, so Sunday night is included and Monday night is not.
+With no arguments, the NFL and NCAA use the current ESPN week and skip games that have already kicked off. Each soccer league uses the games on its ESPN scoreboard and the following four days, so the rest of that matchweek is included. A `YYYY-MM-DD` argument is one America/New_York calendar day for every league, so Sunday night is included and Monday night is not.
 
 Soccer moneylines include the draw. The draw is not a leg. A team still has to be priced at 60% or better. Spreads and totals are goals. The props are an anytime goal, shots, shots on target, assists, and a card. US books do not post player props for the Champions League, so that props tab says so and does not request them.
 
 ## Where a sport lives
 
-`sports/index.ts` is the parent-tab list, in screen order. Football is `sports/football.ts`, with NFL and NCAA under it. Soccer is `sports/soccer.ts` (one pair per league). A new sport is a file in that folder plus one line in the list. The shared slate, props, ESPN, and odds code stays where it is.
+`sports/index.ts` is the parent-tab list, in screen order. Football is `sports/football/`, with NFL and NCAA under it. Soccer is `sports/soccer/`. Shared code sits in `slate/`, `props/`, `espn/`, `odds/`, and `ui/`. A new sport is a folder there plus one line in the list.
 
 ## Saved slate
 
@@ -91,14 +91,14 @@ Player props use the same Odds API key, on the per-game endpoint. Each returned 
 
 ## How a leg gets in
 
-1. Upcoming NFL moneylines (`h2h`, US books, American odds) in the week or Eastern day.
+1. Upcoming moneylines (`h2h`, US books, American odds) in that league's week or Eastern day.
 2. Implied probability at least 0.60. A -150 favorite is about 60%. Closer favorites, such as -148, stay off the list.
-3. `rerank` keeps up to 8 legs with relevance at least 0.60 for "which NFL team is very likely to win this game?"
+3. `rerank` keeps up to 8 legs with relevance at least 0.60. The NFL asks which NFL team is very likely to win. NCAA asks the same about a college team. Soccer asks which team is very likely to win the match.
 4. `verify` keeps a leg only when the brief supports the pick with confidence at least 0.80.
 
 ## Where the brief comes from
 
-`getEvidence` in `evidence.ts` reads ESPN once per run:
+`getEvidence` in `espn/evidence.ts` reads ESPN once per run:
 
 - Season record and last five regular-season or playoff results, from each team's schedule.
 - Days of rest, including a bye when the gap is 12 days or more.

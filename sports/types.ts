@@ -1,6 +1,6 @@
-import type { EvidenceLeg, GameBrief } from '../evidence.js';
-import type { PropProfile } from '../props.js';
-import type { OddsWindow } from '../window.js';
+import type { EvidenceLeg, GameBrief } from '../espn/evidence.js';
+import type { PropProfile } from '../props/board.js';
+import type { OddsWindow } from '../slate/window.js';
 
 /** One Games board and its Props board. NFL is one of these. Each soccer league is one of these. */
 export type BoardSource = {

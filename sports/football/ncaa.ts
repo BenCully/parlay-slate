@@ -1,8 +1,8 @@
-import { createEvidence, NCAA_EVIDENCE } from '../evidence.js';
-import { createPlayers } from '../players.js';
-import type { LeagueDef } from './types.js';
-import { footballProfile } from './nfl.js';
-import { easternRange, oddsStamp, scoreboardEvents, todayEastern, type OddsWindow } from '../window.js';
+import { createEvidence, NCAA_EVIDENCE } from '../../espn/evidence.js';
+import { createPlayers } from '../../espn/players.js';
+import type { LeagueDef } from '../types.js';
+import { footballProfile } from './props.js';
+import { easternRange, oddsStamp, scoreboardEvents, todayEastern, type OddsWindow } from '../../slate/window.js';
 
 const BASE = 'https://site.api.espn.com/apis/site/v2/sports/football/college-football';
 const SCOREBOARD = `${BASE}/scoreboard`;

@@ -22,7 +22,7 @@ export type OddsResponse = {
 };
 
 function cacheDir() {
-  return process.env.ODDS_CACHE_DIR || fileURLToPath(new URL('./odds-cache/', import.meta.url));
+  return process.env.ODDS_CACHE_DIR || fileURLToPath(new URL('../odds-cache/', import.meta.url));
 }
 
 function cacheBypass() {
