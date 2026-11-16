@@ -2,14 +2,14 @@
 
 Finds 2- and 3-leg moneyline parlays for the NFL, NCAA football, five soccer leagues, the NHL, the NBA, and MLB. Each league has a Games board and a Props board.
 
-The script pulls the slate from [The Odds API](https://the-odds-api.com/liveapi/guides/v4/), keeps favorites the market already prices at 60% or better, and builds a short brief for each one from ESPN's public injury report and team schedule. [jev-recipes](https://github.com/agencyenterprise/jev-recipes) then drops any pick that brief does not support. It prints the ten parlays with the highest combined implied hit rate.
+The script pulls the slate from [The Odds API](https://the-odds-api.com/liveapi/guides/v4/), keeps favorites the market already prices at 60% or better, and builds a short brief for each one from ESPN's public injury report and team schedule. A decision model then drops any pick that brief does not support. The default is [jev-recipes](https://github.com/agencyenterprise/jev-recipes) on TypeSafe. `model=tail-jev` uses Autojev on the tailnet instead. It prints the ten parlays with the highest combined implied hit rate.
 
 No extra account is required for the briefs. ESPN's public site API is unauthenticated. The only keys are the two already in `.env`.
 
 ## Requirements
 
 - Node.js 22.23.4 or newer (`jev-recipes` requires it).
-- A [TypeSafe API key](https://console.typesafe.ai/settings/keys) (`TYPESAFE_API_KEY`). Live `rerank` and `verify` calls send the pick text and evidence to TypeSafe and use quota.
+- A [TypeSafe API key](https://console.typesafe.ai/settings/keys) (`TYPESAFE_API_KEY`) for `model=jev`, the default. Those `rerank` and `verify` calls send the pick text and evidence to TypeSafe and use quota. `model=tail-jev` does not call TypeSafe.
 - An [Odds API key](https://the-odds-api.com) (`ODDS_API_KEY`). The first run for a slate spends credits. Later runs reuse `odds-cache/` for the number of hours in `ODDS_CACHE_HOURS`. `npm start -- --fresh` fetches new prices.
 
 ## Setup
@@ -21,16 +21,20 @@ cp .env.example .env
 cp .env.settings.example .env.settings
 ```
 
-Put both keys in `.env`. That file is gitignored. Cache settings go in `.env.settings`, which is also gitignored. `ODDS_CACHE_HOURS` is how long a saved response lasts. `ODDS_CACHE=0` ignores the cache. `ODDS_CACHE_DIR` changes the folder. A name in `.env` overrides the same name in `.env.settings`.
+Put both keys in `.env`, and put the Autojev decide address in `AUTOJEV_URL` there too. That file is gitignored. Cache settings go in `.env.settings`, which is also gitignored. `ODDS_CACHE_HOURS` is how long a saved response lasts. `ODDS_CACHE=0` ignores the cache. `ODDS_CACHE_DIR` changes the folder. A name in `.env` overrides the same name in `.env.settings`.
 
 ## Run
 
 ```bash
 npm start
 npm start -- 2026-11-15
+npm start -- 2026-11-15 model=jev
+npm start -- 2026-11-15 model=tail-jev
 npm start -- --fresh
 npm run view
 ```
+
+`model=jev` asks TypeSafe, through jev-recipes, which briefs to keep. That is also what runs when `model=` is left off. `model=tail-jev` asks Autojev on the tailnet. `model=autojev` is the same choice. Both keep the 0.60 rerank gate and the 0.80 verify gate. Autojev returns a probability for each option and no separate confidence, so the chosen option's probability is the number the 0.80 gate reads. `AUTOJEV_URL` in `.env` is the decide endpoint. The repo does not keep a default address.
 
 `npm start` looks up the slate, writes `last-run.json`, then opens the screen. Odds API responses are saved in gitignored `odds-cache/` and reused for `ODDS_CACHE_HOURS` (168 by default, which is 7 days). A later run does not refetch a sport while that save is inside the lifetime, even if the kickoff window moved. A cached board says when those prices were saved. Game lines and player props both go through that cache. `npm start -- --fresh` ignores that cache and spends credits. `npm run view` opens that file again and does not call the Odds API, ESPN, or TypeSafe. The top row is Football, Soccer, Hockey, Basketball, and Baseball. Football has NFL and NCAA. Soccer has Premier League, Champions League, La Liga, Serie A, and Bundesliga. Hockey has NHL, Basketball has NBA, and Baseball has MLB. Every league has Games and Props. Click a tab, or press Tab, Left, Right, or 1 and 2 for Games and Props. `[` and `]` change sport. `,` and `.` change league when that sport has more than one. Resize refits the table. The scroll wheel moves the bar on the right. `q` and the x button in the top-right corner close the screen. The background is black.
 
@@ -51,6 +55,7 @@ NHL, NBA, and MLB moneylines are two-way. The NHL moneyline includes overtime. A
 The file is the finished screen, not the raw API responses. Each table cell is already decided. It stores:
 
 - `savedAt`, the UTC time of that run.
+- `model`, `jev` or `tail-jev`, which decision model produced the cells. Older files omit it.
 - `title`, the week or Eastern day and how many favorites qualified.
 - `groups`, the Games rows: each favorite, its spread, and its over/under.
 - `note`, when there is no parlay or no qualifying favorite.
@@ -113,8 +118,8 @@ Before the screen, the terminal prints each league name, the board title, `Check
 
 1. Upcoming moneylines (`h2h`, US books, American odds) in that league's week or Eastern day.
 2. Implied probability at least 0.60. A -150 favorite is about 60%. Closer favorites, such as -148, stay off the list.
-3. `rerank` keeps up to 8 legs with relevance at least 0.60. The NFL asks which NFL team is very likely to win. NCAA asks the same about a college team. Soccer asks which team is very likely to win the match. The NHL, NBA, and MLB ask which team in that league is very likely to win the game.
-4. `verify` keeps a leg only when the brief supports the pick with confidence at least 0.80.
+3. `rerank` keeps up to 8 legs with relevance at least 0.60. The NFL asks which NFL team is very likely to win. NCAA asks the same about a college team. Soccer asks which team is very likely to win the match. The NHL, NBA, and MLB ask which team in that league is very likely to win the game. `model=tail-jev` scores each brief on its own and keeps the same cutoff.
+4. `verify` keeps a leg only when the brief supports the pick with confidence at least 0.80. On Autojev that confidence is the probability of the chosen verdict.
 
 ## Where the brief comes from
 
@@ -124,7 +129,7 @@ Before the screen, the terminal prints each league name, the board title, `Check
 - Days of rest, including a bye when the gap is 12 days or more.
 - The injury report. Active players are skipped. Quarterbacks sort first, then Out, Doubtful, injured reserve, and Questionable. The brief keeps six listings per team, and includes the short report note for Out, injured-reserve, and quarterback listings.
 
-Both recipes judge only that text. They do not look up the game themselves.
+Both models judge only that text. They do not look up the game themselves.
 
 ## Typecheck
 

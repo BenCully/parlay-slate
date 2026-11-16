@@ -1,6 +1,5 @@
 // One Games board and its Props board. The sport module supplies the odds key, the window, and the brief.
-import { rerank } from 'jev-recipes/rerank';
-import { verify } from 'jev-recipes/verify';
+import { rerank, verify } from '../decisions/judge.js';
 import { BOOKS } from '../odds/books.js';
 import type { GameBrief } from '../espn/evidence.js';
 import { ageLabel, oddsGet } from '../odds/cache.js';

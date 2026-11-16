@@ -29,6 +29,7 @@ export type SavedSport = {
 
 export type SavedSlate = {
   savedAt: string;
+  model?: string;
   title: string;
   groups: string[][][];
   note?: string;

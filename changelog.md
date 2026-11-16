@@ -2,6 +2,18 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-16T22:42:37Z
+
+### Autojev address stays in .env
+
+`model=tail-jev` reads the decide endpoint from `AUTOJEV_URL` in `.env`. The repo no longer has a default address. A run without that variable stops before the call and asks for it. `model=jev` is unchanged and still uses jev-recipes on TypeSafe.
+
+## 2026-11-16T22:23:30Z
+
+### Pick jev or tail-jev
+
+`npm start` takes `model=jev` or `model=tail-jev`. `model=autojev` is the same as `model=tail-jev`. With no `model=`, the run still uses jev-recipes on TypeSafe. `model=tail-jev` sends each rerank and each verify claim to Autojev, one decision at a time. The 0.60 rerank gate and the 0.80 verify gate stay. Autojev returns a probability for the chosen option and no separate confidence, so that probability is what the 0.80 gate reads. Relevance is the yes probability. `AUTOJEV_URL` overrides the decide endpoint. `last-run.json` stores `model` as `jev` or `tail-jev`. The terminal prints `Decisions:` and that name before the slate.
+
 ## 2026-11-15T20:45:00Z
 
 ### Slate cache holds for the TTL

@@ -7,10 +7,14 @@ Parlay finder for football, soccer, hockey, basketball, and baseball. Football i
 ```bash
 npm start                  # current ESPN week, skip games that already kicked off
 npm start -- YYYY-MM-DD   # one America/New_York calendar day
+npm start -- YYYY-MM-DD model=jev       # TypeSafe through jev-recipes (also the default)
+npm start -- YYYY-MM-DD model=tail-jev  # Autojev on the tailnet; model=autojev is the same
 npm start -- --fresh      # ignore the odds cache and spend credits
 npm run view               # replay last-run.json, no API calls
 npm run typecheck          # tsc --noEmit
 ```
+
+`model=` can sit before or after the date. `model=tail-jev` does not call TypeSafe. `AUTOJEV_URL` in `.env` is the decide endpoint. Do not put that address in the repo, and do not print it or a key. Autojev answers one `noul` or `choice` per call and returns a probability per option, not a separate confidence. The 0.80 gate reads the chosen option's probability. Relevance is the yes probability. Do not lower either gate.
 
 `npm start` writes `last-run.json`, then opens the screen. A non-TTY prints every sport, league, and page as text and exits. That is expected in an agent shell. Do not treat that as a mouse test.
 
@@ -22,6 +26,7 @@ Entries stay at the package root. Everything else is grouped by job.
 
 - `parlays.ts` walks `sports/index.ts`, saves `last-run.json`, and opens the screen. `view.ts` only reads that file.
 - `slate/board.ts` builds one Games board: moneylines, spreads, totals, and moneyline tickets. `slate/window.ts` is the Eastern day and the scoreboard fetch.
+- `decisions/judge.ts` is `model=jev` or `model=tail-jev`. It parses those args and runs rerank and verify.
 - `props/board.ts` builds a Props tab from a `PropProfile`.
 - `espn/evidence.ts` is `createEvidence(base, style)`. `NFL_EVIDENCE`, `NCAA_EVIDENCE`, `SOCCER_EVIDENCE`, `HOCKEY_EVIDENCE`, `BASKETBALL_EVIDENCE`, and `BASEBALL_EVIDENCE` are the styles in use. Copy the closer one for a new sport and change the fields that differ. Do not add a sport branch in the middle of the client. `espn/players.ts` is `createPlayers` for one competition.
 - `odds/cache.ts` stores successful Odds API responses in gitignored `odds-cache/` at the package root. The cache key is the path and query with `apiKey` removed. A slate for the same sport and markets is reused until `ODDS_CACHE_HOURS` even when `commenceTimeFrom` and `commenceTimeTo` move. The lifetime is 168 hours if unset. `--fresh` or `ODDS_CACHE=0` fetches again. Do not log or store the key. `odds/books.ts` is the book order.
@@ -56,7 +61,7 @@ Add `sports/<name>.ts` that exports a `Sport`, then append it in `sports/index.t
 - Soccer props are anytime goal, shots, shots on target, assists, and one card. US books do not post player props for the Champions League, so that props tab is a note and makes no prop request.
 - NHL props are anytime goal, points, shots on goal, assists, and one extra of goalie saves or power-play points. The puck line and the total are goals. NBA props are points, rebounds, assists, threes, and one extra of blocks or steals. MLB props are hits, home runs, RBIs, pitcher strikeouts, and one extra of total bases or stolen bases. The run line and the total are runs. Slips use the ESPN short name so Red Sox and White Sox stay distinct. Moneylines are 2-way, including overtime for the NHL. With no date, each of these uses the ESPN scoreboard, from one hour before the first listed game to six hours after the last. A scoreboard with nothing still ahead uses one Eastern day. A date argument is still one Eastern day.
 - Odds API spells the Canadiens as Montréal. ESPN does not. `norm` folds accents before it matches. Odds API says Los Angeles Clippers. ESPN says LA Clippers. That alias lives with the other name aliases.
-- A moneyline favorite needs implied probability `>= 0.60`. `rerank` uses `minRelevance: 0.6` and `topK: 8`. The NFL query is "which NFL team is very likely to win". NCAA asks which college football team is very likely to win. Soccer asks which team is very likely to win this match. NHL, NBA, and MLB ask which team in that league is very likely to win this game. `verify` uses `minConfidence: 0.8`.
+- A moneyline favorite needs implied probability `>= 0.60`. `rerank` uses `minRelevance: 0.6` and `topK: 8`. The NFL query is "which NFL team is very likely to win". NCAA asks which college football team is very likely to win. Soccer asks which team is very likely to win this match. NHL, NBA, and MLB ask which team in that league is very likely to win this game. `verify` uses `minConfidence: 0.8`. `model=jev` and `model=tail-jev` both use those numbers.
 - Do not lower a gate to force a ticket. Spread, total, and prop rows are decisions, not parlay legs. Tickets are 2- and 3-leg moneylines, one leg per game, top 10 by the product of the market implied probabilities.
 - Slip text is `Take ...` only when verify verdict is `supported`. A contradicted spread flips to the opponent's opposite number. Anything else is `Pass`.
 - `verify` rejects an empty `claims` array and rejects more than 100 claims. Chunk at 50. Claim ids must be unique. Run the game check before the prop check so the two calls do not overlap.

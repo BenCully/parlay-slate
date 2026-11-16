@@ -1,14 +1,17 @@
 // Builds every sport in sports/index.ts, saves last-run.json, and opens the screen.
 // env: TYPESAFE_API_KEY, ODDS_API_KEY, plus cache settings in .env.settings
-// run: npm start                 current slate, games that have not kicked off
-//      npm start -- 2026-11-15  one Eastern calendar day
+// run: npm start                              current slate, games that have not kicked off
+//      npm start -- 2026-11-15                one Eastern calendar day
+//      npm start -- 2026-11-15 model=jev      TypeSafe through jev-recipes (also the default)
+//      npm start -- 2026-11-15 model=tail-jev Autojev on the tailnet (model=autojev is the same)
 import { writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { readStartArgs, selectDecisionModel } from './decisions/judge.js';
 import { buildBoard, type BuiltBoard } from './slate/board.js';
 import { showSlate, type SavedBoard, type SavedLeague, type SavedSlate, type SavedSport } from './ui/screen.js';
 import { SPORTS, type LeagueDef } from './sports/index.js';
 
-const day = process.argv.slice(2).filter((arg) => arg !== '--fresh')[0];
+const { day, model } = readStartArgs(process.argv.slice(2));
 
 function scrub(error: unknown, fallback: string) {
   const message = error instanceof Error ? error.message : fallback;
@@ -42,6 +45,8 @@ async function runLeague(league: LeagueDef): Promise<{ league: SavedLeague; buil
 }
 
 async function main() {
+  const chosen = selectDecisionModel(model);
+  console.log(`Decisions: ${chosen}.`);
   const sports: SavedSport[] = [];
   let built = false;
   for (const sport of SPORTS) {
@@ -79,6 +84,7 @@ async function main() {
   const first = openedBoard(sports);
   const saved: SavedSlate = {
     savedAt: new Date().toISOString(),
+    model: chosen,
     title: first?.games?.title ?? '',
     groups: first?.games?.groups ?? [],
     note: first?.games?.note,
