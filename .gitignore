@@ -4,3 +4,4 @@ node_modules/
 *.log
 last-run.json
 odds-cache/
+snapshots/

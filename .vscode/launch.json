@@ -37,6 +37,35 @@
     {
       "type": "node",
       "request": "launch",
+      "name": "Replay saved odds",
+      "program": "${workspaceFolder}/parlays.ts",
+      "cwd": "${workspaceFolder}",
+      "args": ["odds=${input:oddsDay}", "model=${input:decisionModel}"],
+      "runtimeArgs": [
+        "--env-file-if-exists=${workspaceFolder}/.env.settings",
+        "--env-file-if-exists=${workspaceFolder}/.env",
+        "--import",
+        "tsx"
+      ],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Compare decision snapshots",
+      "program": "${workspaceFolder}/compare.ts",
+      "cwd": "${workspaceFolder}",
+      "args": ["${input:compareDay}"],
+      "runtimeArgs": ["--import", "tsx"],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
       "name": "View saved slate",
       "program": "${workspaceFolder}/view.ts",
       "cwd": "${workspaceFolder}",
@@ -51,6 +80,23 @@
       "id": "slateDate",
       "type": "promptString",
       "description": "America/New_York day as YYYY-MM-DD. Sunday night is included. Monday night is not."
+    },
+    {
+      "id": "oddsDay",
+      "type": "promptString",
+      "description": "Eastern day the odds were saved, YYYY-MM-DD. npm run odds lists them."
+    },
+    {
+      "id": "decisionModel",
+      "type": "pickString",
+      "description": "Decision model.",
+      "options": ["jev", "tail-jev"],
+      "default": "jev"
+    },
+    {
+      "id": "compareDay",
+      "type": "promptString",
+      "description": "Snapshot day to compare, YYYY-MM-DD."
     }
   ]
 }

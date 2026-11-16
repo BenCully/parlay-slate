@@ -2,7 +2,7 @@
 import { rerank, verify } from '../decisions/judge.js';
 import { BOOKS } from '../odds/books.js';
 import type { GameBrief } from '../espn/evidence.js';
-import { ageLabel, oddsGet } from '../odds/cache.js';
+import { ageLabel, oddsGet, oddsReplayDay } from '../odds/cache.js';
 import { loadPropBoard, type SlateGame } from '../props/board.js';
 import type { SavedBoard, SavedProps } from '../ui/screen.js';
 import type { BoardSource } from '../sports/types.js';
@@ -52,7 +52,10 @@ function outcomesFor(books: any[], market: string) {
 
 function cacheSentence(cachedAt: string | null) {
   if (!cachedAt) return '';
-  return `Game prices are from the odds cache, saved ${ageLabel(cachedAt)}. npm start -- --fresh spends credits on new lines.`;
+  const when = `Game prices are from the odds cache, saved ${ageLabel(cachedAt)}.`;
+  const replay = oddsReplayDay();
+  if (replay) return `${when} Replay of odds saved on ${replay}. Games that have since kicked off stay in this slate. No Odds API request was made.`;
+  return `${when} npm start -- --fresh spends credits on new lines.`;
 }
 
 function withCache(note: string | undefined, cachedAt: string | null) {
@@ -69,9 +72,8 @@ async function getLegs(oddsKey: string, from: string, to: string, threeWay: bool
   if (!Array.isArray(body)) throw new Error('Odds API returned an unexpected payload.');
   if (result.cached) console.log(`Odds cache hit for ${oddsKey} (${ageLabel(result.savedAt)}).`);
   else console.log(`Fetched ${oddsKey} odds.${result.remaining == null ? '' : ` Credits remaining: ${result.remaining}.`}`);
-  const now = Date.now();
   const legs = body.flatMap((game: any) => {
-    if (Date.parse(game.commence_time) <= now) return [];
+    if (!oddsReplayDay() && Date.parse(game.commence_time) <= Date.now()) return [];
     const books: any[] = game.bookmakers ?? [];
     const moneylines = outcomesFor(books, 'h2h');
     const spreads = outcomesFor(books, 'spreads');
@@ -329,7 +331,10 @@ async function buildBoardInner(source: BoardSource, day: string | undefined): Pr
   const propBoard = source.profile === null ? null : loadPropBoard(slateGames(allLegs), source.profile);
   propBoard?.catch(() => {});
   const games = new Set(legs.map((leg) => leg.game)).size;
-  const title = `${slate.label}: ${games} upcoming game${games === 1 ? '' : 's'} with a favorite at 60% or better.`;
+  const replay = oddsReplayDay();
+  const title = replay
+    ? `${slate.label}. Odds saved on ${replay}: ${games} game${games === 1 ? '' : 's'} with a favorite at 60% or better.`
+    : `${slate.label}: ${games} upcoming game${games === 1 ? '' : 's'} with a favorite at 60% or better.`;
   const skippedProps = { title: 'Player props', groups: [] as string[][][], note: source.propsNote };
   console.log(title);
   if (!legs.length) {

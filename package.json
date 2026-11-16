@@ -8,6 +8,8 @@
   "scripts": {
     "start": "node --env-file-if-exists=.env.settings --env-file-if-exists=.env --import tsx parlays.ts",
     "view": "node --import tsx view.ts",
+    "odds": "node --env-file-if-exists=.env.settings --env-file-if-exists=.env --import tsx odds-days.ts",
+    "compare": "node --import tsx compare.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

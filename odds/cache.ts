@@ -1,10 +1,12 @@
 // Disk cache for The Odds API. The key is the request path with apiKey removed.
 // A hit does not call the network and does not spend a credit.
 // A slate whose kickoff window moved still counts as a hit until ODDS_CACHE_HOURS.
+// odds=YYYY-MM-DD reads that Eastern day's saves even after the lifetime, and does not fetch.
 // ODDS_CACHE_HOURS, ODDS_CACHE, and ODDS_CACHE_DIR come from .env.settings.
 import { createHash } from 'node:crypto';
 import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { easternDay } from '../slate/window.js';
 
 const DEFAULT_HOURS = 24 * 7;
 
@@ -21,6 +23,32 @@ export type OddsResponse = {
   cached: boolean;
   savedAt: string;
 };
+
+export type SavedOddsSlate = {
+  sport: string;
+  games: number;
+  savedAt: string;
+  from: string;
+  to: string;
+};
+
+export type SavedOddsDay = {
+  day: string;
+  slates: SavedOddsSlate[];
+  props: number;
+};
+
+let replayDay: string | null = null;
+let catalog: Promise<CacheRecord[]> | null = null;
+
+/** Use odds saved on this America/New_York day. A miss throws instead of calling the network. */
+export function setOddsReplay(day: string | null) {
+  replayDay = day;
+}
+
+export function oddsReplayDay() {
+  return replayDay;
+}
 
 function cacheDir() {
   return process.env.ODDS_CACHE_DIR || fileURLToPath(new URL('../odds-cache/', import.meta.url));
@@ -86,6 +114,103 @@ async function readHit(file: string): Promise<CacheRecord | null> {
   return record;
 }
 
+function sportOf(request: string) {
+  return /\/sports\/([^/]+)/.exec(request.split('?')[0] ?? '')?.[1] ?? 'that request';
+}
+
+function requestLabel(request: string) {
+  return request.includes('/events/') ? `${sportOf(request)} props` : sportOf(request);
+}
+
+function sameSavedRequest(saved: string, want: string) {
+  if (saved.includes('/events/') || want.includes('/events/')) return saved === want;
+  return slateFamily(saved) === slateFamily(want);
+}
+
+async function readCatalog() {
+  catalog ??= readAll();
+  return catalog;
+}
+
+async function readAll(): Promise<CacheRecord[]> {
+  let names: string[];
+  try {
+    names = await readdir(cacheDir());
+  } catch {
+    return [];
+  }
+  const records: CacheRecord[] = [];
+  for (const name of names) {
+    if (!name.endsWith('.json')) continue;
+    let record: CacheRecord;
+    try {
+      record = JSON.parse(await readFile(`${cacheDir()}/${name}`, 'utf8')) as CacheRecord;
+    } catch {
+      continue;
+    }
+    if (!record?.request || record.body == null || !Number.isFinite(Date.parse(record.savedAt ?? ''))) continue;
+    records.push(record);
+  }
+  return records;
+}
+
+async function readReplay(request: string): Promise<CacheRecord | null> {
+  if (!replayDay) return null;
+  let best: CacheRecord | null = null;
+  let bestSaved = -Infinity;
+  for (const record of await readCatalog()) {
+    if (easternDay(record.savedAt) !== replayDay) continue;
+    if (!sameSavedRequest(record.request, request)) continue;
+    const saved = Date.parse(record.savedAt);
+    if (saved <= bestSaved) continue;
+    best = record;
+    bestSaved = saved;
+  }
+  return best;
+}
+
+function windowOf(request: string) {
+  const parsed = new URL(request, 'https://api.the-odds-api.com');
+  return {
+    from: parsed.searchParams.get('commenceTimeFrom') ?? '',
+    to: parsed.searchParams.get('commenceTimeTo') ?? '',
+  };
+}
+
+/** Eastern days that have saved odds, newest day first. Does not call the network. */
+export async function listSavedOdds(): Promise<SavedOddsDay[]> {
+  const byDay = new Map<string, { slates: Map<string, SavedOddsSlate>; props: Set<string> }>();
+  for (const record of await readCatalog()) {
+    const day = easternDay(record.savedAt);
+    if (!day) continue;
+    const bucket = byDay.get(day) ?? { slates: new Map(), props: new Set() };
+    if (record.request.includes('/events/')) {
+      bucket.props.add(record.request.split('?')[0] ?? record.request);
+    } else {
+      const family = slateFamily(record.request);
+      const current = bucket.slates.get(family);
+      if (!current || Date.parse(record.savedAt) > Date.parse(current.savedAt)) {
+        const window = windowOf(record.request);
+        bucket.slates.set(family, {
+          sport: sportOf(record.request),
+          games: Array.isArray(record.body) ? record.body.length : 0,
+          savedAt: record.savedAt,
+          from: window.from,
+          to: window.to,
+        });
+      }
+    }
+    byDay.set(day, bucket);
+  }
+  return [...byDay.entries()]
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([day, bucket]) => ({
+      day,
+      slates: [...bucket.slates.values()].sort((a, b) => a.sport.localeCompare(b.sport)),
+      props: bucket.props.size,
+    }));
+}
+
 async function readFamily(request: string): Promise<CacheRecord | null> {
   const want = slateFamily(request);
   let names: string[];
@@ -117,6 +242,11 @@ async function store(file: string, record: CacheRecord) {
 
 export async function oddsGet(url: string, init?: RequestInit): Promise<OddsResponse> {
   const identity = oddsRequestKey(url);
+  if (replayDay) {
+    const hit = await readReplay(identity.request);
+    if (!hit) throw new Error(`No odds saved on ${replayDay} for ${requestLabel(identity.request)}. Nothing was fetched.`);
+    return { body: hit.body, remaining: null, cached: true, savedAt: hit.savedAt };
+  }
   const file = `${cacheDir()}/${identity.hash}.json`;
   if (!cacheBypass()) {
     const hit = await readHit(file) ?? await readFamily(identity.request);

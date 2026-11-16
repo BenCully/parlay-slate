@@ -42,17 +42,33 @@ let active: DecisionModel = 'jev';
 
 export function readStartArgs(argv: string[]) {
   let model = 'jev';
+  let odds: string | undefined;
+  let fresh = false;
   const positional: string[] = [];
   for (const arg of argv) {
-    if (arg === '--fresh' || arg === '--') continue;
+    if (arg === '--') continue;
+    if (arg === '--fresh') {
+      fresh = true;
+      continue;
+    }
     const named = /^(?:--)?model=(.*)$/.exec(arg);
     if (named) {
       model = named[1].trim();
       continue;
     }
+    const saved = /^(?:--)?odds=(.*)$/.exec(arg);
+    if (saved) {
+      odds = saved[1].trim();
+      continue;
+    }
     positional.push(arg);
   }
-  return { day: positional[0], model };
+  if (odds && !/^\d{4}-\d{2}-\d{2}$/.test(odds)) {
+    throw new Error('odds= must be YYYY-MM-DD, the Eastern day the prices were saved.');
+  }
+  if (odds && fresh) throw new Error('odds= reads saved prices only. Leave off --fresh.');
+  if (odds && positional[0]) throw new Error('Pass a slate date or odds=YYYY-MM-DD, not both.');
+  return { day: positional[0], model, odds };
 }
 
 export function selectDecisionModel(name: string): DecisionModel {

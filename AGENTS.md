@@ -9,27 +9,31 @@ npm start                  # current ESPN week, skip games that already kicked o
 npm start -- YYYY-MM-DD   # one America/New_York calendar day
 npm start -- YYYY-MM-DD model=jev       # TypeSafe through jev-recipes (also the default)
 npm start -- YYYY-MM-DD model=tail-jev  # Autojev on the tailnet; model=autojev is the same
+npm start -- odds=YYYY-MM-DD model=jev  # replay odds saved that Eastern day; no Odds API call
 npm start -- --fresh      # ignore the odds cache and spend credits
+npm run odds               # list saved odds days, no API calls
+npm run compare -- YYYY-MM-DD  # jev beside tail-jev for that day, no API calls
 npm run view               # replay last-run.json, no API calls
+npm run view -- YYYY-MM-DD-jev  # open one snapshot
 npm run typecheck          # tsc --noEmit
 ```
 
-`model=` can sit before or after the date. `model=tail-jev` does not call TypeSafe. `AUTOJEV_URL` in `.env` is the decide endpoint. Do not put that address in the repo, and do not print it or a key. Autojev answers one `noul` or `choice` per call and returns a probability per option, not a separate confidence. The 0.80 gate reads the chosen option's probability. Relevance is the yes probability. Do not lower either gate.
+`model=` can sit before or after the date. `odds=` is the America/New_York day the prices were saved, not the kickoff day. `npm run odds` lists those days. A replay reads `odds-cache/` even after `ODDS_CACHE_HOURS`, keeps games that have since kicked off, and throws instead of fetching when that day has no save. Do not combine `odds=` with a slate date or with `--fresh`. `model=tail-jev` does not call TypeSafe. `AUTOJEV_URL` in `.env` is the decide endpoint. Do not put that address in the repo, and do not print it or a key. Autojev answers one `noul` or `choice` per call and returns a probability per option, not a separate confidence. The 0.80 gate reads the chosen option's probability. Relevance is the yes probability. Do not lower either gate.
 
-`npm start` writes `last-run.json`, then opens the screen. A non-TTY prints every sport, league, and page as text and exits. That is expected in an agent shell. Do not treat that as a mouse test.
+`npm start` writes `last-run.json` and `snapshots/<day>-<model>.json`, then opens the screen. The snapshot day is `odds=`, or the slate date, or today's Eastern date. A later run of the same day and model replaces that snapshot. `npm run compare` reads the jev and tail-jev snapshots and does not call the Odds API, ESPN, TypeSafe, or Autojev. A non-TTY prints every sport, league, and page as text and exits. That is expected in an agent shell. Do not treat that as a mouse test.
 
-Run and Debug configs are in `.vscode/launch.json`: Start slate, Start slate for an Eastern day, and View saved slate. They launch `node` with `--import tsx`, same as the npm scripts. Keep `console` set to `integratedTerminal`. The Debug Console is not a TTY, so the screen, mouse, and x button will not work there. `.npmrc` sets `engine-strict=true`.
+Run and Debug configs are in `.vscode/launch.json`: Start slate, Start slate for an Eastern day, Replay saved odds, Compare decision snapshots, and View saved slate. They launch `node` with `--import tsx`, same as the npm scripts. Keep `console` set to `integratedTerminal`. The Debug Console is not a TTY, so the screen, mouse, and x button will not work there. `.npmrc` sets `engine-strict=true`.
 
 ## Files
 
 Entries stay at the package root. Everything else is grouped by job.
 
-- `parlays.ts` walks `sports/index.ts`, saves `last-run.json`, and opens the screen. `view.ts` only reads that file.
+- `parlays.ts` walks `sports/index.ts`, saves `last-run.json` and `snapshots/<day>-<model>.json`, and opens the screen. `view.ts` reads `last-run.json`, or `snapshots/<name>.json` when given a name. `compare.ts` reads the jev and tail-jev snapshots for one day. `odds-days.ts` lists saved odds days. None of those three call an API.
 - `slate/board.ts` builds one Games board: moneylines, spreads, totals, and moneyline tickets. `slate/window.ts` is the Eastern day and the scoreboard fetch.
 - `decisions/judge.ts` is `model=jev` or `model=tail-jev`. It parses those args and runs rerank and verify.
 - `props/board.ts` builds a Props tab from a `PropProfile`.
 - `espn/evidence.ts` is `createEvidence(base, style)`. `NFL_EVIDENCE`, `NCAA_EVIDENCE`, `SOCCER_EVIDENCE`, `HOCKEY_EVIDENCE`, `BASKETBALL_EVIDENCE`, and `BASEBALL_EVIDENCE` are the styles in use. Copy the closer one for a new sport and change the fields that differ. Do not add a sport branch in the middle of the client. `espn/players.ts` is `createPlayers` for one competition.
-- `odds/cache.ts` stores successful Odds API responses in gitignored `odds-cache/` at the package root. The cache key is the path and query with `apiKey` removed. A slate for the same sport and markets is reused until `ODDS_CACHE_HOURS` even when `commenceTimeFrom` and `commenceTimeTo` move. The lifetime is 168 hours if unset. `--fresh` or `ODDS_CACHE=0` fetches again. Do not log or store the key. `odds/books.ts` is the book order.
+- `odds/cache.ts` stores successful Odds API responses in gitignored `odds-cache/` at the package root. The cache key is the path and query with `apiKey` removed. A slate for the same sport and markets is reused until `ODDS_CACHE_HOURS` even when `commenceTimeFrom` and `commenceTimeTo` move. The lifetime is 168 hours if unset. `--fresh` or `ODDS_CACHE=0` fetches again. `odds=YYYY-MM-DD` reads saves from that Eastern day after the lifetime and does not fetch. Do not log or store the key. `odds/books.ts` is the book order.
 - `ui/screen.ts` turns a `SavedSlate` into tabs. `ui/table.ts` is the live screen: layout, scroll, mouse, tabs, black background.
 
 A parent tab is a folder under `sports/`:
@@ -82,7 +86,7 @@ The background stays black. The top row is the sport (Football, Soccer, Hockey, 
 
 Never print `.env`, a key, or a request URL that contains a key. Odds failures should report status and the API message only.
 
-`origin` is `gh:BenCully/parlay-slate.git` (https://github.com/BenCully/parlay-slate) and `main` tracks `origin/main`. Do not commit or push unless asked. `last-run.json`, `odds-cache/`, `.env`, and `.env.settings` stay gitignored. `.env.example` and `.env.settings.example` stay in git.
+`origin` is `gh:BenCully/parlay-slate.git` (https://github.com/BenCully/parlay-slate) and `main` tracks `origin/main`. Do not commit or push unless asked. `last-run.json`, `snapshots/`, `odds-cache/`, `.env`, and `.env.settings` stay gitignored. `.env.example` and `.env.settings.example` stay in git.
 
 ## Changelog
 

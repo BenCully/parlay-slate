@@ -30,13 +30,20 @@ npm start
 npm start -- 2026-11-15
 npm start -- 2026-11-15 model=jev
 npm start -- 2026-11-15 model=tail-jev
+npm start -- odds=2026-11-15 model=jev
+npm start -- odds=2026-11-15 model=tail-jev
 npm start -- --fresh
+npm run odds
+npm run compare -- 2026-11-15
 npm run view
+npm run view -- 2026-11-15-jev
 ```
 
 `model=jev` asks TypeSafe, through jev-recipes, which briefs to keep. That is also what runs when `model=` is left off. `model=tail-jev` asks Autojev on the tailnet. `model=autojev` is the same choice. Both keep the 0.60 rerank gate and the 0.80 verify gate. Autojev returns a probability for each option and no separate confidence, so the chosen option's probability is the number the 0.80 gate reads. `AUTOJEV_URL` in `.env` is the decide endpoint. The repo does not keep a default address.
 
-`npm start` looks up the slate, writes `last-run.json`, then opens the screen. Odds API responses are saved in gitignored `odds-cache/` and reused for `ODDS_CACHE_HOURS` (168 by default, which is 7 days). A later run does not refetch a sport while that save is inside the lifetime, even if the kickoff window moved. A cached board says when those prices were saved. Game lines and player props both go through that cache. `npm start -- --fresh` ignores that cache and spends credits. `npm run view` opens that file again and does not call the Odds API, ESPN, or TypeSafe. The top row is Football, Soccer, Hockey, Basketball, and Baseball. Football has NFL and NCAA. Soccer has Premier League, Champions League, La Liga, Serie A, and Bundesliga. Hockey has NHL, Basketball has NBA, and Baseball has MLB. Every league has Games and Props. Click a tab, or press Tab, Left, Right, or 1 and 2 for Games and Props. `[` and `]` change sport. `,` and `.` change league when that sport has more than one. Resize refits the table. The scroll wheel moves the bar on the right. `q` and the x button in the top-right corner close the screen. The background is black.
+`odds=2026-11-15` replays prices saved that America/New_York day. `npm run odds` lists the days in `odds-cache/` and does not call the network. The replay still works after `ODDS_CACHE_HOURS`, keeps games that have since kicked off, and does not spend an Odds API credit. If that day has no save, the run stops instead of fetching. Do not combine `odds=` with a slate date or with `--fresh`. ESPN evidence and the decision model still run, so a replay can test `jev` against `tail-jev` on the same saved prices.
+
+`npm start` looks up the slate, writes `last-run.json` and a snapshot, then opens the screen. Odds API responses are saved in gitignored `odds-cache/` and reused for `ODDS_CACHE_HOURS` (168 by default, which is 7 days). A later run does not refetch a sport while that save is inside the lifetime, even if the kickoff window moved. A cached board says when those prices were saved. Game lines and player props both go through that cache. `npm start -- --fresh` ignores that cache and spends credits. `npm run view` opens that file again and does not call the Odds API, ESPN, or TypeSafe. The top row is Football, Soccer, Hockey, Basketball, and Baseball. Football has NFL and NCAA. Soccer has Premier League, Champions League, La Liga, Serie A, and Bundesliga. Hockey has NHL, Basketball has NBA, and Baseball has MLB. Every league has Games and Props. Click a tab, or press Tab, Left, Right, or 1 and 2 for Games and Props. `[` and `]` change sport. `,` and `.` change league when that sport has more than one. Resize refits the table. The scroll wheel moves the bar on the right. `q` and the x button in the top-right corner close the screen. The background is black.
 
 With no arguments, the NFL and NCAA use the current ESPN week and skip games that have already kicked off. Each soccer league uses the games on its ESPN scoreboard and the following four days, so the rest of that matchweek is included. The NHL, NBA, and MLB use the games on that league's ESPN scoreboard, from one hour before the first to six hours after the last. A scoreboard with nothing still ahead uses one Eastern day. A `YYYY-MM-DD` argument is one America/New_York calendar day for every league, so Sunday night is included and Monday night is not.
 
@@ -50,19 +57,22 @@ NHL, NBA, and MLB moneylines are two-way. The NHL moneyline includes overtime. A
 
 ## Saved slate
 
-`npm start` overwrites `parlay-slate/last-run.json` after the lookups finish, then prints `Saved` and the file path. The next `npm start` replaces that file. It is gitignored.
+`npm start` overwrites `parlay-slate/last-run.json` after the lookups finish, then prints `Saved` and the file path. It also writes `snapshots/<day>-<model>.json`. The day is the `odds=` day, the slate date, or today's Eastern date. The next run of that same day and model replaces that snapshot. Both files are gitignored.
+
+`npm run compare -- 2026-11-15` opens `snapshots/2026-11-15-jev.json` beside `snapshots/2026-11-15-tail-jev.json`. Decision and Slip columns sit on one row. It does not call the Odds API, ESPN, TypeSafe, or Autojev. A missing file prints the `npm start` command that writes it.
 
 The file is the finished screen, not the raw API responses. Each table cell is already decided. It stores:
 
 - `savedAt`, the UTC time of that run.
 - `model`, `jev` or `tail-jev`, which decision model produced the cells. Older files omit it.
+- `oddsDay`, the Eastern day whose saved odds were replayed. A live run omits it.
 - `title`, the week or Eastern day and how many favorites qualified.
 - `groups`, the Games rows: each favorite, its spread, and its over/under.
 - `note`, when there is no parlay or no qualifying favorite.
 - `ticketGroups`, the moneyline tickets, only when at least two wins cleared 0.80.
 - `props`, the Props tab: its title, one group of rows per team, and the note under that table.
 
-`npm run view` reads `last-run.json` from the same directory as `view.ts` and draws it with the same screen. Prices and decisions stay as they were on that run. If the file is missing, the command prints `No saved slate. Run npm start once, then npm run view.` and exits. Run `npm start` when you want a new slate.
+`npm run view` reads `last-run.json` from the same directory as `view.ts` and draws it with the same screen. `npm run view -- 2026-11-15-jev` opens that snapshot. Prices and decisions stay as they were on that run. If the file is missing, the command says so and exits. Run `npm start` when you want a new slate.
 
 The same command without npm is:
 

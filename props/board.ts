@@ -3,7 +3,7 @@
 // The brief is the player's ESPN game log. No extra account.
 import { BOOKS } from '../odds/books.js';
 import { nameKey } from '../espn/evidence.js';
-import { oddsGet } from '../odds/cache.js';
+import { oddsGet, oddsReplayDay } from '../odds/cache.js';
 import type { PlayerRef } from '../espn/players.js';
 
 export type YesCopy = {
@@ -344,8 +344,14 @@ export async function loadPropBoard(games: SlateGame[], profile: PropProfile) {
 
   const claims = built.flat().flatMap(claimsFor);
   if (cachedGames) {
-    console.log(`Odds cache hit for ${cachedGames} of ${games.length} prop request${games.length === 1 ? '' : 's'}.`);
-    notes.push(`${cachedGames} of ${games.length} prop boards used cached Odds API prices. npm start -- --fresh spends credits on new lines.`);
+    const replay = oddsReplayDay();
+    const requests = `prop request${games.length === 1 ? '' : 's'}`;
+    console.log(replay
+      ? `Odds cache hit for ${cachedGames} of ${games.length} ${requests} saved on ${replay}. Nothing was fetched.`
+      : `Odds cache hit for ${cachedGames} of ${games.length} ${requests}.`);
+    notes.push(replay
+      ? `${cachedGames} of ${games.length} prop boards used odds saved on ${replay}.`
+      : `${cachedGames} of ${games.length} prop boards used cached Odds API prices. npm start -- --fresh spends credits on new lines.`);
   }
   return {
     claims,

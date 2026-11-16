@@ -30,6 +30,8 @@ export type SavedSport = {
 export type SavedSlate = {
   savedAt: string;
   model?: string;
+  /** Eastern day whose saved odds were replayed. Absent on a live run. */
+  oddsDay?: string;
   title: string;
   groups: string[][][];
   note?: string;
@@ -138,8 +140,12 @@ const sportShort: Record<string, string> = {
   Baseball: 'Base',
 };
 
+export function sportsOf(saved: SavedSlate): SavedSport[] {
+  return (saved.sports?.length ? saved.sports : [legacySport(saved)]).map((sport) => withNcaa(asFootball(sport)));
+}
+
 export function slatePages(saved: SavedSlate): ScreenPage[] {
-  const sports = (saved.sports?.length ? saved.sports : [legacySport(saved)]).map((sport) => withNcaa(asFootball(sport)));
+  const sports = sportsOf(saved);
   return sports.map((sport) => {
     const short = sportShort[sport.label];
     if (sport.leagues?.length) {

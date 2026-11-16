@@ -2,6 +2,12 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-16T23:18:49Z
+
+### Replay saved odds and compare decisions
+
+`npm run odds` lists Eastern days that have saved Odds API responses and does not call the network. `npm start -- odds=YYYY-MM-DD` builds the slate from that day's saves, including games that have since kicked off. A miss throws and does not fetch. `--fresh` and a slate date cannot be combined with `odds=`. Each finished run still writes `last-run.json` and also `snapshots/<day>-<model>.json`. `npm run compare -- YYYY-MM-DD` opens the jev and tail-jev snapshots for that day and does not call the Odds API, ESPN, TypeSafe, or Autojev. `npm run view -- <day>-<model>` opens one snapshot.
+
 ## 2026-11-16T22:42:37Z
 
 ### Autojev address stays in .env

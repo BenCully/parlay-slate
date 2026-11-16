@@ -12,8 +12,15 @@ export function addDays(day: string, days: number) {
   return next.toISOString().slice(0, 10);
 }
 
+/** America/New_York calendar day for a timestamp, as YYYY-MM-DD. */
+export function easternDay(when: Date | string | number = new Date()) {
+  const date = when instanceof Date ? when : new Date(when);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+}
+
 export function todayEastern() {
-  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  return easternDay();
 }
 
 function startOfEasternDay(day: string) {

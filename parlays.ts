@@ -1,17 +1,18 @@
-// Builds every sport in sports/index.ts, saves last-run.json, and opens the screen.
+// Builds every sport in sports/index.ts, saves last-run.json and a snapshot, and opens the screen.
 // env: TYPESAFE_API_KEY, ODDS_API_KEY, plus cache settings in .env.settings
 // run: npm start                              current slate, games that have not kicked off
 //      npm start -- 2026-11-15                one Eastern calendar day
 //      npm start -- 2026-11-15 model=jev      TypeSafe through jev-recipes (also the default)
 //      npm start -- 2026-11-15 model=tail-jev Autojev on the tailnet (model=autojev is the same)
-import { writeFile } from 'node:fs/promises';
+//      npm start -- odds=2026-11-15 model=jev prices saved that Eastern day, no Odds API call
+import { mkdir, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { readStartArgs, selectDecisionModel } from './decisions/judge.js';
+import { setOddsReplay } from './odds/cache.js';
 import { buildBoard, type BuiltBoard } from './slate/board.js';
+import { todayEastern } from './slate/window.js';
 import { showSlate, type SavedBoard, type SavedLeague, type SavedSlate, type SavedSport } from './ui/screen.js';
 import { SPORTS, type LeagueDef } from './sports/index.js';
-
-const { day, model } = readStartArgs(process.argv.slice(2));
 
 function scrub(error: unknown, fallback: string) {
   const message = error instanceof Error ? error.message : fallback;
@@ -22,9 +23,9 @@ function gamesOf(board: BuiltBoard): SavedBoard {
   return { title: board.title, groups: board.groups, note: board.note, ticketGroups: board.ticketGroups };
 }
 
-async function runLeague(league: LeagueDef): Promise<{ league: SavedLeague; built: boolean }> {
+async function runLeague(league: LeagueDef, slateDay: string | undefined): Promise<{ league: SavedLeague; built: boolean }> {
   try {
-    const board = await buildBoard(league.source, day);
+    const board = await buildBoard(league.source, slateDay);
     return {
       built: true,
       league: { label: league.label, short: league.short, games: gamesOf(board), props: board.props },
@@ -45,14 +46,16 @@ async function runLeague(league: LeagueDef): Promise<{ league: SavedLeague; buil
 }
 
 async function main() {
+  const { day, model, odds } = readStartArgs(process.argv.slice(2));
+  if (odds) setOddsReplay(odds);
   const chosen = selectDecisionModel(model);
-  console.log(`Decisions: ${chosen}.`);
+  console.log(odds ? `Decisions: ${chosen}. Odds saved on ${odds}.` : `Decisions: ${chosen}.`);
   const sports: SavedSport[] = [];
   let built = false;
   for (const sport of SPORTS) {
     if (sport.kind === 'board') {
       try {
-        const board = await buildBoard(sport.source, day);
+        const board = await buildBoard(sport.source, odds ?? day);
         built = true;
         sports.push({ label: sport.label, games: gamesOf(board), props: board.props });
       } catch (error) {
@@ -69,7 +72,7 @@ async function main() {
     const leagues: SavedLeague[] = [];
     for (const league of sport.leagues) {
       console.log(`\n${league.label}`);
-      const result = await runLeague(league);
+      const result = await runLeague(league, odds ?? day);
       built = built || result.built;
       leagues.push(result.league);
     }
@@ -85,6 +88,7 @@ async function main() {
   const saved: SavedSlate = {
     savedAt: new Date().toISOString(),
     model: chosen,
+    ...(odds ? { oddsDay: odds } : {}),
     title: first?.games?.title ?? '',
     groups: first?.games?.groups ?? [],
     note: first?.games?.note,
@@ -92,7 +96,7 @@ async function main() {
     props: first?.props,
     sports,
   };
-  await saveSlate(saved);
+  await saveSlate(saved, odds ?? day ?? todayEastern());
   await showSlate(saved);
 }
 
@@ -106,10 +110,16 @@ function openedBoard(sports: SavedSport[]) {
 }
 
 const savedPath = fileURLToPath(new URL('./last-run.json', import.meta.url));
+const snapshotDir = fileURLToPath(new URL('./snapshots/', import.meta.url));
 
-async function saveSlate(saved: SavedSlate) {
-  await writeFile(savedPath, `${JSON.stringify(saved, null, 2)}\n`);
+async function saveSlate(saved: SavedSlate, label: string) {
+  const body = `${JSON.stringify(saved, null, 2)}\n`;
+  await writeFile(savedPath, body);
+  await mkdir(snapshotDir, { recursive: true });
+  const snapshotPath = `${snapshotDir}${label}-${saved.model}.json`;
+  await writeFile(snapshotPath, body);
   console.log(`Saved ${savedPath}`);
+  console.log(`Saved ${snapshotPath}`);
 }
 
 main().catch((error) => { console.error(error); process.exit(1); });
