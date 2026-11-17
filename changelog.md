@@ -2,6 +2,12 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-17T00:03:32Z
+
+### Autojev base URL and API key
+
+`model=tail-jev` reads `AUTOJEV_URL` as the `/v1` base and posts one `noul` or `choice` to `systemone` on that base. The call sends `AUTOJEV_API_KEY` as a bearer token. A missing URL or key stops before the call. A rejected key stops with that name and does not print the token. A choice response can include a separate confidence. The 0.80 gate still reads the chosen option's probability. Relevance is still the yes probability. `model=jev` is unchanged.
+
 ## 2026-11-16T23:18:49Z
 
 ### Replay saved odds and compare decisions

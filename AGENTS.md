@@ -1,6 +1,6 @@
 # Parlays
 
-Parlay finder for football, soccer, hockey, basketball, and baseball. Football is NFL and NCAA. Soccer is five leagues. Hockey is the NHL. Basketball is the NBA. Baseball is MLB. Private ESM package in this directory. Node `>=22.23.4`. Two keys only, both in gitignored `.env`: `TYPESAFE_API_KEY` and `ODDS_API_KEY`. Cache settings are in gitignored `.env.settings` (`ODDS_CACHE_HOURS`, `ODDS_CACHE`, `ODDS_CACHE_DIR`). See `.env.settings.example`. `.env` is loaded after `.env.settings`, so a duplicate name in `.env` wins. The shell wins over both files.
+Parlay finder for football, soccer, hockey, basketball, and baseball. Football is NFL and NCAA. Soccer is five leagues. Hockey is the NHL. Basketball is the NBA. Baseball is MLB. Private ESM package in this directory. Node `>=22.23.4`. Keys live in gitignored `.env`: `TYPESAFE_API_KEY`, `ODDS_API_KEY`, and, for `model=tail-jev`, `AUTOJEV_API_KEY`. Cache settings are in gitignored `.env.settings` (`ODDS_CACHE_HOURS`, `ODDS_CACHE`, `ODDS_CACHE_DIR`). See `.env.settings.example`. `.env` is loaded after `.env.settings`, so a duplicate name in `.env` wins. The shell wins over both files.
 
 ## Commands
 
@@ -18,7 +18,7 @@ npm run view -- YYYY-MM-DD-jev  # open one snapshot
 npm run typecheck          # tsc --noEmit
 ```
 
-`model=` can sit before or after the date. `odds=` is the America/New_York day the prices were saved, not the kickoff day. `npm run odds` lists those days. A replay reads `odds-cache/` even after `ODDS_CACHE_HOURS`, keeps games that have since kicked off, and throws instead of fetching when that day has no save. Do not combine `odds=` with a slate date or with `--fresh`. `model=tail-jev` does not call TypeSafe. `AUTOJEV_URL` in `.env` is the decide endpoint. Do not put that address in the repo, and do not print it or a key. Autojev answers one `noul` or `choice` per call and returns a probability per option, not a separate confidence. The 0.80 gate reads the chosen option's probability. Relevance is the yes probability. Do not lower either gate.
+`model=` can sit before or after the date. `odds=` is the America/New_York day the prices were saved, not the kickoff day. `npm run odds` lists those days. A replay reads `odds-cache/` even after `ODDS_CACHE_HOURS`, keeps games that have since kicked off, and throws instead of fetching when that day has no save. Do not combine `odds=` with a slate date or with `--fresh`. `model=tail-jev` does not call TypeSafe. `AUTOJEV_URL` in `.env` is the `/v1` base. The client posts one `noul` or `choice` to `systemone` on that base and sends `AUTOJEV_API_KEY` as a bearer token. Do not put that address in the repo, and do not print it or a key. A choice response can include a separate confidence. The 0.80 gate reads the chosen option's probability, not that field. Relevance is the yes probability. Do not lower either gate.
 
 `npm start` writes `last-run.json` and `snapshots/<day>-<model>.json`, then opens the screen. The snapshot day is `odds=`, or the slate date, or today's Eastern date. A later run of the same day and model replaces that snapshot. `npm run compare` reads the jev and tail-jev snapshots and does not call the Odds API, ESPN, TypeSafe, or Autojev. A non-TTY prints every sport, league, and page as text and exits. That is expected in an agent shell. Do not treat that as a mouse test.
 

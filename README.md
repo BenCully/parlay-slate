@@ -4,12 +4,12 @@ Finds 2- and 3-leg moneyline parlays for the NFL, NCAA football, five soccer lea
 
 The script pulls the slate from [The Odds API](https://the-odds-api.com/liveapi/guides/v4/), keeps favorites the market already prices at 60% or better, and builds a short brief for each one from ESPN's public injury report and team schedule. A decision model then drops any pick that brief does not support. The default is [jev-recipes](https://github.com/agencyenterprise/jev-recipes) on TypeSafe. `model=tail-jev` uses Autojev on the tailnet instead. It prints the ten parlays with the highest combined implied hit rate.
 
-No extra account is required for the briefs. ESPN's public site API is unauthenticated. The only keys are the two already in `.env`.
+No extra account is required for the briefs. ESPN's public site API is unauthenticated. `model=jev` uses the TypeSafe key. `model=tail-jev` uses the Autojev address and key in `.env`.
 
 ## Requirements
 
 - Node.js 22.23.4 or newer (`jev-recipes` requires it).
-- A [TypeSafe API key](https://console.typesafe.ai/settings/keys) (`TYPESAFE_API_KEY`) for `model=jev`, the default. Those `rerank` and `verify` calls send the pick text and evidence to TypeSafe and use quota. `model=tail-jev` does not call TypeSafe.
+- A [TypeSafe API key](https://console.typesafe.ai/settings/keys) (`TYPESAFE_API_KEY`) for `model=jev`, the default. Those `rerank` and `verify` calls send the pick text and evidence to TypeSafe and use quota. `model=tail-jev` does not call TypeSafe. It needs `AUTOJEV_URL` and `AUTOJEV_API_KEY` in `.env`.
 - An [Odds API key](https://the-odds-api.com) (`ODDS_API_KEY`). The first run for a slate spends credits. Later runs reuse `odds-cache/` for the number of hours in `ODDS_CACHE_HOURS`. `npm start -- --fresh` fetches new prices.
 
 ## Setup
@@ -21,7 +21,7 @@ cp .env.example .env
 cp .env.settings.example .env.settings
 ```
 
-Put both keys in `.env`, and put the Autojev decide address in `AUTOJEV_URL` there too. That file is gitignored. Cache settings go in `.env.settings`, which is also gitignored. `ODDS_CACHE_HOURS` is how long a saved response lasts. `ODDS_CACHE=0` ignores the cache. `ODDS_CACHE_DIR` changes the folder. A name in `.env` overrides the same name in `.env.settings`.
+Put the TypeSafe and Odds API keys in `.env`. For `model=tail-jev`, also put the Autojev `/v1` base in `AUTOJEV_URL` and its bearer token in `AUTOJEV_API_KEY`. That file is gitignored. Cache settings go in `.env.settings`, which is also gitignored. `ODDS_CACHE_HOURS` is how long a saved response lasts. `ODDS_CACHE=0` ignores the cache. `ODDS_CACHE_DIR` changes the folder. A name in `.env` overrides the same name in `.env.settings`.
 
 ## Run
 
@@ -39,7 +39,7 @@ npm run view
 npm run view -- 2026-11-15-jev
 ```
 
-`model=jev` asks TypeSafe, through jev-recipes, which briefs to keep. That is also what runs when `model=` is left off. `model=tail-jev` asks Autojev on the tailnet. `model=autojev` is the same choice. Both keep the 0.60 rerank gate and the 0.80 verify gate. Autojev returns a probability for each option and no separate confidence, so the chosen option's probability is the number the 0.80 gate reads. `AUTOJEV_URL` in `.env` is the decide endpoint. The repo does not keep a default address.
+`model=jev` asks TypeSafe, through jev-recipes, which briefs to keep. That is also what runs when `model=` is left off. `model=tail-jev` asks Autojev on the tailnet. `model=autojev` is the same choice. Both keep the 0.60 rerank gate and the 0.80 verify gate. Autojev answers one question per call. A choice response can include a separate confidence. The 0.80 gate reads the chosen option's probability, not that field. Relevance is the yes probability. `AUTOJEV_URL` in `.env` is the `/v1` base, and `AUTOJEV_API_KEY` is the bearer token. The repo does not keep a default address or key.
 
 `odds=2026-11-15` replays prices saved that America/New_York day. `npm run odds` lists the days in `odds-cache/` and does not call the network. The replay still works after `ODDS_CACHE_HOURS`, keeps games that have since kicked off, and does not spend an Odds API credit. If that day has no save, the run stops instead of fetching. Do not combine `odds=` with a slate date or with `--fresh`. ESPN evidence and the decision model still run, so a replay can test `jev` against `tail-jev` on the same saved prices.
 
