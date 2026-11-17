@@ -2,6 +2,18 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-17T22:06:32Z
+
+### Latest slate and npm entries leave the package root
+
+`npm start` writes `runs/last-run.json`. `npm run view` reads that file. The npm entry files live in `scripts/`: `parlays.ts`, `view.ts`, `compare.ts`, `odds-days.ts`, and `clear-snapshots.ts`. `snapshots/` and `odds-cache/` stay at the package root. `npm run clear-snapshots` still deletes only `snapshots/`.
+
+## 2026-11-17T22:02:42Z
+
+### Clear saved decision snapshots
+
+`npm run clear-snapshots` deletes every entry in `snapshots/` and leaves the folder. It does not call an API. `last-run.json` and `odds-cache/` stay in place. A symlink in that folder is removed without following it.
+
 ## 2026-11-17T21:51:12Z
 
 ### Model label beside the close button

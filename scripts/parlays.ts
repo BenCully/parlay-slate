@@ -1,4 +1,4 @@
-// Builds every sport in sports/index.ts, saves last-run.json and a snapshot, and opens the screen.
+// Builds every sport in sports/index.ts, saves runs/last-run.json and a snapshot, and opens the screen.
 // env: TYPESAFE_API_KEY, ODDS_API_KEY, plus cache settings in .env.settings
 // run: npm start                              current slate, games that have not kicked off
 //      npm start -- 2026-11-15                one Eastern calendar day
@@ -6,13 +6,14 @@
 //      npm start -- 2026-11-15 model=tail-jev Autojev on the tailnet (model=autojev is the same)
 //      npm start -- odds=2026-11-15 model=jev prices saved that Eastern day, no Odds API call
 import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readStartArgs, selectDecisionModel } from './decisions/judge.js';
-import { setOddsReplay } from './odds/cache.js';
-import { buildBoard, type BuiltBoard } from './slate/board.js';
-import { todayEastern } from './slate/window.js';
-import { showSlate, type SavedBoard, type SavedLeague, type SavedSlate, type SavedSport } from './ui/screen.js';
-import { SPORTS, type LeagueDef } from './sports/index.js';
+import { readStartArgs, selectDecisionModel } from '../decisions/judge.js';
+import { setOddsReplay } from '../odds/cache.js';
+import { buildBoard, type BuiltBoard } from '../slate/board.js';
+import { todayEastern } from '../slate/window.js';
+import { showSlate, type SavedBoard, type SavedLeague, type SavedSlate, type SavedSport } from '../ui/screen.js';
+import { SPORTS, type LeagueDef } from '../sports/index.js';
 
 function scrub(error: unknown, fallback: string) {
   const message = error instanceof Error ? error.message : fallback;
@@ -80,7 +81,7 @@ async function main() {
   }
 
   if (!built) {
-    console.error('No sport produced a board. Left last-run.json unchanged.');
+    console.error('No sport produced a board. Left runs/last-run.json unchanged.');
     process.exit(1);
   }
 
@@ -109,13 +110,14 @@ function openedBoard(sports: SavedSport[]) {
   return undefined;
 }
 
-const savedPath = fileURLToPath(new URL('./last-run.json', import.meta.url));
-const snapshotDir = fileURLToPath(new URL('./snapshots/', import.meta.url));
+const savedPath = fileURLToPath(new URL('../runs/last-run.json', import.meta.url));
+const snapshotDir = fileURLToPath(new URL('../snapshots/', import.meta.url));
 
 async function saveSlate(saved: SavedSlate, label: string) {
   const body = `${JSON.stringify(saved, null, 2)}\n`;
-  await writeFile(savedPath, body);
+  await mkdir(dirname(savedPath), { recursive: true });
   await mkdir(snapshotDir, { recursive: true });
+  await writeFile(savedPath, body);
   const snapshotPath = `${snapshotDir}${label}-${saved.model}.json`;
   await writeFile(snapshotPath, body);
   console.log(`Saved ${savedPath}`);

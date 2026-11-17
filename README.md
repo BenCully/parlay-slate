@@ -44,7 +44,9 @@ npm start -- --fresh
 npm run odds
 # Open the jev and tail-jev snapshots for that day side by side. Does not call any API.
 npm run compare -- 2026-11-15
-# Reopen last-run.json. Does not call the Odds API, ESPN, or a decision model.
+# Delete every file in snapshots/. Leaves runs/ and odds-cache/.
+npm run clear-snapshots
+# Reopen runs/last-run.json. Does not call the Odds API, ESPN, or a decision model.
 npm run view
 # Open snapshots/2026-11-15-jev.json. Prices and decisions stay as they were on that run.
 npm run view -- 2026-11-15-jev
@@ -54,7 +56,7 @@ npm run view -- 2026-11-15-jev
 
 `odds=2026-11-15` replays prices saved that America/New_York day. `npm run odds` lists the days in `odds-cache/` and does not call the network. The replay still works after `ODDS_CACHE_HOURS`, keeps games that have since kicked off, and does not spend an Odds API credit. If that day has no save, the run stops instead of fetching. Do not combine `odds=` with a slate date or with `--fresh`. ESPN evidence and the decision model still run, so a replay can test `jev` against `tail-jev` on the same saved prices.
 
-`npm start` looks up the slate, writes `last-run.json` and a snapshot, then opens the screen. Odds API responses are saved in gitignored `odds-cache/` and reused for `ODDS_CACHE_HOURS` (168 by default, which is 7 days). A later run does not refetch a sport while that save is inside the lifetime, even if the kickoff window moved. A cached board says when those prices were saved. Game lines and player props both go through that cache. `npm start -- --fresh` ignores that cache and spends credits. `npm run view` opens that file again and does not call the Odds API, ESPN, or TypeSafe. The top row is Football, Soccer, Hockey, Basketball, and Baseball. The model sits just left of the x button, with a gap before it, as `Model: Jev`, `Model: Tail-Jev`, or both names on a compare screen. Football has NFL and NCAA. Soccer has Premier League, Champions League, La Liga, Serie A, and Bundesliga. Hockey has NHL, Basketball has NBA, and Baseball has MLB. Every league has Games and Props. Click a tab, or press Tab, Left, Right, or 1 and 2 for Games and Props. `[` and `]` change sport. `,` and `.` change league when that sport has more than one. Resize refits the table. The scroll wheel moves the bar on the right. `q` and the x button in the top-right corner close the screen. The background is black.
+`npm start` looks up the slate, writes `runs/last-run.json` and a snapshot, then opens the screen. Odds API responses are saved in gitignored `odds-cache/` and reused for `ODDS_CACHE_HOURS` (168 by default, which is 7 days). A later run does not refetch a sport while that save is inside the lifetime, even if the kickoff window moved. A cached board says when those prices were saved. Game lines and player props both go through that cache. `npm start -- --fresh` ignores that cache and spends credits. `npm run view` opens that file again and does not call the Odds API, ESPN, or TypeSafe. The top row is Football, Soccer, Hockey, Basketball, and Baseball. The model sits just left of the x button, with a gap before it, as `Model: Jev`, `Model: Tail-Jev`, or both names on a compare screen. Football has NFL and NCAA. Soccer has Premier League, Champions League, La Liga, Serie A, and Bundesliga. Hockey has NHL, Basketball has NBA, and Baseball has MLB. Every league has Games and Props. Click a tab, or press Tab, Left, Right, or 1 and 2 for Games and Props. `[` and `]` change sport. `,` and `.` change league when that sport has more than one. Resize refits the table. The scroll wheel moves the bar on the right. `q` and the x button in the top-right corner close the screen. The background is black.
 
 With no arguments, the NFL and NCAA use the current ESPN week and skip games that have already kicked off. Each soccer league uses the games on its ESPN scoreboard and the following four days, so the rest of that matchweek is included. The NHL, NBA, and MLB use the games on that league's ESPN scoreboard, from one hour before the first to six hours after the last. A scoreboard with nothing still ahead uses one Eastern day. A `YYYY-MM-DD` argument is one America/New_York calendar day for every league, so Sunday night is included and Monday night is not.
 
@@ -68,9 +70,9 @@ NHL, NBA, and MLB moneylines are two-way. The NHL moneyline includes overtime. A
 
 ## Saved slate
 
-`npm start` overwrites `parlay-slate/last-run.json` after the lookups finish, then prints `Saved` and the file path. It also writes `snapshots/<day>-<model>.json`. The day is the `odds=` day, the slate date, or today's Eastern date. The next run of that same day and model replaces that snapshot. Both files are gitignored.
+`npm start` overwrites `parlay-slate/runs/last-run.json` after the lookups finish, then prints `Saved` and the file path. It also writes `snapshots/<day>-<model>.json`. The day is the `odds=` day, the slate date, or today's Eastern date. The next run of that same day and model replaces that snapshot. Both files are gitignored.
 
-`npm run compare -- 2026-11-15` opens `snapshots/2026-11-15-jev.json` beside `snapshots/2026-11-15-tail-jev.json`. Decision and Slip columns sit on one row. It does not call the Odds API, ESPN, TypeSafe, or Autojev. A missing file prints the `npm start` command that writes it.
+`npm run compare -- 2026-11-15` opens `snapshots/2026-11-15-jev.json` beside `snapshots/2026-11-15-tail-jev.json`. Decision and Slip columns sit on one row. It does not call the Odds API, ESPN, TypeSafe, or Autojev. A missing file prints the `npm start` command that writes it. `npm run clear-snapshots` deletes the files in `snapshots/` and leaves that folder, `runs/`, and `odds-cache/` in place.
 
 The file is the finished screen, not the raw API responses. Each table cell is already decided. It stores:
 
@@ -83,13 +85,13 @@ The file is the finished screen, not the raw API responses. Each table cell is a
 - `ticketGroups`, the moneyline tickets, only when at least two wins cleared 0.80.
 - `props`, the Props tab: its title, one group of rows per team, and the note under that table.
 
-`npm run view` reads `last-run.json` from the same directory as `view.ts` and draws it with the same screen. `npm run view -- 2026-11-15-jev` opens that snapshot. Prices and decisions stay as they were on that run. If the file is missing, the command says so and exits. Run `npm start` when you want a new slate.
+`npm run view` reads `runs/last-run.json` and draws it with the same screen. `npm run view -- 2026-11-15-jev` opens that snapshot. Prices and decisions stay as they were on that run. If the file is missing, the command says so and exits. Run `npm start` when you want a new slate.
 
 The same command without npm is:
 
 ```bash
-node --env-file-if-exists=.env.settings --env-file-if-exists=.env --import tsx parlays.ts
-node --env-file-if-exists=.env.settings --env-file-if-exists=.env --import tsx parlays.ts 2026-11-15
+node --env-file-if-exists=.env.settings --env-file-if-exists=.env --import tsx scripts/parlays.ts
+node --env-file-if-exists=.env.settings --env-file-if-exists=.env --import tsx scripts/parlays.ts 2026-11-15
 ```
 
 ## What it prints
@@ -133,7 +135,7 @@ The NHL shows an anytime goal, points, shots on goal, assists, and one extra of 
 
 A window too narrow for the headers stacks each row: the name, then the other fields, then the comment. The status line reads `q quits · wheel scrolls · tab games · [ ] sport · , . league`, and it drops a hint when that row has only one choice.
 
-Before the screen, the terminal prints each league name, the board title, `Checking N of M claims...` while verify runs, `Odds cache hit` when prices were reused, the Odds API credits remaining after a live fetch, and `Saved` plus the path of `last-run.json`. A shell that is not a terminal prints every sport, league, and page as text, then exits. A league that throws shows the error on that league's Games and Props pages, and the other leagues still print.
+Before the screen, the terminal prints each league name, the board title, `Checking N of M claims...` while verify runs, `Odds cache hit` when prices were reused, the Odds API credits remaining after a live fetch, and `Saved` plus the path of `runs/last-run.json`. A shell that is not a terminal prints every sport, league, and page as text, then exits. A league that throws shows the error on that league's Games and Props pages, and the other leagues still print.
 
 ## How a leg gets in
 

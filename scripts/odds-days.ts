@@ -1,6 +1,6 @@
 // Lists Eastern days that have saved Odds API responses. Does not call the network.
 // run: npm run odds
-import { listSavedOdds } from './odds/cache.js';
+import { listSavedOdds } from '../odds/cache.js';
 
 const days = await listSavedOdds();
 if (!days.length) {

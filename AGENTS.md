@@ -13,22 +13,23 @@ npm start -- odds=YYYY-MM-DD model=jev  # replay odds saved that Eastern day; no
 npm start -- --fresh      # ignore the odds cache and spend credits
 npm run odds               # list saved odds days, no API calls
 npm run compare -- YYYY-MM-DD  # jev beside tail-jev for that day, no API calls
-npm run view               # replay last-run.json, no API calls
+npm run clear-snapshots    # delete snapshots/, leave runs/ and odds-cache/
+npm run view               # replay runs/last-run.json, no API calls
 npm run view -- YYYY-MM-DD-jev  # open one snapshot
 npm run typecheck          # tsc --noEmit
 ```
 
 `model=` can sit before or after the date. `odds=` is the America/New_York day the prices were saved, not the kickoff day. `npm run odds` lists those days. A replay reads `odds-cache/` even after `ODDS_CACHE_HOURS`, keeps games that have since kicked off, and throws instead of fetching when that day has no save. Do not combine `odds=` with a slate date or with `--fresh`. `model=tail-jev` does not call TypeSafe. `AUTOJEV_URL` in `.env` is the `/v1` base. The client posts one `noul` or `choice` to `systemone` on that base and sends `AUTOJEV_API_KEY` as a bearer token. Do not put that address in the repo, and do not print it or a key. A choice response can include a separate confidence. The 0.80 gate reads the chosen option's probability, not that field. Relevance is the yes probability. Do not lower either gate.
 
-`npm start` writes `last-run.json` and `snapshots/<day>-<model>.json`, then opens the screen. The snapshot day is `odds=`, or the slate date, or today's Eastern date. A later run of the same day and model replaces that snapshot. `npm run compare` reads the jev and tail-jev snapshots and does not call the Odds API, ESPN, TypeSafe, or Autojev. A non-TTY prints every sport, league, and page as text and exits. That is expected in an agent shell. Do not treat that as a mouse test.
+`npm start` writes `runs/last-run.json` and `snapshots/<day>-<model>.json`, then opens the screen. The snapshot day is `odds=`, or the slate date, or today's Eastern date. A later run of the same day and model replaces that snapshot. `npm run compare` reads the jev and tail-jev snapshots and does not call the Odds API, ESPN, TypeSafe, or Autojev. `npm run clear-snapshots` deletes every entry in `snapshots/` and leaves the folder. It does not touch `runs/` or `odds-cache/`. A non-TTY prints every sport, league, and page as text and exits. That is expected in an agent shell. Do not treat that as a mouse test.
 
 Run and Debug configs are in `.vscode/launch.json`: Start slate, Start slate for an Eastern day, Replay saved odds, Compare decision snapshots, and View saved slate. They launch `node` with `--import tsx`, same as the npm scripts. Keep `console` set to `integratedTerminal`. The Debug Console is not a TTY, so the screen, mouse, and x button will not work there. `.npmrc` sets `engine-strict=true`.
 
 ## Files
 
-Entries stay at the package root. Everything else is grouped by job.
+`scripts/` holds the npm entry files. Saved output stays outside that folder.
 
-- `parlays.ts` walks `sports/index.ts`, saves `last-run.json` and `snapshots/<day>-<model>.json`, and opens the screen. `view.ts` reads `last-run.json`, or `snapshots/<name>.json` when given a name. `compare.ts` reads the jev and tail-jev snapshots for one day. `odds-days.ts` lists saved odds days. None of those three call an API.
+- `scripts/parlays.ts` walks `sports/index.ts`, saves `runs/last-run.json` and `snapshots/<day>-<model>.json`, and opens the screen. `scripts/view.ts` reads `runs/last-run.json`, or `snapshots/<name>.json` when given a name. `scripts/compare.ts` reads the jev and tail-jev snapshots for one day. `scripts/clear-snapshots.ts` empties `snapshots/`. `scripts/odds-days.ts` lists saved odds days. None of those four call an API. `runs/last-run.json` is the latest slate.
 - `slate/board.ts` builds one Games board: moneylines, spreads, totals, and moneyline tickets. `slate/window.ts` is the Eastern day and the scoreboard fetch.
 - `decisions/judge.ts` is `model=jev` or `model=tail-jev`. It parses those args and runs rerank and verify.
 - `props/board.ts` builds a Props tab from a `PropProfile`.
@@ -54,8 +55,8 @@ Add `sports/<name>.ts` that exports a `Sport`, then append it in `sports/index.t
 - `BoardSource.profile` is the prop markets. `null` shows `propsNote` and makes no prop request.
 - `shortNames` uses the ESPN short name in slips. Leave it false when the last word of the team name is already unique.
 - A dated run is one Eastern day for every sport. Build that with `easternRange`. The no-date window belongs in the sport file.
-- A thrown board becomes an error tab and the run continues with the next sport or league. `last-run.json` is left unchanged when every board throws.
-- The NFL league is copied to the top-level fields of `last-run.json` so an old reader still opens. If there is no NFL league, the first board is copied.
+- A thrown board becomes an error tab and the run continues with the next sport or league. `runs/last-run.json` is left unchanged when every board throws.
+- The NFL league is copied to the top-level fields of `runs/last-run.json` so an old reader still opens. If there is no NFL league, the first board is copied.
 
 ## Do not change these rules unless asked
 
@@ -80,13 +81,13 @@ Add `sports/<name>.ts` that exports a `Sport`, then append it in `sports/index.t
 
 The background stays black. The top row is the sport (Football, Soccer, Hockey, Basketball, Baseball), the model name, and the x button. The label is `Model: Jev` or `Model: Tail-Jev`, from the `model` on the save, with a gap before the x. A compare screen shows both names. A save with no `model` leaves that spot blank. Clicking the name does not close the screen. When that row does not fit, the labels shorten to FB, Soc, Hockey, Bask, and Base. Football then shows NFL and NCAA, and each of those shows Games and Props. Soccer shows the league row, then Games and Props. Hockey shows NHL, Basketball shows NBA, and Baseball shows MLB, and each of those shows Games and Props. A parent with one league still shows that league. Tab, Shift-Tab, Left, Right, 1, and 2 move Games and Props. `[` and `]` move the sport. `,` and `.` move the league when that row has more than one league. The wheel scrolls three lines. A click or drag on the bar jumps. `q` and the x button close the screen. Ctrl-C still restores the terminal. Parse stdin as a `Buffer`. Do not set stdin to utf8, or mouse bytes get corrupted. On exit, reset color and turn mouse tracking off.
 
-`SavedSlate` in `screen.ts` is the `last-run.json` contract. `sports` holds Football (NFL and NCAA) plus the soccer leagues. An old file with a direct NFL board opens as Football, with that board under NFL, and an NCAA tab that says to run `npm start`. A file with no `sports` does the same from its top-level NFL board. The Games page stays first under each league.
+`SavedSlate` in `screen.ts` is the `runs/last-run.json` contract. `sports` holds Football (NFL and NCAA) plus the soccer leagues. An old file with a direct NFL board opens as Football, with that board under NFL, and an NCAA tab that says to run `npm start`. A file with no `sports` does the same from its top-level NFL board. The Games page stays first under each league.
 
 ## Secrets and git
 
 Never print `.env`, a key, or a request URL that contains a key. Odds failures should report status and the API message only.
 
-`origin` is `gh:BenCully/parlay-slate.git` (https://github.com/BenCully/parlay-slate) and `main` tracks `origin/main`. Do not commit or push unless asked. `last-run.json`, `snapshots/`, `odds-cache/`, `.env`, and `.env.settings` stay gitignored. `.env.example` and `.env.settings.example` stay in git.
+`origin` is `gh:BenCully/parlay-slate.git` (https://github.com/BenCully/parlay-slate) and `main` tracks `origin/main`. Do not commit or push unless asked. `runs/`, `snapshots/`, `odds-cache/`, `.env`, and `.env.settings` stay gitignored. A root `last-run.json` stays ignored too. `.env.example` and `.env.settings.example` stay in git.
 
 ## Changelog
 
