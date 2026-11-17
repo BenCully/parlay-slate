@@ -36,9 +36,13 @@ export function createPlayers(options: {
   const logs = new Map<string, Promise<Log | null>>();
 
   async function readJson(url: string): Promise<any | null> {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    return res.json();
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
   }
 
   function rosterFor(teamName: string) {

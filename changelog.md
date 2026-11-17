@@ -2,6 +2,24 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-17T23:06:55Z
+
+### A failed check keeps the slate
+
+One Autojev timeout no longer replaces that league's Games tab with an error. The failed row is `No call`, the error is in the board note, and three failures in a row stop the rest of the calls. Props already kept their rows. They now keep the checks that succeeded too.
+
+A favorite that clears 0.60 and loses the top-8 cut says so. The Decision cell includes the relevance. It is no longer described as a score under 0.60. A missing score is `No call`.
+
+`npm start` checks `ODDS_API_KEY`, and `TYPESAFE_API_KEY` or the Autojev pair, before it walks a sport. An `odds=` replay does not need `ODDS_API_KEY`.
+
+Live prop requests stop when the last Odds API credit header is under `ODDS_CREDIT_FLOOR`. The default is 30. Cached props are still read. `0` keeps fetching. Requests already in flight can finish, so the account can land a few credits under the floor.
+
+ESPN requests time out after 10 seconds. The Odds API times out after 30 seconds. A failed team list, injury report, or schedule becomes "no recent games" and "no significant injuries listed" for that side. A failed scoreboard uses the same window as an empty scoreboard. Player roster and gamelog failures stay on that player.
+
+`runs/last-run.json` is rewritten after each sport once any board has been built. The write is a temp file renamed into place. The snapshot is written when the run finishes, so a kill mid-run leaves the previous snapshot alone.
+
+`npm test` runs `test/pure.test.ts` with `node:test`. It does not call The Odds API, TypeSafe, or Autojev.
+
 ## 2026-11-17T22:27:27Z
 
 ### Emoji columns keep their width

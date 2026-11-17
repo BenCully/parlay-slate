@@ -22,6 +22,8 @@ export type OddsResponse = {
   remaining: number | null;
   cached: boolean;
   savedAt: string;
+  /** True when a live fetch was skipped to stay above ODDS_CREDIT_FLOOR. */
+  skipped?: boolean;
 };
 
 export type SavedOddsSlate = {
@@ -66,6 +68,15 @@ function maxAgeMs() {
   return hours * 3_600_000;
 }
 
+/** Live prop requests stop once the last Odds API header is under this. Cached reads still run. 0 disables the stop. */
+export function oddsCreditFloor() {
+  const raw = process.env.ODDS_CREDIT_FLOOR;
+  if (raw == null || raw.trim() === '') return 30;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) return 30;
+  return Math.floor(value);
+}
+
 export function ageLabel(iso: string) {
   const ms = Date.now() - Date.parse(iso);
   const minutes = Math.max(1, Math.round(ms / 60_000));
@@ -87,7 +98,7 @@ export function oddsRequestKey(url: string) {
 }
 
 /** Same sport and markets, ignoring the kickoff window. That window shifts every run. */
-function slateFamily(request: string) {
+export function oddsSlateFamily(request: string) {
   const parsed = new URL(request, 'https://api.the-odds-api.com');
   parsed.searchParams.delete('commenceTimeFrom');
   parsed.searchParams.delete('commenceTimeTo');
@@ -124,7 +135,7 @@ function requestLabel(request: string) {
 
 function sameSavedRequest(saved: string, want: string) {
   if (saved.includes('/events/') || want.includes('/events/')) return saved === want;
-  return slateFamily(saved) === slateFamily(want);
+  return oddsSlateFamily(saved) === oddsSlateFamily(want);
 }
 
 async function readCatalog() {
@@ -187,7 +198,7 @@ export async function listSavedOdds(): Promise<SavedOddsDay[]> {
     if (record.request.includes('/events/')) {
       bucket.props.add(record.request.split('?')[0] ?? record.request);
     } else {
-      const family = slateFamily(record.request);
+      const family = oddsSlateFamily(record.request);
       const current = bucket.slates.get(family);
       if (!current || Date.parse(record.savedAt) > Date.parse(current.savedAt)) {
         const window = windowOf(record.request);
@@ -212,7 +223,7 @@ export async function listSavedOdds(): Promise<SavedOddsDay[]> {
 }
 
 async function readFamily(request: string): Promise<CacheRecord | null> {
-  const want = slateFamily(request);
+  const want = oddsSlateFamily(request);
   let names: string[];
   try {
     names = await readdir(cacheDir());
@@ -224,7 +235,7 @@ async function readFamily(request: string): Promise<CacheRecord | null> {
   for (const name of names) {
     if (!name.endsWith('.json')) continue;
     const hit = await readHit(`${cacheDir()}/${name}`);
-    if (!hit?.request || slateFamily(hit.request) !== want) continue;
+    if (!hit?.request || oddsSlateFamily(hit.request) !== want) continue;
     const saved = Date.parse(hit.savedAt);
     if (saved <= bestSaved) continue;
     best = hit;
@@ -240,7 +251,7 @@ async function store(file: string, record: CacheRecord) {
   await rename(temp, file);
 }
 
-export async function oddsGet(url: string, init?: RequestInit): Promise<OddsResponse> {
+export async function oddsGet(url: string, init?: RequestInit, options?: { cacheOnly?: boolean }): Promise<OddsResponse> {
   const identity = oddsRequestKey(url);
   if (replayDay) {
     const hit = await readReplay(identity.request);
@@ -252,7 +263,15 @@ export async function oddsGet(url: string, init?: RequestInit): Promise<OddsResp
     const hit = await readHit(file) ?? await readFamily(identity.request);
     if (hit) return { body: hit.body, remaining: null, cached: true, savedAt: hit.savedAt };
   }
-  const res = await fetch(url, init);
+  if (options?.cacheOnly) return { body: null, remaining: null, cached: false, savedAt: '', skipped: true };
+  let res: Response;
+  try {
+    res = await fetch(url, { ...init, signal: AbortSignal.timeout(30_000) });
+  } catch (error) {
+    const name = error instanceof Error ? error.name : '';
+    if (name === 'TimeoutError' || name === 'AbortError') throw new Error('Odds API timed out.');
+    throw new Error('Odds API did not answer.');
+  }
   const remainingHeader = res.headers.get('x-requests-remaining');
   const body = await res.json() as any;
   if (!res.ok) {

@@ -21,7 +21,7 @@ cp .env.example .env
 cp .env.settings.example .env.settings
 ```
 
-Put the TypeSafe and Odds API keys in `.env`. For `model=tail-jev`, also put the Autojev `/v1` base in `AUTOJEV_URL` and its bearer token in `AUTOJEV_API_KEY`. That file is gitignored. Cache settings go in `.env.settings`, which is also gitignored. `ODDS_CACHE_HOURS` is how long a saved response lasts. `ODDS_CACHE=0` ignores the cache. `ODDS_CACHE_DIR` changes the folder. A name in `.env` overrides the same name in `.env.settings`.
+Put the TypeSafe and Odds API keys in `.env`. For `model=tail-jev`, also put the Autojev `/v1` base in `AUTOJEV_URL` and its bearer token in `AUTOJEV_API_KEY`. That file is gitignored. Cache settings go in `.env.settings`, which is also gitignored. `ODDS_CACHE_HOURS` is how long a saved response lasts. `ODDS_CACHE=0` ignores the cache. `ODDS_CACHE_DIR` changes the folder. `ODDS_CREDIT_FLOOR` stops live prop requests when the last credit header is under that number. The default is 30. Cached props are still read. `0` keeps fetching. A name in `.env` overrides the same name in `.env.settings`.
 
 ## Run
 
@@ -152,12 +152,13 @@ Before the screen, the terminal prints each league name, the board title, `Check
 - Days of rest, including a bye when the gap is 12 days or more.
 - The injury report. Active players are skipped. Quarterbacks sort first, then Out, Doubtful, injured reserve, and Questionable. The brief keeps six listings per team, and includes the short report note for Out, injured-reserve, and quarterback listings.
 
-Both models judge only that text. They do not look up the game themselves.
+Both models judge only that text. They do not look up the game themselves. If ESPN does not answer for a team, that side of the brief says there are no recent games and no significant injuries listed. The league still gets a board.
 
 ## Typecheck
 
 ```bash
+npm test
 npm run typecheck
 ```
 
-This checks the TypeScript in this directory and does not emit JavaScript. The run command executes the TypeScript files directly with `tsx`.
+`npm test` runs `node:test` through `tsx`. Those tests do not call The Odds API, ESPN, TypeSafe, or Autojev. `npm run typecheck` checks the TypeScript in this directory and does not emit JavaScript. The run command executes the TypeScript files directly with `tsx`.

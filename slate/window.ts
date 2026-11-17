@@ -71,9 +71,30 @@ export async function upcomingWindow(url: string, label: string, day: string | u
   };
 }
 
+function scoreboardLabel(url: string) {
+  try {
+    return new URL(url).pathname.replace(/^\/apis\/site\/v2\/sports\//, '');
+  } catch {
+    return 'scoreboard';
+  }
+}
+
+/** A failed scoreboard returns no events. Callers already fall back to one Eastern day. */
 export async function scoreboardEvents(url: string, failure: (status: number) => string) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(failure(res.status));
+  const empty = { board: {} as { events?: { date?: string }[]; week?: { number?: number } }, stamps: [] as number[] };
+  let res: Response;
+  try {
+    res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+  } catch (error) {
+    const name = error instanceof Error ? error.name : '';
+    const timedOut = name === 'TimeoutError' || name === 'AbortError';
+    console.error(timedOut ? `ESPN ${scoreboardLabel(url)} timed out.` : `ESPN ${scoreboardLabel(url)} did not answer.`);
+    return empty;
+  }
+  if (!res.ok) {
+    console.error(failure(res.status));
+    return empty;
+  }
   const board = await res.json() as { events?: { date?: string }[]; week?: { number?: number } };
   const stamps = (board.events ?? []).map((event) => Date.parse(event.date ?? '')).filter(Number.isFinite);
   return { board, stamps };

@@ -11,7 +11,8 @@
     "odds": "node --env-file-if-exists=.env.settings --env-file-if-exists=.env --import tsx scripts/odds-days.ts",
     "compare": "node --import tsx scripts/compare.ts",
     "clear-snapshots": "node --import tsx scripts/clear-snapshots.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test --test-concurrency=1 test/*.test.ts"
   },
   "dependencies": {
     "jev-recipes": "^0.9.17"
