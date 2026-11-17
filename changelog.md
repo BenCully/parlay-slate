@@ -2,6 +2,24 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-17T22:27:27Z
+
+### Emoji columns keep their width
+
+The screen pads and wraps by terminal columns. 🤝 and ❌ each take two columns, so a compare row stays inside the width and the later columns line up. Scrolling follows those rows again. The zero-width space in front of the cancel mark is gone.
+
+## 2026-11-17T22:20:30Z
+
+### Agree marks
+
+A compare row now reads 🤝 Agreed or ❌ Disagreed. The count under the title uses the same marks. The cancel mark is two columns wide, and a zero-width space keeps that cell the same width as the box.
+
+## 2026-11-17T22:16:08Z
+
+### Compare rows say Agreed or Disagreed
+
+The Games, Props, and ticket tables on a compare screen have an Agree column. Agreed means both slips are the same text, including when both say Pass. Disagreed means the slips differ, or one snapshot has no row. The count under the title uses that column.
+
 ## 2026-11-17T22:06:32Z
 
 ### Latest slate and npm entries leave the package root

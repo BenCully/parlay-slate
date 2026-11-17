@@ -1,38 +1,77 @@
 type Align = 'left' | 'right';
 
+// Terminal columns, not string length. ❌ is one code unit and two columns. 🤝 is two code units and two columns.
+function wide(code: number) {
+  if (code >= 0x1F300 && code <= 0x1FAFF) return true;
+  return code === 0x274C || code === 0x274E;
+}
+
+function charWidth(char: string) {
+  const code = char.codePointAt(0) ?? 0;
+  if (code === 0x200B || code === 0x200D || code === 0xFE0F || code === 0xFE0E) return 0;
+  if (code >= 0x0300 && code <= 0x036F) return 0;
+  return wide(code) ? 2 : 1;
+}
+
+function cellWidth(text: string) {
+  let width = 0;
+  for (const char of text) width += charWidth(char);
+  return width;
+}
+
+function clip(text: string, width: number) {
+  let out = '';
+  let used = 0;
+  for (const char of text) {
+    const size = charWidth(char);
+    if (used + size > width) break;
+    out += char;
+    used += size;
+  }
+  return out;
+}
+
 function wrapText(text: string, width: number): string[] {
   const limit = Math.max(1, width);
   const indent = text.match(/^ +/)?.[0] ?? '';
-  const words = text.slice(indent.length).split(/\s+/).filter(Boolean);
+  const words = [...text.slice(indent.length).matchAll(/\S+/g)].map((match) => match[0]);
   const lines: string[] = [];
   let current = '';
   const push = (word: string) => {
     const prefix = current ? '' : indent;
     const next = prefix + word;
-    if (!current) current = next.length <= limit ? next : word;
-    else if (current.length + 1 + word.length <= limit) current += ` ${word}`;
+    if (!current) current = cellWidth(next) <= limit ? next : word;
+    else if (cellWidth(current) + 1 + cellWidth(word) <= limit) current += ` ${word}`;
     else {
       lines.push(current);
       current = word;
     }
   };
-  for (const word of words) {
-    if (word.length <= limit) push(word);
-    else {
-      if (current) {
-        lines.push(current);
-        current = '';
+  const pieces = (word: string) => {
+    if (cellWidth(word) <= limit) return [word];
+    const parts: string[] = [];
+    let part = '';
+    for (const char of word) {
+      if (part && cellWidth(part) + charWidth(char) > limit) {
+        parts.push(part);
+        part = '';
       }
-      for (let i = 0; i < word.length; i += limit) lines.push(word.slice(i, i + limit));
+      part += char;
     }
+    if (part) parts.push(part);
+    return parts;
+  };
+  for (const word of words) {
+    for (const piece of pieces(word)) push(piece);
   }
   if (current) lines.push(current);
   return lines.length ? lines : [''];
 }
 
 function pad(text: string, width: number, align: Align) {
-  const clipped = text.length > width ? text.slice(0, width) : text;
-  return align === 'right' ? clipped.padStart(width) : clipped.padEnd(width);
+  const clipped = clip(text, width);
+  const spaces = ' '.repeat(Math.max(0, width - cellWidth(clipped)));
+  return align === 'right' ? spaces + clipped : clipped + spaces;
 }
 
 function fitWidths(preferred: number[], budget: number, mins: number[]) {
@@ -54,10 +93,10 @@ function columnWidths(headers: string[], rows: string[][], width: number) {
   const budget = Math.max(headers.length, width - chrome);
   const natural = headers.map((header, index) => {
     const cells = rows.map((row) => row[index] ?? '');
-    return Math.max(header.length, ...cells.map((cell) => cell.length), 1);
+    return Math.max(cellWidth(header), ...cells.map((cell) => cellWidth(cell)), 1);
   });
   const caps = natural.map((size, index) => (index === natural.length - 1 ? size : Math.min(size, 22)));
-  const mins = headers.map((header, index) => Math.min(header.length, index === headers.length - 1 ? 8 : header.length));
+  const mins = headers.map((header, index) => Math.min(cellWidth(header), index === headers.length - 1 ? 8 : cellWidth(header)));
   const fixed = fitWidths(caps.slice(0, -1), Math.max(budget - 12, 1), mins.slice(0, -1));
   const comment = budget - fixed.reduce((sum, size) => sum + size, 0);
   return fitWidths([...fixed, Math.max(mins.at(-1) ?? 1, comment)], budget, mins.map(() => 1));
@@ -71,7 +110,7 @@ export function renderTable(headers: string[], groups: string[][][], aligns: Ali
 
   const widths = columnWidths(headers, rows, width);
   const lineWidth = widths.reduce((sum, size) => sum + size, 0) + chrome;
-  const headerFits = widths.every((size, index) => index === widths.length - 1 || size >= headers[index].length);
+  const headerFits = widths.every((size, index) => index === widths.length - 1 || size >= cellWidth(headers[index]));
   const commentFits = (widths.at(-1) ?? 0) >= 12;
   if (lineWidth > width || !headerFits || !commentFits) return renderStacked(headers, groups, width);
 
@@ -335,14 +374,14 @@ export function presentScreen(input: ScreenPage[] | ((width: number) => string[]
       viewHeight = body;
       bodyTop = headerCount + 1;
       const page = leafPage(pages, cursor());
-      const lines = (page?.render?.(contentWidth) ?? ['']).flatMap((line) => (line.length <= contentWidth ? [line] : wrapText(line, contentWidth)));
+      const lines = (page?.render?.(contentWidth) ?? ['']).flatMap((line) => (cellWidth(line) <= contentWidth ? [line] : wrapText(line, contentWidth)));
       totalLines = lines.length;
       const maxScroll = Math.max(0, lines.length - body);
       scroll = Math.max(0, Math.min(scroll, maxScroll));
       const view = lines.slice(scroll, scroll + body);
       while (view.length < body) view.push('');
       const bar = scrollbarColumn(body, lines.length, scroll);
-      const frame = view.map((line, index) => line.slice(0, contentWidth).padEnd(contentWidth) + bar[index]).join('\n');
+      const frame = view.map((line, index) => pad(line, contentWidth, 'left') + bar[index]).join('\n');
       const hintParts = ['q quits', 'wheel scrolls'];
       const leafRow = rows.at(-1);
       if (leafRow && leafRow.nodes.length > 1) hintParts.push('tab games');

@@ -72,7 +72,7 @@ NHL, NBA, and MLB moneylines are two-way. The NHL moneyline includes overtime. A
 
 `npm start` overwrites `parlay-slate/runs/last-run.json` after the lookups finish, then prints `Saved` and the file path. It also writes `snapshots/<day>-<model>.json`. The day is the `odds=` day, the slate date, or today's Eastern date. The next run of that same day and model replaces that snapshot. Both files are gitignored.
 
-`npm run compare -- 2026-11-15` opens `snapshots/2026-11-15-jev.json` beside `snapshots/2026-11-15-tail-jev.json`. Decision and Slip columns sit on one row. It does not call the Odds API, ESPN, TypeSafe, or Autojev. A missing file prints the `npm start` command that writes it. `npm run clear-snapshots` deletes the files in `snapshots/` and leaves that folder, `runs/`, and `odds-cache/` in place.
+`npm run compare -- 2026-11-15` opens `snapshots/2026-11-15-jev.json` beside `snapshots/2026-11-15-tail-jev.json`. Decision and Slip columns sit on one row. The Agree column reads 🤝 Agreed when both slips match, including when both say Pass, and ❌ Disagreed when the slips differ or one side has no row. It does not call the Odds API, ESPN, TypeSafe, or Autojev. A missing file prints the `npm start` command that writes it. `npm run clear-snapshots` deletes the files in `snapshots/` and leaves that folder, `runs/`, and `odds-cache/` in place.
 
 The file is the finished screen, not the raw API responses. Each table cell is already decided. It stores:
 

@@ -10,16 +10,30 @@ const sportShort: Record<string, string> = {
   Baseball: 'Base',
 };
 
-const gameHeaders = ['Team', 'Price', 'Market', 'jev', 'tail-jev', 'Slips'];
-const propHeaders = ['Team', 'Player', 'Line', 'jev', 'tail-jev', 'Slips'];
-const ticketHeaders = ['Hit', 'Payout', 'Ticket', 'Models'];
-const gameAligns = ['left', 'right', 'right', 'left', 'left', 'left'] as const;
-const propAligns = ['left', 'left', 'left', 'left', 'left', 'left'] as const;
+const gameHeaders = ['Team', 'Price', 'Market', 'jev', 'tail-jev', 'Agree', 'Slips'];
+const propHeaders = ['Team', 'Player', 'Line', 'jev', 'tail-jev', 'Agree', 'Slips'];
+const ticketHeaders = ['Hit', 'Payout', 'Ticket', 'Models', 'Agree'];
+const gameAligns = ['left', 'right', 'right', 'left', 'left', 'left', 'left'] as const;
+const propAligns = ['left', 'left', 'left', 'left', 'left', 'left', 'left'] as const;
 
 function slipCell(left?: string, right?: string) {
   if (!left && !right) return '';
   if (left === right) return left ?? '';
   return `jev ${left || '—'} · tail-jev ${right || '—'}`;
+}
+
+const agreedLabel = '🤝 Agreed';
+const disagreedLabel = '❌ Disagreed';
+
+function agreeCell(left?: string, right?: string) {
+  const jev = left?.trim() ?? '';
+  const tail = right?.trim() ?? '';
+  if (jev && jev === tail) return agreedLabel;
+  return disagreedLabel;
+}
+
+function agreeSentence(agreed: number, disagreed: number) {
+  return `${agreed} 🤝 agreed, ${disagreed} ❌ disagreed.`;
 }
 
 function keyedRows(rows: string[][], keyOf: (row: string[]) => string) {
@@ -90,6 +104,7 @@ function gameJoin(left?: string[], right?: string[]) {
     left?.[2] || right?.[2] || '',
     left?.[3] ?? '—',
     right?.[3] ?? '—',
+    agreeCell(left?.[4], right?.[4]),
     slipCell(left?.[4], right?.[4]),
   ];
 }
@@ -101,15 +116,20 @@ function ticketJoin(left?: string[], right?: string[]) {
     left?.[1] || right?.[1] || '',
     left?.[2] || right?.[2] || '',
     where,
+    left && right ? agreedLabel : disagreedLabel,
   ];
 }
 
-function differCount(groups: string[][][]) {
-  let count = 0;
+function agreeCounts(groups: string[][][]) {
+  let agreed = 0;
+  let disagreed = 0;
   for (const group of groups) {
-    for (const row of group) if (row[3] !== row[4]) count += 1;
+    for (const row of group) {
+      if (row[5] === agreedLabel) agreed += 1;
+      else if (row[5] === disagreedLabel) disagreed += 1;
+    }
   }
-  return count;
+  return { agreed, disagreed };
 }
 
 function stamp(saved: SavedSlate, name: string) {
@@ -129,29 +149,29 @@ function notes(left: SavedBoard | undefined, right: SavedBoard | undefined, widt
 function renderGames(left: SavedBoard | undefined, right: SavedBoard | undefined, jev: SavedSlate, tail: SavedSlate, width: number) {
   const groups = alignGroups(left?.groups ?? [], right?.groups ?? [], gameRowKey, gameJoin);
   const tickets = alignGroups(left?.ticketGroups ?? [], right?.ticketGroups ?? [], (row) => row[2] ?? '', ticketJoin);
-  const differ = differCount(groups);
+  const calls = agreeCounts(groups);
   const lines = [
     ...wrapParagraph(left?.title || right?.title || 'Games', width),
     '',
-    ...wrapParagraph(`${stamp(jev, 'jev')} · ${stamp(tail, 'tail-jev')}. ${differ} game decision${differ === 1 ? '' : 's'} differ.`, width),
+    ...wrapParagraph(`${stamp(jev, 'jev')} · ${stamp(tail, 'tail-jev')}. ${agreeSentence(calls.agreed, calls.disagreed)}`, width),
     '',
   ];
   if (groups.length) lines.push(...renderTable(gameHeaders, groups, [...gameAligns], width));
   lines.push(...notes(left, right, width));
   if (tickets.length) {
-    lines.push('', ...renderTable(ticketHeaders, tickets, ['right', 'right', 'left', 'left'], width));
+    lines.push('', ...renderTable(ticketHeaders, tickets, ['right', 'right', 'left', 'left', 'left'], width));
   }
   return lines;
 }
 
 function renderProps(left: SavedBoard | undefined, right: SavedBoard | undefined, width: number) {
   const groups = alignGroups(left?.groups ?? [], right?.groups ?? [], propRowKey, gameJoin);
-  const differ = differCount(groups);
+  const calls = agreeCounts(groups);
   const title = left?.title || right?.title || 'Player props';
   const lines = [
     ...wrapParagraph(title, width),
     '',
-    ...wrapParagraph(`${differ} prop decision${differ === 1 ? '' : 's'} differ.`, width),
+    ...wrapParagraph(agreeSentence(calls.agreed, calls.disagreed), width),
     '',
   ];
   if (groups.length) lines.push(...renderTable(propHeaders, groups, [...propAligns], width));
