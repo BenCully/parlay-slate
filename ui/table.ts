@@ -183,16 +183,32 @@ function usedWidth(labels: string[]) {
   return labels.reduce((sum, label, index) => sum + label.length + 2 + (index === 0 ? 0 : 1), 0);
 }
 
-function fitLabels(nodes: ScreenPage[], width: number, close: boolean) {
-  const room = Math.max(0, width - (close ? 3 : 0));
+const closeButton = ' x ';
+const modelGap = '  ';
+
+function modelTitle(name: string) {
+  const titled = name.replace(/(^|[^A-Za-z])([a-z])/g, (_, sep: string, letter: string) => sep + letter.toUpperCase());
+  return `Model: ${titled}`;
+}
+
+function corner(model: string | undefined, close: boolean, width: number) {
+  if (!close) return { label: '', button: '', span: 0 };
+  const name = (model ?? '').replace(/\s+/g, ' ').trim();
+  const label = name ? `${modelTitle(name)}${modelGap}` : '';
+  if (!label || label.length + closeButton.length > width) return { label: '', button: closeButton, span: Math.min(closeButton.length, width) };
+  return { label, button: closeButton, span: label.length + closeButton.length };
+}
+
+function fitLabels(nodes: ScreenPage[], width: number, reserved: number) {
+  const room = Math.max(0, width - reserved);
   const full = nodes.map((node) => node.label);
   if (usedWidth(full) <= room) return full;
   return nodes.map((node) => node.short || node.label);
 }
 
-function paintHeader(labels: string[], active: number, width: number, close: boolean) {
-  const button = ' x ';
-  const room = Math.max(0, width - (close ? button.length : 0));
+function paintHeader(labels: string[], active: number, width: number, close: boolean, model?: string) {
+  const mark = corner(model, close, width);
+  const room = Math.max(0, width - mark.span);
   const hits: { start: number; end: number }[] = [];
   let column = 1;
   let line = theme;
@@ -211,7 +227,7 @@ function paintHeader(labels: string[], active: number, width: number, close: boo
   const visible = column - 1;
   const target = close ? room : width;
   if (visible < target) line += ' '.repeat(target - visible);
-  if (close) line += `\x1b[7m${button}\x1b[27m${theme}`;
+  if (close) line += `${mark.label}\x1b[7m${mark.button}\x1b[27m${theme}`;
   return { line, hits };
 }
 
@@ -219,15 +235,20 @@ function visibleText(line: string) {
   return line.replace(/\x1b\[[0-9;]*m/g, '');
 }
 
-export function headerText(pages: ScreenPage[], width: number, indexes: number[] = []) {
+export function headerText(pages: ScreenPage[], width: number, indexes: number[] = [], model?: string) {
   const rows = tabRows(pages, indexes);
   const lines = rows.length
-    ? rows.map((row, index) => paintHeader(fitLabels(row.nodes, width, index === 0), row.index, width, index === 0).line)
-    : [paintHeader([], 0, width, true).line];
+    ? rows.map((row, index) => {
+      const top = index === 0;
+      const reserved = corner(model, top, width).span;
+      return paintHeader(fitLabels(row.nodes, width, reserved), row.index, width, top, model).line;
+    })
+    : [paintHeader([], 0, width, true, model).line];
   return lines.map(visibleText);
 }
 
-export function presentScreen(input: ScreenPage[] | ((width: number) => string[])): Promise<void> {
+export function presentScreen(input: ScreenPage[] | ((width: number) => string[]), options?: { model?: string }): Promise<void> {
+  const model = options?.model;
   const pages: ScreenPage[] = typeof input === 'function' ? [{ label: 'View', render: input }] : input;
   if (!pages.length) return Promise.resolve();
 
@@ -332,8 +353,12 @@ export function presentScreen(input: ScreenPage[] | ((width: number) => string[]
       const shownHint = hint.length > width ? hint.slice(0, width) : hint;
       const status = `${theme}${shownHint}${' '.repeat(width - shownHint.length)}`;
       const headers = rows.length
-        ? rows.map((row, index) => paintHeader(fitLabels(row.nodes, width, index === 0), row.index, width, index === 0))
-        : [paintHeader([], 0, width, true)];
+        ? rows.map((row, index) => {
+          const top = index === 0;
+          const reserved = corner(model, top, width).span;
+          return paintHeader(fitLabels(row.nodes, width, reserved), row.index, width, top, model);
+        })
+        : [paintHeader([], 0, width, true, model)];
       rowHits = headers.map((header) => header.hits);
       const painted = [...headers.map((header) => header.line), frame, status].join('\n');
       process.stdout.write(`${theme}\x1b[2J\x1b[H${painted}`);

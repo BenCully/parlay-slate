@@ -171,9 +171,9 @@ export function slatePages(saved: SavedSlate): ScreenPage[] {
 }
 
 export function showSlate(saved: SavedSlate) {
-  return presentScreen(slatePages(saved));
+  return presentScreen(slatePages(saved), { model: saved.model });
 }
 
 export function slateHeaders(saved: SavedSlate, width: number, indexes: number[] = []) {
-  return headerText(slatePages(saved), width, indexes);
+  return headerText(slatePages(saved), width, indexes, saved.model);
 }

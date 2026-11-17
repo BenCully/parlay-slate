@@ -197,5 +197,8 @@ export function comparisonPages(jev: SavedSlate, tail: SavedSlate): ScreenPage[]
 }
 
 export function showComparison(jev: SavedSlate, tail: SavedSlate) {
-  return presentScreen(comparisonPages(jev, tail));
+  const left = jev.model?.trim() || 'jev';
+  const right = tail.model?.trim() || 'tail-jev';
+  const model = left === right ? left : `${left} · ${right}`;
+  return presentScreen(comparisonPages(jev, tail), { model });
 }

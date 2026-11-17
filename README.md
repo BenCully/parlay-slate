@@ -26,16 +26,27 @@ Put the TypeSafe and Odds API keys in `.env`. For `model=tail-jev`, also put the
 ## Run
 
 ```bash
+# Current slate: this week's NFL and NCAA, plus each other league's scoreboard window. The model is jev.
 npm start
+# One America/New_York day for every league. The model is jev.
 npm start -- 2026-11-15
+# That Eastern day, ranked with TypeSafe through jev-recipes.
 npm start -- 2026-11-15 model=jev
+# That Eastern day, ranked with Autojev on the tailnet.
 npm start -- 2026-11-15 model=tail-jev
+# Replay prices saved that Eastern day through TypeSafe. Does not call the Odds API.
 npm start -- odds=2026-11-15 model=jev
+# Replay prices saved that Eastern day through Autojev. Does not call the Odds API.
 npm start -- odds=2026-11-15 model=tail-jev
+# Ignore odds-cache and fetch new prices. This spends Odds API credits.
 npm start -- --fresh
+# List the Eastern days stored in odds-cache. Does not call the network.
 npm run odds
+# Open the jev and tail-jev snapshots for that day side by side. Does not call any API.
 npm run compare -- 2026-11-15
+# Reopen last-run.json. Does not call the Odds API, ESPN, or a decision model.
 npm run view
+# Open snapshots/2026-11-15-jev.json. Prices and decisions stay as they were on that run.
 npm run view -- 2026-11-15-jev
 ```
 
@@ -43,7 +54,7 @@ npm run view -- 2026-11-15-jev
 
 `odds=2026-11-15` replays prices saved that America/New_York day. `npm run odds` lists the days in `odds-cache/` and does not call the network. The replay still works after `ODDS_CACHE_HOURS`, keeps games that have since kicked off, and does not spend an Odds API credit. If that day has no save, the run stops instead of fetching. Do not combine `odds=` with a slate date or with `--fresh`. ESPN evidence and the decision model still run, so a replay can test `jev` against `tail-jev` on the same saved prices.
 
-`npm start` looks up the slate, writes `last-run.json` and a snapshot, then opens the screen. Odds API responses are saved in gitignored `odds-cache/` and reused for `ODDS_CACHE_HOURS` (168 by default, which is 7 days). A later run does not refetch a sport while that save is inside the lifetime, even if the kickoff window moved. A cached board says when those prices were saved. Game lines and player props both go through that cache. `npm start -- --fresh` ignores that cache and spends credits. `npm run view` opens that file again and does not call the Odds API, ESPN, or TypeSafe. The top row is Football, Soccer, Hockey, Basketball, and Baseball. Football has NFL and NCAA. Soccer has Premier League, Champions League, La Liga, Serie A, and Bundesliga. Hockey has NHL, Basketball has NBA, and Baseball has MLB. Every league has Games and Props. Click a tab, or press Tab, Left, Right, or 1 and 2 for Games and Props. `[` and `]` change sport. `,` and `.` change league when that sport has more than one. Resize refits the table. The scroll wheel moves the bar on the right. `q` and the x button in the top-right corner close the screen. The background is black.
+`npm start` looks up the slate, writes `last-run.json` and a snapshot, then opens the screen. Odds API responses are saved in gitignored `odds-cache/` and reused for `ODDS_CACHE_HOURS` (168 by default, which is 7 days). A later run does not refetch a sport while that save is inside the lifetime, even if the kickoff window moved. A cached board says when those prices were saved. Game lines and player props both go through that cache. `npm start -- --fresh` ignores that cache and spends credits. `npm run view` opens that file again and does not call the Odds API, ESPN, or TypeSafe. The top row is Football, Soccer, Hockey, Basketball, and Baseball. The model sits just left of the x button, with a gap before it, as `Model: Jev`, `Model: Tail-Jev`, or both names on a compare screen. Football has NFL and NCAA. Soccer has Premier League, Champions League, La Liga, Serie A, and Bundesliga. Hockey has NHL, Basketball has NBA, and Baseball has MLB. Every league has Games and Props. Click a tab, or press Tab, Left, Right, or 1 and 2 for Games and Props. `[` and `]` change sport. `,` and `.` change league when that sport has more than one. Resize refits the table. The scroll wheel moves the bar on the right. `q` and the x button in the top-right corner close the screen. The background is black.
 
 With no arguments, the NFL and NCAA use the current ESPN week and skip games that have already kicked off. Each soccer league uses the games on its ESPN scoreboard and the following four days, so the rest of that matchweek is included. The NHL, NBA, and MLB use the games on that league's ESPN scoreboard, from one hour before the first to six hours after the last. A scoreboard with nothing still ahead uses one Eastern day. A `YYYY-MM-DD` argument is one America/New_York calendar day for every league, so Sunday night is included and Monday night is not.
 

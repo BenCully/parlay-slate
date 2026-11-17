@@ -2,6 +2,18 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-17T21:51:12Z
+
+### Model label beside the close button
+
+The name just left of the x button now reads `Model: Jev` or `Model: Tail-Jev`. A compare screen reads `Model: Jev · Tail-Jev`. Two spaces sit between that label and the x button.
+
+## 2026-11-17T21:48:58Z
+
+### Model name beside the close button
+
+The top header row shows the decision model just left of the x button. A slate shows `jev` or `tail-jev` from the save. A compare screen shows both names. A save with no `model` leaves that spot blank. The x button is still the last three columns, and a click on the name does not close the screen.
+
 ## 2026-11-17T00:03:32Z
 
 ### Autojev base URL and API key
