@@ -2,6 +2,12 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-18T17:31:28Z
+
+### Tail-jev stays in decisions/judge.ts
+
+Removed the unused `slate/jev.ts` client. Nothing imported it, and `npm start` never called it. `model=tail-jev` still posts one `noul` or `choice` from `decisions/judge.ts` to `systemone` on `AUTOJEV_URL`, with `AUTOJEV_API_KEY` as the bearer token. There is no second endpoint and no address in the repo. `TAILNET-HANDOFF.md` now matches those commands. It no longer documents `--league`, `--games-only`, or a root `last-run.json`.
+
 ## 2026-11-18T02:17:08Z
 
 ### Pull request labels
