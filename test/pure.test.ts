@@ -1,11 +1,20 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { test } from 'node:test';
 import { readStartArgs, requireRunKeys, selectDecisionModel, verify } from '../decisions/judge.js';
 import { aliasTarget, clubKey, createEvidence, nameKey, NFL_EVIDENCE, type GameBrief } from '../espn/evidence.js';
 import { absenceText, applyFotmob, matchClub, openAbsences, parseLeague, pickFixture, type FotmobLeague } from '../sports/soccer/fotmob.js';
-import { oddsCreditFloor, oddsGet, oddsRequestKey, oddsSlateFamily, setOddsReplay } from '../odds/cache.js';
+import { espnCacheFresh, ESPN_DAY_HOURS, ESPN_INJURY_HOURS, readEspnCache, writeEspnCache } from '../espn/cache.js';
+import { bookLabel, postedMarket } from '../odds/books.js';
+import { oddsCreditFloor, oddsGet, oddsRequestKey, oddsSlateFamily, parseOddsBody, preferFreshRecord, setOddsReplay } from '../odds/cache.js';
+import { acquireRunLock } from '../scripts/lock.js';
+import { scrubError } from '../scripts/scrub.js';
+import { archiveStamp, saveDecisionSnapshot } from '../scripts/snapshot.js';
+import { easternClock, quotaEntry } from '../odds/quota.js';
+
+process.env.QUOTA_LOG ??= '0';
 import {
   droppedCall,
   implied,
@@ -358,6 +367,194 @@ test('a failed scoreboard returns no events', async () => {
   }
 });
 
+test('a printed error hides the odds api key', () => {
+  const error = new Error('Odds API 401 from https://api.the-odds-api.com/v4/sports/x/odds?apiKey=super-secret&regions=us');
+  const safe = scrubError(error, 'The slate failed.');
+  assert.equal(safe.includes('super-secret'), false);
+  assert.match(safe, /apiKey=\*\*\*/);
+  assert.equal(scrubError('not an error', 'The slate failed.'), 'The slate failed.');
+});
+
+test('the first book that posted the market is named on the row', () => {
+  const books = [
+    { key: 'draftkings', markets: [{ key: 'h2h', outcomes: [{ name: 'Chiefs', price: -180 }] }] },
+    { key: 'fanduel', markets: [{ key: 'spreads', outcomes: [{ name: 'Chiefs', price: -110, point: -3.5 }] }] },
+    { key: 'somebook', title: 'Some Book', markets: [{ key: 'totals', outcomes: [{ name: 'Over', price: -105, point: 45 }] }] },
+  ];
+  assert.equal(postedMarket(books, 'h2h')?.book, 'DraftKings');
+  assert.equal(postedMarket(books, 'spreads')?.book, 'FanDuel');
+  assert.equal(postedMarket(books, 'totals')?.book, 'Some Book');
+  assert.equal(postedMarket(books, 'player_points'), null);
+  assert.equal(bookLabel({ key: 'williamhill_us' }), 'Caesars');
+  assert.equal(bookLabel({ key: 'betonlineag' }), 'betonlineag');
+  assert.equal(postedMarket([{ key: 'williamhill_us', markets: [{ key: 'h2h', outcomes: [{ name: 'A', price: -150 }] }] }], 'h2h')?.book, 'Caesars');
+});
+
+test('an empty odds body loses to a sibling that still has games', () => {
+  const games = { savedAt: '2026-11-18T12:00:00Z', body: [{ id: 'game-1' }] };
+  const newerEmpty = { savedAt: '2026-11-18T18:00:00Z', body: [] as unknown[] };
+  const newerGames = { savedAt: '2026-11-18T20:00:00Z', body: [{ id: 'game-2' }, { id: 'game-3' }] };
+  assert.equal(preferFreshRecord([newerEmpty, games]), games);
+  assert.equal(preferFreshRecord([games, newerEmpty]), games);
+  assert.equal(preferFreshRecord([games, newerGames]), newerGames);
+  assert.deepEqual(preferFreshRecord([newerEmpty])?.body, []);
+  assert.equal(preferFreshRecord([]), null);
+});
+
+async function writeOdds(dir: string, url: string, savedAt: string, body: unknown) {
+  const key = oddsRequestKey(url);
+  await writeFile(`${dir}/${key.hash}.json`, `${JSON.stringify({ savedAt, remaining: 40, body, request: key.request })}\n`);
+}
+
+test('family lookup skips an empty slate when a fresh sibling has games', async () => {
+  const dir = await mkdtemp(`${tmpdir()}/parlay-odds-`);
+  const previousDir = process.env.ODDS_CACHE_DIR;
+  const previousHours = process.env.ODDS_CACHE_HOURS;
+  const previousCache = process.env.ODDS_CACHE;
+  const original = globalThis.fetch;
+  process.env.ODDS_CACHE_DIR = dir;
+  process.env.ODDS_CACHE_HOURS = '24';
+  process.env.ODDS_CACHE = '1';
+  setOddsReplay(null);
+  globalThis.fetch = async () => {
+    throw new Error('odds fetch should not run');
+  };
+  const gamesUrl = 'https://api.the-odds-api.com/v4/sports/icehockey_nhl/odds?apiKey=secret&regions=us&markets=h2h,spreads,totals&oddsFormat=american&commenceTimeFrom=2026-11-15T05:00:00Z&commenceTimeTo=2026-11-16T05:00:00Z';
+  const emptyUrl = 'https://api.the-odds-api.com/v4/sports/icehockey_nhl/odds?apiKey=secret&regions=us&markets=h2h,spreads,totals&oddsFormat=american&commenceTimeFrom=2026-11-18T05:00:00Z&commenceTimeTo=2026-11-19T05:00:00Z';
+  const askUrl = 'https://api.the-odds-api.com/v4/sports/icehockey_nhl/odds?apiKey=secret&regions=us&markets=h2h,spreads,totals&oddsFormat=american&commenceTimeFrom=2026-11-20T05:00:00Z&commenceTimeTo=2026-11-21T05:00:00Z';
+  const staleGamesUrl = 'https://api.the-odds-api.com/v4/sports/basketball_nba/odds?apiKey=secret&regions=us&markets=h2h,spreads,totals&oddsFormat=american&commenceTimeFrom=2026-11-15T05:00:00Z&commenceTimeTo=2026-11-16T05:00:00Z';
+  const freshEmptyUrl = 'https://api.the-odds-api.com/v4/sports/basketball_nba/odds?apiKey=secret&regions=us&markets=h2h,spreads,totals&oddsFormat=american&commenceTimeFrom=2026-11-18T05:00:00Z&commenceTimeTo=2026-11-19T05:00:00Z';
+  const askNba = 'https://api.the-odds-api.com/v4/sports/basketball_nba/odds?apiKey=secret&regions=us&markets=h2h,spreads,totals&oddsFormat=american&commenceTimeFrom=2026-11-20T05:00:00Z&commenceTimeTo=2026-11-21T05:00:00Z';
+  try {
+    const now = Date.now();
+    const game = {
+      id: 'game-1',
+      commence_time: '2026-11-15T18:00:00Z',
+      home_team: 'Home',
+      away_team: 'Away',
+      bookmakers: [],
+    };
+    await writeOdds(dir, gamesUrl, new Date(now - 3_600_000).toISOString(), [game]);
+    await writeOdds(dir, emptyUrl, new Date(now - 60_000).toISOString(), []);
+    const family = await oddsGet(askUrl);
+    assert.equal(family.cached, true);
+    assert.ok(Array.isArray(family.body));
+    assert.equal(family.body.length, 1);
+    assert.equal(family.body[0]?.id, 'game-1');
+    const exact = await oddsGet(emptyUrl);
+    assert.equal(exact.cached, true);
+    assert.deepEqual(exact.body, []);
+    await writeOdds(dir, staleGamesUrl, new Date(now - 48 * 3_600_000).toISOString(), [{ ...game, id: 'old-game' }]);
+    await writeOdds(dir, freshEmptyUrl, new Date(now - 60_000).toISOString(), []);
+    const onlyFresh = await oddsGet(askNba);
+    assert.equal(onlyFresh.cached, true);
+    assert.deepEqual(onlyFresh.body, []);
+  } finally {
+    globalThis.fetch = original;
+    setOddsReplay(null);
+    if (previousDir == null) delete process.env.ODDS_CACHE_DIR;
+    else process.env.ODDS_CACHE_DIR = previousDir;
+    if (previousHours == null) delete process.env.ODDS_CACHE_HOURS;
+    else process.env.ODDS_CACHE_HOURS = previousHours;
+    if (previousCache == null) delete process.env.ODDS_CACHE;
+    else process.env.ODDS_CACHE = previousCache;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+function oddsGame(id: string, bookmakers: unknown[] = []) {
+  return {
+    id,
+    commence_time: '2026-11-15T18:00:00Z',
+    home_team: 'Home',
+    away_team: 'Away',
+    sport_key: 'icehockey_nhl',
+    bookmakers,
+  };
+}
+
+test('odds bodies are parsed once and a bad shape throws', () => {
+  const slate = parseOddsBody([oddsGame('g1', [{
+    key: 'fanduel',
+    title: 'FanDuel',
+    last_update: '2026-11-15T12:00:00Z',
+    markets: [{ key: 'spreads', outcomes: [{ name: 'Home', price: -110, point: -1.5 }] }],
+  }])]);
+  assert.ok(Array.isArray(slate));
+  assert.equal(slate[0]?.bookmakers[0]?.markets[0]?.outcomes[0]?.point, -1.5);
+  assert.equal('sport_key' in (slate[0] ?? {}), false);
+  const prop = parseOddsBody(oddsGame('g2', [{
+    key: 'draftkings',
+    markets: [{ key: 'player_goal_scorer_anytime', outcomes: [{ name: 'Yes', description: 'A Player', price: 150 }] }],
+  }]));
+  assert.ok(!Array.isArray(prop));
+  assert.equal(prop.bookmakers[0]?.markets[0]?.outcomes[0]?.description, 'A Player');
+  assert.deepEqual(parseOddsBody([]), []);
+  const noBooks = parseOddsBody([oddsGame('g3')]);
+  assert.ok(Array.isArray(noBooks));
+  assert.deepEqual(noBooks[0]?.bookmakers, []);
+  assert.throws(() => parseOddsBody({ message: 'nope' }), /unexpected payload/);
+  assert.throws(() => parseOddsBody([oddsGame('g4', [{ key: 'fanduel', markets: 'nope' }])]), /unexpected payload/);
+  assert.throws(() => parseOddsBody([oddsGame('g5', [{ key: 'fanduel', markets: [{ key: 'h2h', outcomes: [{ name: 'Home', price: '150' }] }] }])]), /unexpected payload/);
+});
+
+test('a cached odds body with the wrong shape throws and does not fetch', async () => {
+  const dir = await mkdtemp(`${tmpdir()}/parlay-odds-`);
+  const previousDir = process.env.ODDS_CACHE_DIR;
+  const previousCache = process.env.ODDS_CACHE;
+  const original = globalThis.fetch;
+  let fetched = 0;
+  process.env.ODDS_CACHE_DIR = dir;
+  process.env.ODDS_CACHE = '1';
+  setOddsReplay(null);
+  globalThis.fetch = async () => {
+    fetched += 1;
+    throw new Error('odds fetch should not run');
+  };
+  const url = 'https://api.the-odds-api.com/v4/sports/icehockey_nhl/odds?regions=us&markets=h2h';
+  try {
+    await writeOdds(dir, url, new Date().toISOString(), { nope: true });
+    await assert.rejects(oddsGet(url), /unexpected payload/);
+    assert.equal(fetched, 0);
+  } finally {
+    globalThis.fetch = original;
+    setOddsReplay(null);
+    if (previousDir == null) delete process.env.ODDS_CACHE_DIR;
+    else process.env.ODDS_CACHE_DIR = previousDir;
+    if (previousCache == null) delete process.env.ODDS_CACHE;
+    else process.env.ODDS_CACHE = previousCache;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a second start exits while the lock is held, and a dead lock is taken over', async () => {
+  const dir = await mkdtemp(`${tmpdir()}/parlay-lock-`);
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  try {
+    const release = await acquireRunLock(dir);
+    await assert.rejects(acquireRunLock(dir), new RegExp(`pid ${process.pid}`));
+    await release();
+    const dead = await new Promise<number>((resolve, reject) => {
+      const finished = spawn(process.execPath, ['-e', 'process.exit(0)'], { stdio: 'ignore' });
+      finished.once('exit', () => finished.pid == null ? reject(new Error('no pid')) : resolve(finished.pid));
+    });
+    await writeFile(`${dir}/slate.lock`, `${dead}\n`);
+    const taken = await acquireRunLock(dir);
+    assert.match(await readFile(`${dir}/slate.lock`, 'utf8'), new RegExp(`^${process.pid}\\n`));
+    await taken();
+    assert.equal(child.pid == null, false);
+    await writeFile(`${dir}/slate.lock`, `${child.pid}\n`);
+    await assert.rejects(acquireRunLock(dir), new RegExp(`pid ${child.pid}`));
+    assert.match(await readFile(`${dir}/slate.lock`, 'utf8'), new RegExp(`^${child.pid}\\n`));
+    await writeFile(`${dir}/slate.lock`, 'nope\n');
+    await assert.rejects(acquireRunLock(dir), /runs\/slate\.lock/);
+    assert.equal(await readFile(`${dir}/slate.lock`, 'utf8'), 'nope\n');
+  } finally {
+    child.kill();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('a credit-floor miss does not call the network', async () => {
   const dir = await mkdtemp(`${tmpdir()}/parlay-odds-`);
   const previous = process.env.ODDS_CACHE_DIR;
@@ -376,6 +573,136 @@ test('a credit-floor miss does not call the network', async () => {
     setOddsReplay(null);
     if (previous == null) delete process.env.ODDS_CACHE_DIR;
     else process.env.ODDS_CACHE_DIR = previous;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a replaced snapshot keeps the previous file in the archive', async () => {
+  const dir = await mkdtemp(`${tmpdir()}/parlay-snapshot-`);
+  const first = { savedAt: '2026-11-18T15:00:00.000Z', title: 'first' };
+  const second = { savedAt: '2026-11-18T18:00:00.000Z', title: 'second' };
+  try {
+    const created = await saveDecisionSnapshot(dir, '2026-11-15', 'tail-jev', first);
+    assert.equal(created.archived, undefined);
+    assert.equal(created.path.endsWith('/2026-11-15-tail-jev.json'), true);
+    const replaced = await saveDecisionSnapshot(dir, '2026-11-15', 'tail-jev', second);
+    assert.equal(replaced.path, created.path);
+    assert.match(replaced.archived ?? '', /archive\/2026-11-15-tail-jev-2026-11-18T150000Z\.json$/);
+    const archived = JSON.parse(await readFile(replaced.archived ?? '', 'utf8')) as { title: string };
+    const current = JSON.parse(await readFile(replaced.path, 'utf8')) as { title: string };
+    assert.equal(archived.title, 'first');
+    assert.equal(current.title, 'second');
+    const same = await saveDecisionSnapshot(dir, '2026-11-15', 'tail-jev', second);
+    assert.equal(same.archived, undefined);
+    assert.equal(archiveStamp('2026-11-18T15:00:00.000Z'), '2026-11-18T150000Z');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('espn pages last for the eastern day, and injuries are shorter', () => {
+  const saved = '2026-11-18T15:00:00Z';
+  const threeHours = Date.parse('2026-11-18T18:00:00Z');
+  assert.equal(ESPN_INJURY_HOURS < ESPN_DAY_HOURS, true);
+  assert.equal(espnCacheFresh(saved, 'injury', threeHours - 1), true);
+  assert.equal(espnCacheFresh(saved, 'injury', threeHours), false);
+  assert.equal(espnCacheFresh(saved, 'day', Date.parse('2026-11-18T19:00:01Z')), true);
+  assert.equal(espnCacheFresh('2026-11-18T04:00:00Z', 'day', Date.parse('2026-11-18T06:00:00Z')), false);
+  assert.equal(espnCacheFresh('2026-11-18T06:00:00Z', 'day', Date.parse('2026-11-19T02:00:00Z')), false);
+});
+
+test('a same-day espn page is reused and a stale page is not', async () => {
+  const dir = await mkdtemp(`${tmpdir()}/parlay-espn-`);
+  const previous = process.env.ESPN_CACHE_DIR;
+  process.env.ESPN_CACHE_DIR = dir;
+  const teams = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams?limit=32';
+  const injury = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/injuries';
+  const gamelog = 'https://site.web.api.espn.com/apis/common/v3/sports/football/nfl/athletes/1/gamelog';
+  try {
+    assert.equal(await readEspnCache(teams, 'day'), undefined);
+    await writeEspnCache(teams, { teams: 32 });
+    assert.deepEqual(await readEspnCache(teams, 'day'), { teams: 32 });
+    await writeEspnCache(gamelog, { names: ['rush'] });
+    assert.deepEqual(await readEspnCache(gamelog, 'day'), { names: ['rush'] });
+    await writeEspnCache(injury, { injuries: 1 }, '2020-01-01T00:00:00.000Z');
+    assert.equal(await readEspnCache(injury, 'injury'), undefined);
+    await writeEspnCache('https://example.test/teams', { no: true });
+    assert.equal(await readEspnCache('https://example.test/teams', 'day'), undefined);
+  } finally {
+    if (previous == null) delete process.env.ESPN_CACHE_DIR;
+    else process.env.ESPN_CACHE_DIR = previous;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a live odds response writes a quota line without the url or the key', async () => {
+  const dir = await mkdtemp(`${tmpdir()}/parlay-quota-`);
+  const previousLog = process.env.QUOTA_LOG;
+  const previousDir = process.env.ODDS_CACHE_DIR;
+  const previousCache = process.env.ODDS_CACHE;
+  const original = globalThis.fetch;
+  const log = `${dir}/quota.jsonl`;
+  process.env.QUOTA_LOG = log;
+  process.env.ODDS_CACHE_DIR = dir;
+  process.env.ODDS_CACHE = '1';
+  setOddsReplay(null);
+  const slate = 'https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds?apiKey=secret-key&regions=us&markets=h2h';
+  const prop = 'https://api.the-odds-api.com/v4/sports/icehockey_nhl/events/evt-9/odds?apiKey=secret-key&regions=us&markets=player_goal_scorer_anytime';
+  const game = {
+    id: 'evt-9',
+    commence_time: '2026-11-18T23:00:00Z',
+    home_team: 'Home',
+    away_team: 'Away',
+    bookmakers: [],
+  };
+  globalThis.fetch = async () => new Response(JSON.stringify([]), {
+    status: 200,
+    headers: { 'x-requests-remaining': '42' },
+  });
+  try {
+    const shaped = quotaEntry(
+      '/v4/sports/icehockey_nhl/events/evt-9/odds?regions=us',
+      'live',
+      42,
+      new Date('2026-11-18T15:00:00Z'),
+    );
+    assert.equal(shaped.time, '2026-11-18T10:00:00');
+    assert.equal(shaped.sport, 'icehockey_nhl');
+    assert.equal(shaped.event, 'evt-9');
+    assert.equal(easternClock(new Date('2026-11-18T15:00:00Z')), '2026-11-18T10:00:00');
+    assert.equal(JSON.stringify(shaped).includes('http'), false);
+    assert.equal(JSON.stringify(shaped).includes('apiKey'), false);
+
+    const live = await oddsGet(slate);
+    assert.equal(live.cached, false);
+    assert.equal(live.remaining, 42);
+    await writeOdds(dir, prop, new Date().toISOString(), game);
+    const cached = await oddsGet(prop);
+    assert.equal(cached.cached, true);
+    const lines = (await readFile(log, 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as { sport: string; event?: string; source: string; remaining: number | null });
+    assert.equal(lines.length, 2);
+    assert.equal(lines[0]?.sport, 'americanfootball_nfl');
+    assert.equal(lines[0]?.event, undefined);
+    assert.equal(lines[0]?.source, 'live');
+    assert.equal(lines[0]?.remaining, 42);
+    assert.equal(lines[1]?.sport, 'icehockey_nhl');
+    assert.equal(lines[1]?.event, 'evt-9');
+    assert.equal(lines[1]?.source, 'cached');
+    assert.equal(lines[1]?.remaining, null);
+    const text = await readFile(log, 'utf8');
+    assert.equal(text.includes('secret-key'), false);
+    assert.equal(text.includes('apiKey'), false);
+    assert.equal(text.includes('http'), false);
+  } finally {
+    globalThis.fetch = original;
+    setOddsReplay(null);
+    if (previousLog == null) delete process.env.QUOTA_LOG;
+    else process.env.QUOTA_LOG = previousLog;
+    process.env.QUOTA_LOG ??= '0';
+    if (previousDir == null) delete process.env.ODDS_CACHE_DIR;
+    else process.env.ODDS_CACHE_DIR = previousDir;
+    if (previousCache == null) delete process.env.ODDS_CACHE;
+    else process.env.ODDS_CACHE = previousCache;
     await rm(dir, { recursive: true, force: true });
   }
 });

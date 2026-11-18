@@ -1,6 +1,6 @@
 // One Games board and its Props board. The sport module supplies the odds key, the window, and the brief.
 import { rerank, verify } from '../decisions/judge.js';
-import { BOOKS } from '../odds/books.js';
+import { postedMarket } from '../odds/books.js';
 import type { GameBrief } from '../espn/evidence.js';
 import { ageLabel, oddsGet, oddsReplayDay } from '../odds/cache.js';
 import { loadPropBoard, type SlateGame } from '../props/board.js';
@@ -24,8 +24,11 @@ type Leg = {
   price: number;
   implied: number;
   commence: string;
+  book: string;
   spread: Quote | null;
+  spreadBook: string | null;
   total: { point: number; overPrice: number; underPrice: number } | null;
+  totalBook: string | null;
 };
 
 export function implied(american: number) {
@@ -40,16 +43,8 @@ function priceText(price: number) {
   return `${price > 0 ? '+' : ''}${price}`;
 }
 
-function outcomesFor(books: any[], market: string) {
-  const ordered = [
-    ...BOOKS.map((key) => books.find((book) => book.key === key)).filter(Boolean),
-    ...books,
-  ];
-  for (const book of ordered) {
-    const outcomes = book.markets?.find((item: any) => item.key === market)?.outcomes;
-    if (outcomes?.length) return outcomes as any[];
-  }
-  return [];
+function atBook(detail: string, book: string | null) {
+  return book ? `${detail} at ${book}.` : `${detail}.`;
 }
 
 function cacheSentence(cachedAt: string | null) {
@@ -74,20 +69,26 @@ async function getLegs(oddsKey: string, from: string, to: string, threeWay: bool
   if (!Array.isArray(body)) throw new Error('Odds API returned an unexpected payload.');
   if (result.cached) console.log(`Odds cache hit for ${oddsKey} (${ageLabel(result.savedAt)}).`);
   else console.log(`Fetched ${oddsKey} odds.${result.remaining == null ? '' : ` Credits remaining: ${result.remaining}.`}`);
-  const legs = body.flatMap((game: any) => {
+  const legs = body.flatMap((game) => {
     if (!oddsReplayDay() && Date.parse(game.commence_time) <= Date.now()) return [];
-    const books: any[] = game.bookmakers ?? [];
-    const moneylines = outcomesFor(books, 'h2h');
-    const spreads = outcomesFor(books, 'spreads');
-    const totals = outcomesFor(books, 'totals');
+    const books = game.bookmakers;
+    const moneyMarket = postedMarket(books, 'h2h');
+    const spreadMarket = postedMarket(books, 'spreads');
+    const totalMarket = postedMarket(books, 'totals');
+    const moneylines = moneyMarket?.outcomes ?? [];
+    const spreads = spreadMarket?.outcomes ?? [];
+    const totals = totalMarket?.outcomes ?? [];
     const over = totals.find((outcome) => outcome.name === 'Over');
     const under = totals.find((outcome) => outcome.name === 'Under');
-    const total = over && under
-      ? { point: Number(over.point), overPrice: Number(over.price), underPrice: Number(under.price) }
+    const total = over && under && typeof over.point === 'number' && typeof under.point === 'number'
+      ? { point: over.point, overPrice: over.price, underPrice: under.price }
       : null;
     return moneylines.flatMap((outcome) => {
       if (threeWay && /^(draw|tie)$/i.test(String(outcome.name))) return [];
       const spreadOutcome = spreads.find((quote) => quote.name === outcome.name);
+      const spread = spreadOutcome && typeof spreadOutcome.point === 'number'
+        ? { point: spreadOutcome.point, price: spreadOutcome.price }
+        : null;
       return [{
         id: `${game.id}:${outcome.name}`,
         eventId: String(game.id),
@@ -99,8 +100,11 @@ async function getLegs(oddsKey: string, from: string, to: string, threeWay: bool
         price: outcome.price,
         implied: implied(outcome.price),
         commence: game.commence_time,
-        spread: spreadOutcome ? { point: Number(spreadOutcome.point), price: Number(spreadOutcome.price) } : null,
+        book: moneyMarket?.book ?? 'the book',
+        spread,
+        spreadBook: spread ? spreadMarket?.book ?? null : null,
         total,
+        totalBook: total ? totalMarket?.book ?? null : null,
       }];
     });
   });
@@ -249,6 +253,7 @@ function decisionComment(leg: Leg, brief: GameBrief, judgment: Judgment) {
     .map((side) => `${nick(side.name)}, ${side.injury}`);
   const injuries = notes.length ? `Injuries: ${notes.join('; ')}.` : 'No significant injuries on either report.';
   const table = tableClause(brief, nick);
+  const price = atBook(`Price is ${priceText(leg.price)}`, leg.book);
   const call = judgment.kind === 'missed'
     ? judgment.stage === 'rerank'
       ? 'Rerank did not return a score for the brief. Left out.'
@@ -262,13 +267,13 @@ function decisionComment(leg: Leg, brief: GameBrief, judgment: Judgment) {
         : judgment.verdict === 'contradicted'
           ? `Verify says the brief cuts against the win at ${judgment.confidence.toFixed(2)}. Left out.`
           : `Verify says the brief does not establish the win at ${judgment.confidence.toFixed(2)}. Left out.`;
-  return [facts, table, injuries, call].filter(Boolean).join(' ');
+  return [price, facts, table, injuries, call].filter(Boolean).join(' ');
 }
 
 function spreadComment(leg: Leg, brief: GameBrief, check: Check) {
   const quote = leg.spread!;
   return [
-    `${nick(leg.team)} ${signed(quote.point)} (${priceText(quote.price)}).`,
+    atBook(`${nick(leg.team)} ${signed(quote.point)} (${priceText(quote.price)})`, leg.spreadBook),
     `Last 5 margin: ${nick(brief.pick.name)} ${marginText(brief.pick)}; ${nick(brief.opponent.name)} ${marginText(brief.opponent)}.`,
     tableClause(brief, nick),
     gateSentence(check, 'cover'),
@@ -283,7 +288,7 @@ function totalComment(leg: Leg, brief: GameBrief, side: 'Over' | 'Under', check:
   const quote = leg.total!;
   const price = side === 'Over' ? quote.overPrice : quote.underPrice;
   return [
-    `${side} ${points(quote.point)} (${priceText(price)}).`,
+    atBook(`${side} ${points(quote.point)} (${priceText(price)})`, leg.totalBook),
     `${nick(brief.pick.name)} last 5: ${scoringText(brief.pick)}. ${nick(brief.opponent.name)} last 5: ${scoringText(brief.opponent)}.`,
     tableClause(brief, nick),
     `The ${side.toLowerCase()} is the stronger side (${supportChance(check).toFixed(2)} vs ${supportChance(other).toFixed(2)}).`,
@@ -484,9 +489,9 @@ async function buildBoardInner(source: BoardSource, day: string | undefined): Pr
       ];
       const spreadCheck = verdict.get(`${leg.id}:spread`);
       const spread = !leg.spread
-        ? ['  Spread', 'n/a', 'n/a', 'No line', 'Pass', 'This book did not post a spread.']
+        ? ['  Spread', 'n/a', 'n/a', 'No line', 'Pass', 'No book posted a spread.']
         : !spreadCheck
-          ? ['  Spread', signed(leg.spread.point), priceText(leg.spread.price), 'No call', 'Pass', 'Verify did not return a spread decision.']
+          ? ['  Spread', signed(leg.spread.point), priceText(leg.spread.price), 'No call', 'Pass', `${atBook(`${nick(leg.team)} ${signed(leg.spread.point)} (${priceText(leg.spread.price)})`, leg.spreadBook)} Verify did not return a spread decision.`]
           : [
               '  Spread',
               signed(leg.spread.point),
@@ -541,9 +546,10 @@ async function buildBoardInner(source: BoardSource, day: string | undefined): Pr
 }
 
 function totalRow(leg: Leg, brief: GameBrief, overCheck: Check | undefined, underCheck: Check | undefined) {
-  if (!leg.total) return ['  Over/Under', 'n/a', 'n/a', 'No line', 'Pass', 'This book did not post a total.'];
+  if (!leg.total) return ['  Over/Under', 'n/a', 'n/a', 'No line', 'Pass', 'No book posted a total.'];
   if (!overCheck || !underCheck) {
-    return ['  Over/Under', points(leg.total.point), 'n/a', 'No call', 'Pass', 'Verify did not return an over/under decision.'];
+    const quote = atBook(`Total ${points(leg.total.point)}`, leg.totalBook);
+    return ['  Over/Under', points(leg.total.point), 'n/a', 'No call', 'Pass', `${quote} Verify did not return an over/under decision.`];
   }
   const overLeans = supportChance(overCheck) >= supportChance(underCheck);
   const side = overLeans ? 'Over' : 'Under';

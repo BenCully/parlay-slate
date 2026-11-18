@@ -1,11 +1,14 @@
 // Disk cache for The Odds API. The key is the request path with apiKey removed.
 // A hit does not call the network and does not spend a credit.
 // A slate whose kickoff window moved still counts as a hit until ODDS_CACHE_HOURS.
+// An empty slate loses that lookup while a non-empty sibling is still fresh.
+// The empty file is used when it is the only fresh one. An exact request hash still wins.
 // odds=YYYY-MM-DD reads that Eastern day's saves even after the lifetime, and does not fetch.
 // ODDS_CACHE_HOURS, ODDS_CACHE, and ODDS_CACHE_DIR come from .env.settings.
 import { createHash } from 'node:crypto';
 import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { appendQuota, quotaEntry } from './quota.js';
 import { easternDay } from '../slate/window.js';
 
 const DEFAULT_HOURS = 24 * 7;
@@ -17,14 +20,100 @@ type CacheRecord = {
   request: string;
 };
 
+export type OddsOutcome = {
+  name: string;
+  price: number;
+  point?: number;
+  description?: string;
+};
+
+export type OddsMarket = {
+  key: string;
+  outcomes: OddsOutcome[];
+};
+
+export type OddsBook = {
+  key: string;
+  title?: string;
+  markets: OddsMarket[];
+};
+
+/** One Odds API event. A slate response is an array of these. A prop response is one of them. */
+export type OddsEvent = {
+  id: string;
+  commence_time: string;
+  home_team: string;
+  away_team: string;
+  bookmakers: OddsBook[];
+};
+
 export type OddsResponse = {
-  body: any;
+  body: OddsEvent[] | OddsEvent | null;
   remaining: number | null;
   cached: boolean;
   savedAt: string;
   /** True when a live fetch was skipped to stay above ODDS_CREDIT_FLOOR. */
   skipped?: boolean;
 };
+
+const unexpected = 'Odds API returned an unexpected payload.';
+
+function textOf(value: unknown) {
+  return typeof value === 'string' && value.trim() !== '' ? value : '';
+}
+
+function parseOutcome(value: unknown): OddsOutcome {
+  if (!value || typeof value !== 'object') throw new Error(unexpected);
+  const row = value as Record<string, unknown>;
+  const name = textOf(row.name);
+  if (!name || typeof row.price !== 'number' || !Number.isFinite(row.price)) throw new Error(unexpected);
+  const outcome: OddsOutcome = { name, price: row.price };
+  if (row.point != null) {
+    if (typeof row.point !== 'number' || !Number.isFinite(row.point)) throw new Error(unexpected);
+    outcome.point = row.point;
+  }
+  if (row.description != null) {
+    if (typeof row.description !== 'string') throw new Error(unexpected);
+    outcome.description = row.description;
+  }
+  return outcome;
+}
+
+function parseBook(value: unknown): OddsBook {
+  if (!value || typeof value !== 'object') throw new Error(unexpected);
+  const row = value as Record<string, unknown>;
+  const key = textOf(row.key);
+  if (!key) throw new Error(unexpected);
+  if (row.markets != null && !Array.isArray(row.markets)) throw new Error(unexpected);
+  const markets = (Array.isArray(row.markets) ? row.markets : []).map((market) => {
+    if (!market || typeof market !== 'object') throw new Error(unexpected);
+    const item = market as Record<string, unknown>;
+    const marketKey = textOf(item.key);
+    if (!marketKey || !Array.isArray(item.outcomes)) throw new Error(unexpected);
+    return { key: marketKey, outcomes: item.outcomes.map(parseOutcome) };
+  });
+  const title = textOf(row.title);
+  return { key, ...(title ? { title } : {}), markets };
+}
+
+function parseEvent(value: unknown): OddsEvent {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(unexpected);
+  const row = value as Record<string, unknown>;
+  const id = textOf(row.id);
+  const commence_time = textOf(row.commence_time);
+  const home_team = textOf(row.home_team);
+  const away_team = textOf(row.away_team);
+  if (!id || !commence_time || !home_team || !away_team) throw new Error(unexpected);
+  if (row.bookmakers != null && !Array.isArray(row.bookmakers)) throw new Error(unexpected);
+  const bookmakers = Array.isArray(row.bookmakers) ? row.bookmakers.map(parseBook) : [];
+  return { id, commence_time, home_team, away_team, bookmakers };
+}
+
+/** A slate is an array of events. A prop response is one event. Anything else throws. */
+export function parseOddsBody(body: unknown): OddsEvent[] | OddsEvent {
+  if (Array.isArray(body)) return body.map(parseEvent);
+  return parseEvent(body);
+}
 
 export type SavedOddsSlate = {
   sport: string;
@@ -222,6 +311,33 @@ export async function listSavedOdds(): Promise<SavedOddsDay[]> {
     }));
 }
 
+function bodyHasGames(body: unknown) {
+  if (Array.isArray(body)) return body.length > 0;
+  return body != null;
+}
+
+/**
+ * Newest record, except an empty slate loses to a sibling that still has games.
+ * Callers pass records that are already inside the cache lifetime.
+ */
+export function preferFreshRecord<T extends { savedAt: string; body: unknown }>(records: T[]): T | null {
+  let best: T | null = null;
+  let bestSaved = -Infinity;
+  let bestHasGames = false;
+  for (const record of records) {
+    const saved = Date.parse(record.savedAt);
+    if (!Number.isFinite(saved)) continue;
+    const hasGames = bodyHasGames(record.body);
+    const newer = saved > bestSaved;
+    const better = best == null || (hasGames && !bestHasGames) || (hasGames === bestHasGames && newer);
+    if (!better) continue;
+    best = record;
+    bestSaved = saved;
+    bestHasGames = hasGames;
+  }
+  return best;
+}
+
 async function readFamily(request: string): Promise<CacheRecord | null> {
   const want = oddsSlateFamily(request);
   let names: string[];
@@ -230,18 +346,14 @@ async function readFamily(request: string): Promise<CacheRecord | null> {
   } catch {
     return null;
   }
-  let best: CacheRecord | null = null;
-  let bestSaved = -Infinity;
+  const hits: CacheRecord[] = [];
   for (const name of names) {
     if (!name.endsWith('.json')) continue;
     const hit = await readHit(`${cacheDir()}/${name}`);
     if (!hit?.request || oddsSlateFamily(hit.request) !== want) continue;
-    const saved = Date.parse(hit.savedAt);
-    if (saved <= bestSaved) continue;
-    best = hit;
-    bestSaved = saved;
+    hits.push(hit);
   }
-  return best;
+  return preferFreshRecord(hits);
 }
 
 async function store(file: string, record: CacheRecord) {
@@ -256,12 +368,16 @@ export async function oddsGet(url: string, init?: RequestInit, options?: { cache
   if (replayDay) {
     const hit = await readReplay(identity.request);
     if (!hit) throw new Error(`No odds saved on ${replayDay} for ${requestLabel(identity.request)}. Nothing was fetched.`);
-    return { body: hit.body, remaining: null, cached: true, savedAt: hit.savedAt };
+    await appendQuota(quotaEntry(identity.request, 'cached', null));
+    return { body: parseOddsBody(hit.body), remaining: null, cached: true, savedAt: hit.savedAt };
   }
   const file = `${cacheDir()}/${identity.hash}.json`;
   if (!cacheBypass()) {
     const hit = await readHit(file) ?? await readFamily(identity.request);
-    if (hit) return { body: hit.body, remaining: null, cached: true, savedAt: hit.savedAt };
+    if (hit) {
+      await appendQuota(quotaEntry(identity.request, 'cached', null));
+      return { body: parseOddsBody(hit.body), remaining: null, cached: true, savedAt: hit.savedAt };
+    }
   }
   if (options?.cacheOnly) return { body: null, remaining: null, cached: false, savedAt: '', skipped: true };
   let res: Response;
@@ -273,18 +389,22 @@ export async function oddsGet(url: string, init?: RequestInit, options?: { cache
     throw new Error('Odds API did not answer.');
   }
   const remainingHeader = res.headers.get('x-requests-remaining');
-  const body = await res.json() as any;
+  const remaining = remainingHeader == null || remainingHeader === '' ? null : Number(remainingHeader);
+  const credits = Number.isFinite(remaining) ? remaining : null;
+  await appendQuota(quotaEntry(identity.request, 'live', credits));
+  const raw = await res.json() as unknown;
   if (!res.ok) {
-    const message = body?.message || body?.error || res.statusText;
+    const failed = raw && typeof raw === 'object' ? raw as { message?: unknown; error?: unknown } : {};
+    const message = textOf(failed.message) || textOf(failed.error) || res.statusText;
     throw new Error(`Odds API ${res.status}: ${message}`);
   }
+  const body = parseOddsBody(raw);
   const savedAt = new Date().toISOString();
-  const remaining = remainingHeader == null || remainingHeader === '' ? null : Number(remainingHeader);
   await store(file, {
     savedAt,
-    remaining: Number.isFinite(remaining) ? remaining : null,
-    body,
+    remaining: credits,
+    body: raw,
     request: identity.request,
   });
-  return { body, remaining: Number.isFinite(remaining) ? remaining : null, cached: false, savedAt };
+  return { body, remaining: credits, cached: false, savedAt };
 }
