@@ -20,6 +20,10 @@ Landed 2026-11-18. These are not open work.
 
 **ESPN pages are cached for the Eastern day.** Teams, schedules, rosters, and gamelogs are reused for 18 hours. Injuries are reused for 3 hours. A page from a previous Eastern day is a miss. Failures are not stored. The scoreboard is still fetched on every run. Files live in gitignored `espn-cache/`. Only `site.api.espn.com` and `site.web.api.espn.com` are stored.
 
+**CI runs the offline checks.** `.github/workflows/check.yml` runs `npm ci`, `npm test`, and `npm run typecheck` on a pull request and on a push to `main`. It does not call The Odds API, TypeSafe, or Autojev.
+
+**Odds credits are logged.** Each odds response appends one JSON line to gitignored `runs/quota.jsonl`. The line is Eastern time, the sport, the event id for a prop, `cached` or `live`, and credits remaining. It has no URL and no key. `QUOTA_LOG=0` turns it off.
+
 Sports are already the extension point that works. A new league is a `BoardSource` (`sports/types.ts`), an `EvidenceStyle` (`espn/evidence.ts`), and a `PropProfile` (`props/board.ts`), then one line in `sports/index.ts`. Do not replace that with a plugin loader.
 
 ## Database for the cache
@@ -84,10 +88,6 @@ Before a long `model=tail-jev` walk, call Autojev `/health` once. It is unauthen
 **Decision cache, then SQLite.** JSON files keyed by model and state hash give replay for free and match the odds cache. The empty-body rule has landed. SQLite is the step after the index is in place, using the tables above. Do not migrate `odds-cache/` until `odds=YYYY-MM-DD` and `npm run odds` read the same rows the file cache reads now.
 
 **A small pool for tail-jev.** Claims are strictly one at a time, so a slate is as slow as the sum of the tailnet calls. `props/board.ts` already has `mapPool`. A pool of 2 or 3 against one box is the useful range. Unbounded parallelism will time the box out and then, once retries exist, multiply the load. Cache hits skip the pool.
-
-**CI is `npm test` and `npm run typecheck`.** `test/pure.test.ts` covers the pure helpers and does not call The Odds API, TypeSafe, or Autojev. Do not add a workflow that does.
-
-**Quota log.** One gitignored JSON line per live odds response: Eastern time, sport or event, cached or live, credits remaining. No URL and no key. That is the history that shows which sport spent the account down. The response header is already read in `oddsGet` and thrown away after the log line.
 
 ## Leave alone
 

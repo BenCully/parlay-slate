@@ -2,6 +2,20 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-18T19:30:35Z
+
+### Pull request secret scan
+
+`.github/workflows/secrets.yml` runs gitleaks on a pull request. It scans the commits in that pull request and fails the check when it finds a secret. The finding is redacted and the report is not uploaded. This repo is a personal account, so the action does not need a license. An organization account needs a `GITLEAKS_LICENSE` secret.
+
+## 2026-11-18T19:25:54Z
+
+### Offline CI and an odds quota log
+
+`.github/workflows/check.yml` runs `npm ci`, `npm test`, and `npm run typecheck` on a pull request and on a push to `main`. It does not call The Odds API, TypeSafe, or Autojev.
+
+Each odds response appends one JSON line to gitignored `runs/quota.jsonl`. The line is the Eastern time, the sport, the event id when the request is a prop, `cached` or `live`, and the credits remaining. A cache hit records `remaining` as null. The line has no URL and no key. `QUOTA_LOG=0` turns the log off. A write failure does not fail the slate.
+
 ## 2026-11-18T19:07:33Z
 
 ### Snapshot archive and a same-day ESPN cache

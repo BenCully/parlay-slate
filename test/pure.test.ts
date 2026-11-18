@@ -12,6 +12,9 @@ import { oddsCreditFloor, oddsGet, oddsRequestKey, oddsSlateFamily, parseOddsBod
 import { acquireRunLock } from '../scripts/lock.js';
 import { scrubError } from '../scripts/scrub.js';
 import { archiveStamp, saveDecisionSnapshot } from '../scripts/snapshot.js';
+import { easternClock, quotaEntry } from '../odds/quota.js';
+
+process.env.QUOTA_LOG ??= '0';
 import {
   droppedCall,
   implied,
@@ -628,6 +631,78 @@ test('a same-day espn page is reused and a stale page is not', async () => {
   } finally {
     if (previous == null) delete process.env.ESPN_CACHE_DIR;
     else process.env.ESPN_CACHE_DIR = previous;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a live odds response writes a quota line without the url or the key', async () => {
+  const dir = await mkdtemp(`${tmpdir()}/parlay-quota-`);
+  const previousLog = process.env.QUOTA_LOG;
+  const previousDir = process.env.ODDS_CACHE_DIR;
+  const previousCache = process.env.ODDS_CACHE;
+  const original = globalThis.fetch;
+  const log = `${dir}/quota.jsonl`;
+  process.env.QUOTA_LOG = log;
+  process.env.ODDS_CACHE_DIR = dir;
+  process.env.ODDS_CACHE = '1';
+  setOddsReplay(null);
+  const slate = 'https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds?apiKey=secret-key&regions=us&markets=h2h';
+  const prop = 'https://api.the-odds-api.com/v4/sports/icehockey_nhl/events/evt-9/odds?apiKey=secret-key&regions=us&markets=player_goal_scorer_anytime';
+  const game = {
+    id: 'evt-9',
+    commence_time: '2026-11-18T23:00:00Z',
+    home_team: 'Home',
+    away_team: 'Away',
+    bookmakers: [],
+  };
+  globalThis.fetch = async () => new Response(JSON.stringify([]), {
+    status: 200,
+    headers: { 'x-requests-remaining': '42' },
+  });
+  try {
+    const shaped = quotaEntry(
+      '/v4/sports/icehockey_nhl/events/evt-9/odds?regions=us',
+      'live',
+      42,
+      new Date('2026-11-18T15:00:00Z'),
+    );
+    assert.equal(shaped.time, '2026-11-18T10:00:00');
+    assert.equal(shaped.sport, 'icehockey_nhl');
+    assert.equal(shaped.event, 'evt-9');
+    assert.equal(easternClock(new Date('2026-11-18T15:00:00Z')), '2026-11-18T10:00:00');
+    assert.equal(JSON.stringify(shaped).includes('http'), false);
+    assert.equal(JSON.stringify(shaped).includes('apiKey'), false);
+
+    const live = await oddsGet(slate);
+    assert.equal(live.cached, false);
+    assert.equal(live.remaining, 42);
+    await writeOdds(dir, prop, new Date().toISOString(), game);
+    const cached = await oddsGet(prop);
+    assert.equal(cached.cached, true);
+    const lines = (await readFile(log, 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as { sport: string; event?: string; source: string; remaining: number | null });
+    assert.equal(lines.length, 2);
+    assert.equal(lines[0]?.sport, 'americanfootball_nfl');
+    assert.equal(lines[0]?.event, undefined);
+    assert.equal(lines[0]?.source, 'live');
+    assert.equal(lines[0]?.remaining, 42);
+    assert.equal(lines[1]?.sport, 'icehockey_nhl');
+    assert.equal(lines[1]?.event, 'evt-9');
+    assert.equal(lines[1]?.source, 'cached');
+    assert.equal(lines[1]?.remaining, null);
+    const text = await readFile(log, 'utf8');
+    assert.equal(text.includes('secret-key'), false);
+    assert.equal(text.includes('apiKey'), false);
+    assert.equal(text.includes('http'), false);
+  } finally {
+    globalThis.fetch = original;
+    setOddsReplay(null);
+    if (previousLog == null) delete process.env.QUOTA_LOG;
+    else process.env.QUOTA_LOG = previousLog;
+    process.env.QUOTA_LOG ??= '0';
+    if (previousDir == null) delete process.env.ODDS_CACHE_DIR;
+    else process.env.ODDS_CACHE_DIR = previousDir;
+    if (previousCache == null) delete process.env.ODDS_CACHE;
+    else process.env.ODDS_CACHE = previousCache;
     await rm(dir, { recursive: true, force: true });
   }
 });

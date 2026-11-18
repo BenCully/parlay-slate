@@ -8,6 +8,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { appendQuota, quotaEntry } from './quota.js';
 import { easternDay } from '../slate/window.js';
 
 const DEFAULT_HOURS = 24 * 7;
@@ -367,12 +368,16 @@ export async function oddsGet(url: string, init?: RequestInit, options?: { cache
   if (replayDay) {
     const hit = await readReplay(identity.request);
     if (!hit) throw new Error(`No odds saved on ${replayDay} for ${requestLabel(identity.request)}. Nothing was fetched.`);
+    await appendQuota(quotaEntry(identity.request, 'cached', null));
     return { body: parseOddsBody(hit.body), remaining: null, cached: true, savedAt: hit.savedAt };
   }
   const file = `${cacheDir()}/${identity.hash}.json`;
   if (!cacheBypass()) {
     const hit = await readHit(file) ?? await readFamily(identity.request);
-    if (hit) return { body: parseOddsBody(hit.body), remaining: null, cached: true, savedAt: hit.savedAt };
+    if (hit) {
+      await appendQuota(quotaEntry(identity.request, 'cached', null));
+      return { body: parseOddsBody(hit.body), remaining: null, cached: true, savedAt: hit.savedAt };
+    }
   }
   if (options?.cacheOnly) return { body: null, remaining: null, cached: false, savedAt: '', skipped: true };
   let res: Response;
@@ -384,6 +389,9 @@ export async function oddsGet(url: string, init?: RequestInit, options?: { cache
     throw new Error('Odds API did not answer.');
   }
   const remainingHeader = res.headers.get('x-requests-remaining');
+  const remaining = remainingHeader == null || remainingHeader === '' ? null : Number(remainingHeader);
+  const credits = Number.isFinite(remaining) ? remaining : null;
+  await appendQuota(quotaEntry(identity.request, 'live', credits));
   const raw = await res.json() as unknown;
   if (!res.ok) {
     const failed = raw && typeof raw === 'object' ? raw as { message?: unknown; error?: unknown } : {};
@@ -392,12 +400,11 @@ export async function oddsGet(url: string, init?: RequestInit, options?: { cache
   }
   const body = parseOddsBody(raw);
   const savedAt = new Date().toISOString();
-  const remaining = remainingHeader == null || remainingHeader === '' ? null : Number(remainingHeader);
   await store(file, {
     savedAt,
-    remaining: Number.isFinite(remaining) ? remaining : null,
+    remaining: credits,
     body: raw,
     request: identity.request,
   });
-  return { body, remaining: Number.isFinite(remaining) ? remaining : null, cached: false, savedAt };
+  return { body, remaining: credits, cached: false, savedAt };
 }
