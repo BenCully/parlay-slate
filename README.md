@@ -31,7 +31,7 @@ Each favorite is three rows inside one border.
 
 On this NFL board the Bills are -15000, a 99.3% favorite, and the slip is still Pass. Verify did not establish the win at 0.37, so the row says `Left out`. The Vikings and the Jaguars show Take because the brief leans toward the win, and Review because 0.26 and 0.77 are short of 0.80. Their spreads and totals are Pass. This page has no ticket. A ticket needs two moneylines the brief supports at 0.80 or better.
 
-Prices come from FanDuel, then DraftKings, then BetMGM, then Caesars, then the first book that posted the market. NCAA, soccer, and MLB slips use the ESPN short name, so a slip can read `Take Man City -180` or `Take Red Sox -150`.
+Prices come from FanDuel, then DraftKings, then BetMGM, then Caesars, then the first book that posted the market. The comment on that row names the book, so a moneyline and a spread on the same game can come from different books. A prop comment names its book the same way. NCAA, soccer, and MLB slips use the ESPN short name, so a slip can read `Take Man City -180` or `Take Red Sox -150`.
 
 ### A ticket
 

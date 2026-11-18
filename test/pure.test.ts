@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { test } from 'node:test';
 import { readStartArgs, requireRunKeys, selectDecisionModel, verify } from '../decisions/judge.js';
 import { aliasTarget, clubKey, createEvidence, nameKey, NFL_EVIDENCE, type GameBrief } from '../espn/evidence.js';
 import { absenceText, applyFotmob, matchClub, openAbsences, parseLeague, pickFixture, type FotmobLeague } from '../sports/soccer/fotmob.js';
-import { oddsCreditFloor, oddsGet, oddsRequestKey, oddsSlateFamily, setOddsReplay } from '../odds/cache.js';
+import { bookLabel, postedMarket } from '../odds/books.js';
+import { oddsCreditFloor, oddsGet, oddsRequestKey, oddsSlateFamily, preferFreshRecord, setOddsReplay } from '../odds/cache.js';
+import { scrubError } from '../scripts/scrub.js';
 import {
   droppedCall,
   implied,
@@ -355,6 +357,92 @@ test('a failed scoreboard returns no events', async () => {
     assert.deepEqual(result.stamps, []);
   } finally {
     globalThis.fetch = original;
+  }
+});
+
+test('a printed error hides the odds api key', () => {
+  const error = new Error('Odds API 401 from https://api.the-odds-api.com/v4/sports/x/odds?apiKey=super-secret&regions=us');
+  const safe = scrubError(error, 'The slate failed.');
+  assert.equal(safe.includes('super-secret'), false);
+  assert.match(safe, /apiKey=\*\*\*/);
+  assert.equal(scrubError('not an error', 'The slate failed.'), 'The slate failed.');
+});
+
+test('the first book that posted the market is named on the row', () => {
+  const books = [
+    { key: 'draftkings', markets: [{ key: 'h2h', outcomes: [{ name: 'Chiefs', price: -180 }] }] },
+    { key: 'fanduel', markets: [{ key: 'spreads', outcomes: [{ name: 'Chiefs', price: -110, point: -3.5 }] }] },
+    { key: 'somebook', title: 'Some Book', markets: [{ key: 'totals', outcomes: [{ name: 'Over', price: -105, point: 45 }] }] },
+  ];
+  assert.equal(postedMarket(books, 'h2h')?.book, 'DraftKings');
+  assert.equal(postedMarket(books, 'spreads')?.book, 'FanDuel');
+  assert.equal(postedMarket(books, 'totals')?.book, 'Some Book');
+  assert.equal(postedMarket(books, 'player_points'), null);
+  assert.equal(bookLabel({ key: 'williamhill_us' }), 'Caesars');
+  assert.equal(bookLabel({ key: 'betonlineag' }), 'betonlineag');
+  assert.equal(postedMarket([{ key: 'williamhill_us', markets: [{ key: 'h2h', outcomes: [{ name: 'A' }] }] }], 'h2h')?.book, 'Caesars');
+});
+
+test('an empty odds body loses to a sibling that still has games', () => {
+  const games = { savedAt: '2026-11-18T12:00:00Z', body: [{ id: 'game-1' }] };
+  const newerEmpty = { savedAt: '2026-11-18T18:00:00Z', body: [] as unknown[] };
+  const newerGames = { savedAt: '2026-11-18T20:00:00Z', body: [{ id: 'game-2' }, { id: 'game-3' }] };
+  assert.equal(preferFreshRecord([newerEmpty, games]), games);
+  assert.equal(preferFreshRecord([games, newerEmpty]), games);
+  assert.equal(preferFreshRecord([games, newerGames]), newerGames);
+  assert.deepEqual(preferFreshRecord([newerEmpty])?.body, []);
+  assert.equal(preferFreshRecord([]), null);
+});
+
+async function writeOdds(dir: string, url: string, savedAt: string, body: unknown) {
+  const key = oddsRequestKey(url);
+  await writeFile(`${dir}/${key.hash}.json`, `${JSON.stringify({ savedAt, remaining: 40, body, request: key.request })}\n`);
+}
+
+test('family lookup skips an empty slate when a fresh sibling has games', async () => {
+  const dir = await mkdtemp(`${tmpdir()}/parlay-odds-`);
+  const previousDir = process.env.ODDS_CACHE_DIR;
+  const previousHours = process.env.ODDS_CACHE_HOURS;
+  const previousCache = process.env.ODDS_CACHE;
+  const original = globalThis.fetch;
+  process.env.ODDS_CACHE_DIR = dir;
+  process.env.ODDS_CACHE_HOURS = '24';
+  process.env.ODDS_CACHE = '1';
+  setOddsReplay(null);
+  globalThis.fetch = async () => {
+    throw new Error('odds fetch should not run');
+  };
+  const gamesUrl = 'https://api.the-odds-api.com/v4/sports/icehockey_nhl/odds?apiKey=secret&regions=us&markets=h2h,spreads,totals&oddsFormat=american&commenceTimeFrom=2026-11-15T05:00:00Z&commenceTimeTo=2026-11-16T05:00:00Z';
+  const emptyUrl = 'https://api.the-odds-api.com/v4/sports/icehockey_nhl/odds?apiKey=secret&regions=us&markets=h2h,spreads,totals&oddsFormat=american&commenceTimeFrom=2026-11-18T05:00:00Z&commenceTimeTo=2026-11-19T05:00:00Z';
+  const askUrl = 'https://api.the-odds-api.com/v4/sports/icehockey_nhl/odds?apiKey=secret&regions=us&markets=h2h,spreads,totals&oddsFormat=american&commenceTimeFrom=2026-11-20T05:00:00Z&commenceTimeTo=2026-11-21T05:00:00Z';
+  const staleGamesUrl = 'https://api.the-odds-api.com/v4/sports/basketball_nba/odds?apiKey=secret&regions=us&markets=h2h,spreads,totals&oddsFormat=american&commenceTimeFrom=2026-11-15T05:00:00Z&commenceTimeTo=2026-11-16T05:00:00Z';
+  const freshEmptyUrl = 'https://api.the-odds-api.com/v4/sports/basketball_nba/odds?apiKey=secret&regions=us&markets=h2h,spreads,totals&oddsFormat=american&commenceTimeFrom=2026-11-18T05:00:00Z&commenceTimeTo=2026-11-19T05:00:00Z';
+  const askNba = 'https://api.the-odds-api.com/v4/sports/basketball_nba/odds?apiKey=secret&regions=us&markets=h2h,spreads,totals&oddsFormat=american&commenceTimeFrom=2026-11-20T05:00:00Z&commenceTimeTo=2026-11-21T05:00:00Z';
+  try {
+    const now = Date.now();
+    await writeOdds(dir, gamesUrl, new Date(now - 3_600_000).toISOString(), [{ id: 'game-1' }]);
+    await writeOdds(dir, emptyUrl, new Date(now - 60_000).toISOString(), []);
+    const family = await oddsGet(askUrl);
+    assert.equal(family.cached, true);
+    assert.equal(family.body.length, 1);
+    const exact = await oddsGet(emptyUrl);
+    assert.equal(exact.cached, true);
+    assert.deepEqual(exact.body, []);
+    await writeOdds(dir, staleGamesUrl, new Date(now - 48 * 3_600_000).toISOString(), [{ id: 'old-game' }]);
+    await writeOdds(dir, freshEmptyUrl, new Date(now - 60_000).toISOString(), []);
+    const onlyFresh = await oddsGet(askNba);
+    assert.equal(onlyFresh.cached, true);
+    assert.deepEqual(onlyFresh.body, []);
+  } finally {
+    globalThis.fetch = original;
+    setOddsReplay(null);
+    if (previousDir == null) delete process.env.ODDS_CACHE_DIR;
+    else process.env.ODDS_CACHE_DIR = previousDir;
+    if (previousHours == null) delete process.env.ODDS_CACHE_HOURS;
+    else process.env.ODDS_CACHE_HOURS = previousHours;
+    if (previousCache == null) delete process.env.ODDS_CACHE;
+    else process.env.ODDS_CACHE = previousCache;
+    await rm(dir, { recursive: true, force: true });
   }
 });
 

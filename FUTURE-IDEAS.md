@@ -2,6 +2,16 @@
 
 Recommendations from a read of the code on 2026-11-17. Nothing here is scheduled. The 0.60 favorite gate, the 0.60 rerank gate, and the 0.80 verify gate stay. Do not add a paid odds or news source. `changelog.md` is only for changes that have landed.
 
+## Done
+
+Landed 2026-11-18. These are not open work.
+
+**An empty odds file does not hide a slate.** `readFamily` skips an empty body when another save for that sport and markets is still inside `ODDS_CACHE_HOURS` and still has games. The empty file is used when it is the only fresh one. A hit on the exact request hash still returns that file.
+
+**Top-level errors are scrubbed.** `main().catch` uses the same `apiKey=` scrub as a league or sport failure, and prints that message.
+
+**The book is on the row.** Moneyline, spread, total, and prop comments name the book that posted the price. FanDuel, DraftKings, BetMGM, and Caesars use those names. Any other book uses its title, then its key. A missing spread or total says that no book posted it.
+
 Sports are already the extension point that works. A new league is a `BoardSource` (`sports/types.ts`), an `EvidenceStyle` (`espn/evidence.ts`), and a `PropProfile` (`props/board.ts`), then one line in `sports/index.ts`. Do not replace that with a plugin loader.
 
 ## Database for the cache
@@ -10,13 +20,12 @@ Not a server database. Postgres or anything that needs a daemon is the wrong too
 
 The odds cache in `odds/cache.ts` is a folder of JSON files, one per request hash. That is the right store for raw Odds API bodies. A hit spends no credit, writes are atomic (`write` then `rename`), and `apiKey` is stripped from the key. Keep that until the folder is hard to query.
 
-Three behaviors are the actual problem, and a database does not fix them by itself:
+Two behaviors are the actual problem, and a database does not fix them by itself:
 
-- Family lookup ignores the kickoff window and keeps the newest in-TTL file for that sport and markets. An empty later window shadows an older file that still has games, for the whole `ODDS_CACHE_HOURS` window. `odds=YYYY-MM-DD` is the workaround. The lookup should skip an empty body when a non-empty sibling in the same window is still fresh.
 - `readFamily` re-reads every file in `odds-cache/` on a miss. `listSavedOdds` parses the whole folder too. Prop files grow one per game. An index of `{hash, sport, markets, savedAt, games, easternDay}` removes the scan. A JSON index next to the folder is enough.
 - Decisions are not cached. `odds=` replays prices and still calls TypeSafe or Autojev. A tail-jev day is one HTTP call per claim (`decisions/judge.ts` `mapInOrder`). The expensive repeat is the model, not the odds file.
 
-Do those three in the files that exist. Move to one local SQLite file after that, and only if you want history you can query: line movement, which book posted a price, and decision reuse across runs. Node 24 on this machine already exposes `node:sqlite` (`DatabaseSync`), so that file needs no new package and no server. One gitignored database can hold the odds index, decision rows, and a short ESPN cache. Do not put API keys or request URLs in it.
+Do those two in the files that exist. Move to one local SQLite file after that, and only if you want history you can query: line movement, which book posted a price, and decision reuse across runs. Node 24 on this machine already exposes `node:sqlite` (`DatabaseSync`), so that file needs no new package and no server. One gitignored database can hold the odds index, decision rows, and a short ESPN cache. Do not put API keys or request URLs in it.
 
 What to store when that file exists:
 
@@ -66,17 +75,13 @@ Before a long `model=tail-jev` walk, call Autojev `/health` once. It is unauthen
 
 These are smaller than a database or a provider split.
 
-**Scrub the top-level catch.** League errors run through `scrub` and strip `apiKey=`. `main().catch` prints the raw error. A fetch failure can include the request URL. Use the same scrub there.
-
 **Lock `npm start`.** `runs/last-run.json` is rewritten after each sport. Two processes still race on that file. A lock file in `runs/` makes the second process exit with a clear line.
 
 **Type the odds body at the boundary.** `oddsGet` returns `body: any`, and `board.ts` and `props/board.ts` walk `bookmakers` and `outcomes` untyped. Parse once into `{ id, commence_time, home_team, away_team, bookmakers: { key, markets: { key, outcomes }[] }[] }`. A shape change should throw at `oddsGet`, not render a blank favorite list.
 
-**Record the book on the row.** `outcomesFor` walks FanDuel, DraftKings, BetMGM, Caesars, then the first book that posted the market. Moneyline and spread on the same game can come from different books. Put the book key in the comment. The screen can explain a price without a second API call.
-
 ## Later
 
-**Decision cache, then SQLite.** JSON files keyed by model and state hash give replay for free and match the odds cache. SQLite is the step after the index and the empty-body rule are in place, using the tables above. Do not migrate `odds-cache/` until `odds=YYYY-MM-DD` and `npm run odds` read the same rows the file cache reads now.
+**Decision cache, then SQLite.** JSON files keyed by model and state hash give replay for free and match the odds cache. The empty-body rule has landed. SQLite is the step after the index is in place, using the tables above. Do not migrate `odds-cache/` until `odds=YYYY-MM-DD` and `npm run odds` read the same rows the file cache reads now.
 
 **A small pool for tail-jev.** Claims are strictly one at a time, so a slate is as slow as the sum of the tailnet calls. `props/board.ts` already has `mapPool`. A pool of 2 or 3 against one box is the useful range. Unbounded parallelism will time the box out and then, once retries exist, multiply the load. Cache hits skip the pool.
 

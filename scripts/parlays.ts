@@ -14,11 +14,7 @@ import { buildBoard, type BuiltBoard } from '../slate/board.js';
 import { todayEastern } from '../slate/window.js';
 import { showSlate, type SavedBoard, type SavedLeague, type SavedSlate, type SavedSport } from '../ui/screen.js';
 import { SPORTS, type LeagueDef } from '../sports/index.js';
-
-function scrub(error: unknown, fallback: string) {
-  const message = error instanceof Error ? error.message : fallback;
-  return message.replace(/apiKey=[^&\s]+/gi, 'apiKey=***');
-}
+import { scrubError } from './scrub.js';
 
 function gamesOf(board: BuiltBoard): SavedBoard {
   return { title: board.title, groups: board.groups, note: board.note, ticketGroups: board.ticketGroups };
@@ -32,7 +28,7 @@ async function runLeague(league: LeagueDef, slateDay: string | undefined): Promi
       league: { label: league.label, short: league.short, games: gamesOf(board), props: board.props },
     };
   } catch (error) {
-    const safe = scrub(error, 'This league failed.');
+    const safe = scrubError(error, 'This league failed.');
     console.error(`${league.label}: ${safe}`);
     return {
       built: false,
@@ -81,7 +77,7 @@ async function main() {
         built = true;
         sports.push({ label: sport.label, games: gamesOf(board), props: board.props });
       } catch (error) {
-        const safe = scrub(error, 'This sport failed.');
+        const safe = scrubError(error, 'This sport failed.');
         console.error(`${sport.label}: ${safe}`);
         sports.push({
           label: sport.label,
@@ -145,4 +141,7 @@ async function saveSnapshot(saved: SavedSlate, label: string) {
   console.log(`Saved ${snapshotPath}`);
 }
 
-main().catch((error) => { console.error(error); process.exit(1); });
+main().catch((error) => {
+  console.error(scrubError(error, 'The slate failed.'));
+  process.exit(1);
+});

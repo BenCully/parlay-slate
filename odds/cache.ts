@@ -1,6 +1,8 @@
 // Disk cache for The Odds API. The key is the request path with apiKey removed.
 // A hit does not call the network and does not spend a credit.
 // A slate whose kickoff window moved still counts as a hit until ODDS_CACHE_HOURS.
+// An empty slate loses that lookup while a non-empty sibling is still fresh.
+// The empty file is used when it is the only fresh one. An exact request hash still wins.
 // odds=YYYY-MM-DD reads that Eastern day's saves even after the lifetime, and does not fetch.
 // ODDS_CACHE_HOURS, ODDS_CACHE, and ODDS_CACHE_DIR come from .env.settings.
 import { createHash } from 'node:crypto';
@@ -222,6 +224,33 @@ export async function listSavedOdds(): Promise<SavedOddsDay[]> {
     }));
 }
 
+function bodyHasGames(body: unknown) {
+  if (Array.isArray(body)) return body.length > 0;
+  return body != null;
+}
+
+/**
+ * Newest record, except an empty slate loses to a sibling that still has games.
+ * Callers pass records that are already inside the cache lifetime.
+ */
+export function preferFreshRecord<T extends { savedAt: string; body: unknown }>(records: T[]): T | null {
+  let best: T | null = null;
+  let bestSaved = -Infinity;
+  let bestHasGames = false;
+  for (const record of records) {
+    const saved = Date.parse(record.savedAt);
+    if (!Number.isFinite(saved)) continue;
+    const hasGames = bodyHasGames(record.body);
+    const newer = saved > bestSaved;
+    const better = best == null || (hasGames && !bestHasGames) || (hasGames === bestHasGames && newer);
+    if (!better) continue;
+    best = record;
+    bestSaved = saved;
+    bestHasGames = hasGames;
+  }
+  return best;
+}
+
 async function readFamily(request: string): Promise<CacheRecord | null> {
   const want = oddsSlateFamily(request);
   let names: string[];
@@ -230,18 +259,14 @@ async function readFamily(request: string): Promise<CacheRecord | null> {
   } catch {
     return null;
   }
-  let best: CacheRecord | null = null;
-  let bestSaved = -Infinity;
+  const hits: CacheRecord[] = [];
   for (const name of names) {
     if (!name.endsWith('.json')) continue;
     const hit = await readHit(`${cacheDir()}/${name}`);
     if (!hit?.request || oddsSlateFamily(hit.request) !== want) continue;
-    const saved = Date.parse(hit.savedAt);
-    if (saved <= bestSaved) continue;
-    best = hit;
-    bestSaved = saved;
+    hits.push(hit);
   }
-  return best;
+  return preferFreshRecord(hits);
 }
 
 async function store(file: string, record: CacheRecord) {

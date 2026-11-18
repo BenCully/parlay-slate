@@ -2,6 +2,16 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-18T18:48:45Z
+
+### Empty odds files, scrubbed errors, and the book on the row
+
+Family lookup skips an empty Odds API body when another save for that sport and markets is still inside `ODDS_CACHE_HOURS` and still has games. The empty file is used when it is the only fresh one. A hit on the exact request hash still returns that file, including an empty one. `odds=` still reads the saves from that Eastern day.
+
+`main().catch` scrubs `apiKey=` the same way a league or sport failure does, and prints that message instead of the raw error.
+
+Moneyline, spread, total, and prop comments name the book that posted the price. FanDuel, DraftKings, BetMGM, and Caesars use those names. Any other book uses its title, then its key. A missing spread or total says that no book posted it.
+
 ## 2026-11-18T17:31:28Z
 
 ### Tail-jev stays in decisions/judge.ts
