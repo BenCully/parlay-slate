@@ -1,0 +1,90 @@
+# Path labels for actions/labeler v5 and newer.
+# A pull request gets a label when any changed file matches that label.
+# The workflow removes the label when those files are no longer in the pull request.
+# https://github.com/actions/labeler
+
+football:
+- changed-files:
+  - any-glob-to-any-file: 'sports/football/**'
+
+soccer:
+- changed-files:
+  - any-glob-to-any-file: 'sports/soccer/**'
+
+hockey:
+- changed-files:
+  - any-glob-to-any-file: 'sports/hockey/**'
+
+basketball:
+- changed-files:
+  - any-glob-to-any-file: 'sports/basketball/**'
+
+baseball:
+- changed-files:
+  - any-glob-to-any-file: 'sports/baseball/**'
+
+sports:
+- changed-files:
+  - any-glob-to-any-file:
+    - 'sports/index.ts'
+    - 'sports/types.ts'
+
+ui:
+- changed-files:
+  - any-glob-to-any-file: 'ui/**'
+
+odds:
+- changed-files:
+  - any-glob-to-any-file: 'odds/**'
+
+espn:
+- changed-files:
+  - any-glob-to-any-file: 'espn/**'
+
+decisions:
+- changed-files:
+  - any-glob-to-any-file: 'decisions/**'
+
+slate:
+- changed-files:
+  - any-glob-to-any-file: 'slate/**'
+
+props:
+- changed-files:
+  - any-glob-to-any-file: 'props/**'
+
+scripts:
+- changed-files:
+  - any-glob-to-any-file: 'scripts/**'
+
+tests:
+- changed-files:
+  - any-glob-to-any-file: 'test/**'
+
+docs:
+- changed-files:
+  - any-glob-to-any-file:
+    - 'README.md'
+    - 'AGENTS.md'
+    - 'FUTURE-IDEAS.md'
+    - 'changelog.md'
+
+dependencies:
+- changed-files:
+  - any-glob-to-any-file:
+    - 'package.json'
+    - 'package-lock.json'
+
+tooling:
+- changed-files:
+  - any-glob-to-any-file:
+    - 'tsconfig.json'
+    - '.npmrc'
+    - '.gitignore'
+    - '.env.example'
+    - '.env.settings.example'
+    - '.vscode/**'
+
+ci:
+- changed-files:
+  - any-glob-to-any-file: '.github/**'

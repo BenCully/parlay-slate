@@ -88,7 +88,7 @@ The background stays black. The top row is the sport (Football, Soccer, Hockey, 
 
 Never print `.env`, a key, or a request URL that contains a key. Odds failures should report status and the API message only.
 
-`origin` is `gh:BenCully/parlay-slate.git` (https://github.com/BenCully/parlay-slate) and `main` tracks `origin/main`. Do not commit or push unless asked. `runs/`, `snapshots/`, `odds-cache/`, `.env`, and `.env.settings` stay gitignored. A root `last-run.json` stays ignored too. `.env.example` and `.env.settings.example` stay in git.
+`origin` is `gh:BenCully/parlay-slate.git` (https://github.com/BenCully/parlay-slate) and `main` tracks `origin/main`. Pull requests get labels from `.github/labeler.yml` through `.github/workflows/label.yml`. That workflow reads the config from `main` and does not check out the pull request. Do not commit or push unless asked. `runs/`, `snapshots/`, `odds-cache/`, `.env`, and `.env.settings` stay gitignored. A root `last-run.json` stays ignored too. `.env.example` and `.env.settings.example` stay in git.
 
 ## Changelog
 

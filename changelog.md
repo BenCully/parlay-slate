@@ -2,6 +2,12 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-18T02:17:08Z
+
+### Pull request labels
+
+`.github/workflows/label.yml` runs `actions/labeler` v7 on a pull request. `.github/labeler.yml` maps changed paths to labels: each sport, the shared sports files, and ui, odds, espn, decisions, slate, props, scripts, tests, docs, dependencies, tooling, and ci. A label is removed when the pull request no longer touches that path. The workflow reads the config from `main` and does not check out the pull request. `issues: write` lets the action create a label the first time it is needed.
+
 ## 2026-11-18T01:43:05Z
 
 ### FotMob on every soccer brief
