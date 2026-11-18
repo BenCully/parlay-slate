@@ -14,6 +14,7 @@ import { buildBoard, type BuiltBoard } from '../slate/board.js';
 import { todayEastern } from '../slate/window.js';
 import { showSlate, type SavedBoard, type SavedLeague, type SavedSlate, type SavedSport } from '../ui/screen.js';
 import { SPORTS, type LeagueDef } from '../sports/index.js';
+import { acquireRunLock } from './lock.js';
 import { scrubError } from './scrub.js';
 
 function gamesOf(board: BuiltBoard): SavedBoard {
@@ -62,52 +63,58 @@ async function main() {
   if (odds) setOddsReplay(odds);
   const chosen = selectDecisionModel(model);
   requireRunKeys(chosen, Boolean(odds));
-  console.log(odds ? `Decisions: ${chosen}. Odds saved on ${odds}.` : `Decisions: ${chosen}.`);
-  const sports: SavedSport[] = [];
-  let built = false;
-  const label = odds ?? day ?? todayEastern();
-  const remember = async () => {
-    if (!built) return;
-    await saveRun(currentSlate(sports, chosen, odds));
-  };
-  for (const sport of SPORTS) {
-    if (sport.kind === 'board') {
-      try {
-        const board = await buildBoard(sport.source, odds ?? day);
-        built = true;
-        sports.push({ label: sport.label, games: gamesOf(board), props: board.props });
-      } catch (error) {
-        const safe = scrubError(error, 'This sport failed.');
-        console.error(`${sport.label}: ${safe}`);
-        sports.push({
-          label: sport.label,
-          games: { title: sport.label, groups: [], note: safe },
-          props: { title: 'Player props', groups: [], note: safe },
-        });
+  const release = await acquireRunLock(dirname(savedPath));
+  try {
+    console.log(odds ? `Decisions: ${chosen}. Odds saved on ${odds}.` : `Decisions: ${chosen}.`);
+    const sports: SavedSport[] = [];
+    let built = false;
+    const label = odds ?? day ?? todayEastern();
+    const remember = async () => {
+      if (!built) return;
+      await saveRun(currentSlate(sports, chosen, odds));
+    };
+    for (const sport of SPORTS) {
+      if (sport.kind === 'board') {
+        try {
+          const board = await buildBoard(sport.source, odds ?? day);
+          built = true;
+          sports.push({ label: sport.label, games: gamesOf(board), props: board.props });
+        } catch (error) {
+          const safe = scrubError(error, 'This sport failed.');
+          console.error(`${sport.label}: ${safe}`);
+          sports.push({
+            label: sport.label,
+            games: { title: sport.label, groups: [], note: safe },
+            props: { title: 'Player props', groups: [], note: safe },
+          });
+        }
+        await remember();
+        continue;
       }
+      const leagues: SavedLeague[] = [];
+      for (const league of sport.leagues) {
+        console.log(`\n${league.label}`);
+        const result = await runLeague(league, odds ?? day);
+        built = built || result.built;
+        leagues.push(result.league);
+      }
+      sports.push({ label: sport.label, leagues });
       await remember();
-      continue;
     }
-    const leagues: SavedLeague[] = [];
-    for (const league of sport.leagues) {
-      console.log(`\n${league.label}`);
-      const result = await runLeague(league, odds ?? day);
-      built = built || result.built;
-      leagues.push(result.league);
+
+    if (!built) {
+      console.error('No sport produced a board. Left runs/last-run.json unchanged.');
+      process.exitCode = 1;
+      return;
     }
-    sports.push({ label: sport.label, leagues });
-    await remember();
-  }
 
-  if (!built) {
-    console.error('No sport produced a board. Left runs/last-run.json unchanged.');
-    process.exit(1);
+    const saved = currentSlate(sports, chosen, odds);
+    await saveRun(saved);
+    await saveSnapshot(saved, label);
+    await showSlate(saved);
+  } finally {
+    await release();
   }
-
-  const saved = currentSlate(sports, chosen, odds);
-  await saveRun(saved);
-  await saveSnapshot(saved, label);
-  await showSlate(saved);
 }
 
 function openedBoard(sports: SavedSport[]) {

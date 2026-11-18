@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { test } from 'node:test';
 import { readStartArgs, requireRunKeys, selectDecisionModel, verify } from '../decisions/judge.js';
 import { aliasTarget, clubKey, createEvidence, nameKey, NFL_EVIDENCE, type GameBrief } from '../espn/evidence.js';
 import { absenceText, applyFotmob, matchClub, openAbsences, parseLeague, pickFixture, type FotmobLeague } from '../sports/soccer/fotmob.js';
 import { bookLabel, postedMarket } from '../odds/books.js';
-import { oddsCreditFloor, oddsGet, oddsRequestKey, oddsSlateFamily, preferFreshRecord, setOddsReplay } from '../odds/cache.js';
+import { oddsCreditFloor, oddsGet, oddsRequestKey, oddsSlateFamily, parseOddsBody, preferFreshRecord, setOddsReplay } from '../odds/cache.js';
+import { acquireRunLock } from '../scripts/lock.js';
 import { scrubError } from '../scripts/scrub.js';
 import {
   droppedCall,
@@ -380,7 +382,7 @@ test('the first book that posted the market is named on the row', () => {
   assert.equal(postedMarket(books, 'player_points'), null);
   assert.equal(bookLabel({ key: 'williamhill_us' }), 'Caesars');
   assert.equal(bookLabel({ key: 'betonlineag' }), 'betonlineag');
-  assert.equal(postedMarket([{ key: 'williamhill_us', markets: [{ key: 'h2h', outcomes: [{ name: 'A' }] }] }], 'h2h')?.book, 'Caesars');
+  assert.equal(postedMarket([{ key: 'williamhill_us', markets: [{ key: 'h2h', outcomes: [{ name: 'A', price: -150 }] }] }], 'h2h')?.book, 'Caesars');
 });
 
 test('an empty odds body loses to a sibling that still has games', () => {
@@ -420,15 +422,24 @@ test('family lookup skips an empty slate when a fresh sibling has games', async 
   const askNba = 'https://api.the-odds-api.com/v4/sports/basketball_nba/odds?apiKey=secret&regions=us&markets=h2h,spreads,totals&oddsFormat=american&commenceTimeFrom=2026-11-20T05:00:00Z&commenceTimeTo=2026-11-21T05:00:00Z';
   try {
     const now = Date.now();
-    await writeOdds(dir, gamesUrl, new Date(now - 3_600_000).toISOString(), [{ id: 'game-1' }]);
+    const game = {
+      id: 'game-1',
+      commence_time: '2026-11-15T18:00:00Z',
+      home_team: 'Home',
+      away_team: 'Away',
+      bookmakers: [],
+    };
+    await writeOdds(dir, gamesUrl, new Date(now - 3_600_000).toISOString(), [game]);
     await writeOdds(dir, emptyUrl, new Date(now - 60_000).toISOString(), []);
     const family = await oddsGet(askUrl);
     assert.equal(family.cached, true);
+    assert.ok(Array.isArray(family.body));
     assert.equal(family.body.length, 1);
+    assert.equal(family.body[0]?.id, 'game-1');
     const exact = await oddsGet(emptyUrl);
     assert.equal(exact.cached, true);
     assert.deepEqual(exact.body, []);
-    await writeOdds(dir, staleGamesUrl, new Date(now - 48 * 3_600_000).toISOString(), [{ id: 'old-game' }]);
+    await writeOdds(dir, staleGamesUrl, new Date(now - 48 * 3_600_000).toISOString(), [{ ...game, id: 'old-game' }]);
     await writeOdds(dir, freshEmptyUrl, new Date(now - 60_000).toISOString(), []);
     const onlyFresh = await oddsGet(askNba);
     assert.equal(onlyFresh.cached, true);
@@ -442,6 +453,99 @@ test('family lookup skips an empty slate when a fresh sibling has games', async 
     else process.env.ODDS_CACHE_HOURS = previousHours;
     if (previousCache == null) delete process.env.ODDS_CACHE;
     else process.env.ODDS_CACHE = previousCache;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+function oddsGame(id: string, bookmakers: unknown[] = []) {
+  return {
+    id,
+    commence_time: '2026-11-15T18:00:00Z',
+    home_team: 'Home',
+    away_team: 'Away',
+    sport_key: 'icehockey_nhl',
+    bookmakers,
+  };
+}
+
+test('odds bodies are parsed once and a bad shape throws', () => {
+  const slate = parseOddsBody([oddsGame('g1', [{
+    key: 'fanduel',
+    title: 'FanDuel',
+    last_update: '2026-11-15T12:00:00Z',
+    markets: [{ key: 'spreads', outcomes: [{ name: 'Home', price: -110, point: -1.5 }] }],
+  }])]);
+  assert.ok(Array.isArray(slate));
+  assert.equal(slate[0]?.bookmakers[0]?.markets[0]?.outcomes[0]?.point, -1.5);
+  assert.equal('sport_key' in (slate[0] ?? {}), false);
+  const prop = parseOddsBody(oddsGame('g2', [{
+    key: 'draftkings',
+    markets: [{ key: 'player_goal_scorer_anytime', outcomes: [{ name: 'Yes', description: 'A Player', price: 150 }] }],
+  }]));
+  assert.ok(!Array.isArray(prop));
+  assert.equal(prop.bookmakers[0]?.markets[0]?.outcomes[0]?.description, 'A Player');
+  assert.deepEqual(parseOddsBody([]), []);
+  const noBooks = parseOddsBody([oddsGame('g3')]);
+  assert.ok(Array.isArray(noBooks));
+  assert.deepEqual(noBooks[0]?.bookmakers, []);
+  assert.throws(() => parseOddsBody({ message: 'nope' }), /unexpected payload/);
+  assert.throws(() => parseOddsBody([oddsGame('g4', [{ key: 'fanduel', markets: 'nope' }])]), /unexpected payload/);
+  assert.throws(() => parseOddsBody([oddsGame('g5', [{ key: 'fanduel', markets: [{ key: 'h2h', outcomes: [{ name: 'Home', price: '150' }] }] }])]), /unexpected payload/);
+});
+
+test('a cached odds body with the wrong shape throws and does not fetch', async () => {
+  const dir = await mkdtemp(`${tmpdir()}/parlay-odds-`);
+  const previousDir = process.env.ODDS_CACHE_DIR;
+  const previousCache = process.env.ODDS_CACHE;
+  const original = globalThis.fetch;
+  let fetched = 0;
+  process.env.ODDS_CACHE_DIR = dir;
+  process.env.ODDS_CACHE = '1';
+  setOddsReplay(null);
+  globalThis.fetch = async () => {
+    fetched += 1;
+    throw new Error('odds fetch should not run');
+  };
+  const url = 'https://api.the-odds-api.com/v4/sports/icehockey_nhl/odds?regions=us&markets=h2h';
+  try {
+    await writeOdds(dir, url, new Date().toISOString(), { nope: true });
+    await assert.rejects(oddsGet(url), /unexpected payload/);
+    assert.equal(fetched, 0);
+  } finally {
+    globalThis.fetch = original;
+    setOddsReplay(null);
+    if (previousDir == null) delete process.env.ODDS_CACHE_DIR;
+    else process.env.ODDS_CACHE_DIR = previousDir;
+    if (previousCache == null) delete process.env.ODDS_CACHE;
+    else process.env.ODDS_CACHE = previousCache;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a second start exits while the lock is held, and a dead lock is taken over', async () => {
+  const dir = await mkdtemp(`${tmpdir()}/parlay-lock-`);
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  try {
+    const release = await acquireRunLock(dir);
+    await assert.rejects(acquireRunLock(dir), new RegExp(`pid ${process.pid}`));
+    await release();
+    const dead = await new Promise<number>((resolve, reject) => {
+      const finished = spawn(process.execPath, ['-e', 'process.exit(0)'], { stdio: 'ignore' });
+      finished.once('exit', () => finished.pid == null ? reject(new Error('no pid')) : resolve(finished.pid));
+    });
+    await writeFile(`${dir}/slate.lock`, `${dead}\n`);
+    const taken = await acquireRunLock(dir);
+    assert.match(await readFile(`${dir}/slate.lock`, 'utf8'), new RegExp(`^${process.pid}\\n`));
+    await taken();
+    assert.equal(child.pid == null, false);
+    await writeFile(`${dir}/slate.lock`, `${child.pid}\n`);
+    await assert.rejects(acquireRunLock(dir), new RegExp(`pid ${child.pid}`));
+    assert.match(await readFile(`${dir}/slate.lock`, 'utf8'), new RegExp(`^${child.pid}\\n`));
+    await writeFile(`${dir}/slate.lock`, 'nope\n');
+    await assert.rejects(acquireRunLock(dir), /runs\/slate\.lock/);
+    assert.equal(await readFile(`${dir}/slate.lock`, 'utf8'), 'nope\n');
+  } finally {
+    child.kill();
     await rm(dir, { recursive: true, force: true });
   }
 });

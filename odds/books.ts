@@ -1,4 +1,6 @@
 // Book order for every sport. The first of these that posted the market wins. Anyone else is the fallback.
+import type { OddsBook, OddsOutcome } from './cache.js';
+
 export const BOOKS = ['fanduel', 'draftkings', 'betmgm', 'williamhill_us'];
 
 const LABELS: Record<string, string> = {
@@ -18,13 +20,14 @@ export function bookLabel(book: { key?: string; title?: string }) {
 }
 
 /** The first book in BOOKS that posted this market, or the first other book that did. */
-export function postedMarket(books: any[], market: string): { book: string; outcomes: any[] } | null {
-  const ordered = [
-    ...BOOKS.map((key) => books.find((book) => book?.key === key)).filter(Boolean),
-    ...books,
-  ];
-  for (const book of ordered) {
-    const outcomes = book.markets?.find((item: any) => item.key === market)?.outcomes;
+export function postedMarket(books: OddsBook[], market: string): { book: string; outcomes: OddsOutcome[] } | null {
+  const preferred: OddsBook[] = [];
+  for (const key of BOOKS) {
+    const book = books.find((item) => item.key === key);
+    if (book) preferred.push(book);
+  }
+  for (const book of [...preferred, ...books]) {
+    const outcomes = book.markets.find((item) => item.key === market)?.outcomes;
     if (outcomes?.length) return { book: bookLabel(book), outcomes };
   }
   return null;

@@ -69,9 +69,9 @@ async function getLegs(oddsKey: string, from: string, to: string, threeWay: bool
   if (!Array.isArray(body)) throw new Error('Odds API returned an unexpected payload.');
   if (result.cached) console.log(`Odds cache hit for ${oddsKey} (${ageLabel(result.savedAt)}).`);
   else console.log(`Fetched ${oddsKey} odds.${result.remaining == null ? '' : ` Credits remaining: ${result.remaining}.`}`);
-  const legs = body.flatMap((game: any) => {
+  const legs = body.flatMap((game) => {
     if (!oddsReplayDay() && Date.parse(game.commence_time) <= Date.now()) return [];
-    const books: any[] = game.bookmakers ?? [];
+    const books = game.bookmakers;
     const moneyMarket = postedMarket(books, 'h2h');
     const spreadMarket = postedMarket(books, 'spreads');
     const totalMarket = postedMarket(books, 'totals');
@@ -80,12 +80,15 @@ async function getLegs(oddsKey: string, from: string, to: string, threeWay: bool
     const totals = totalMarket?.outcomes ?? [];
     const over = totals.find((outcome) => outcome.name === 'Over');
     const under = totals.find((outcome) => outcome.name === 'Under');
-    const total = over && under
-      ? { point: Number(over.point), overPrice: Number(over.price), underPrice: Number(under.price) }
+    const total = over && under && typeof over.point === 'number' && typeof under.point === 'number'
+      ? { point: over.point, overPrice: over.price, underPrice: under.price }
       : null;
     return moneylines.flatMap((outcome) => {
       if (threeWay && /^(draw|tie)$/i.test(String(outcome.name))) return [];
       const spreadOutcome = spreads.find((quote) => quote.name === outcome.name);
+      const spread = spreadOutcome && typeof spreadOutcome.point === 'number'
+        ? { point: spreadOutcome.point, price: spreadOutcome.price }
+        : null;
       return [{
         id: `${game.id}:${outcome.name}`,
         eventId: String(game.id),
@@ -98,8 +101,8 @@ async function getLegs(oddsKey: string, from: string, to: string, threeWay: bool
         implied: implied(outcome.price),
         commence: game.commence_time,
         book: moneyMarket?.book ?? 'the book',
-        spread: spreadOutcome ? { point: Number(spreadOutcome.point), price: Number(spreadOutcome.price) } : null,
-        spreadBook: spreadOutcome ? spreadMarket?.book ?? null : null,
+        spread,
+        spreadBook: spread ? spreadMarket?.book ?? null : null,
         total,
         totalBook: total ? totalMarket?.book ?? null : null,
       }];

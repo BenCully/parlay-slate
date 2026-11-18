@@ -131,7 +131,7 @@ A window too narrow for the headers stacks each row: the name, then the other fi
 
 ## Saved slate
 
-`npm start` overwrites `parlay-slate/runs/last-run.json` after the lookups finish, then prints `Saved` and the file path. It also writes `snapshots/<day>-<model>.json`. The day is the `odds=` day, the slate date, or today's Eastern date. The next run of that same day and model replaces that snapshot. Both files are gitignored.
+`npm start` overwrites `parlay-slate/runs/last-run.json` after the lookups finish, then prints `Saved` and the file path. A second `npm start` exits while the first is still running, including while its screen is open. The message names the other process id. It also writes `snapshots/<day>-<model>.json`. The day is the `odds=` day, the slate date, or today's Eastern date. The next run of that same day and model replaces that snapshot. Both files are gitignored.
 
 `npm run compare -- 2026-11-15` opens `snapshots/2026-11-15-jev.json` beside `snapshots/2026-11-15-tail-jev.json`. A missing file prints the `npm start` command that writes it. `npm run clear-snapshots` deletes the files in `snapshots/` and leaves that folder, `runs/`, and `odds-cache/` in place.
 

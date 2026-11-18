@@ -2,6 +2,14 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-18T18:57:13Z
+
+### One start at a time, and a typed odds body
+
+`npm start` takes `runs/slate.lock` for the whole run, including the screen, and removes it when the process finishes. A second start exits and names the process id that holds the lock. A lock whose process is gone is taken over. A lock file that has no process id is left in place, and the message says to remove `runs/slate.lock`.
+
+`oddsGet` parses the Odds API body before the Games or Props board sees it. A slate is an array of events. A prop response is one event. Each event keeps `id`, `commence_time`, `home_team`, `away_team`, and `bookmakers`. A different shape throws. The cache still stores the raw response. A missing bookmaker list is an empty list. A game with no bookmakers still counts as a game.
+
 ## 2026-11-18T18:48:45Z
 
 ### Empty odds files, scrubbed errors, and the book on the row

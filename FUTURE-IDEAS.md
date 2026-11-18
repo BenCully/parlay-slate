@@ -12,6 +12,10 @@ Landed 2026-11-18. These are not open work.
 
 **The book is on the row.** Moneyline, spread, total, and prop comments name the book that posted the price. FanDuel, DraftKings, BetMGM, and Caesars use those names. Any other book uses its title, then its key. A missing spread or total says that no book posted it.
 
+**One `npm start` at a time.** `runs/slate.lock` holds the process id. A second start exits and names that pid. A lock whose process is gone is taken over. The lock covers the walk and the screen, and it is removed when the process finishes.
+
+**The odds body is typed at the boundary.** `oddsGet` parses a slate into events and a prop response into one event before either board sees it. Each event has `id`, `commence_time`, `home_team`, `away_team`, and `bookmakers`. A different shape throws there. The cache still stores the raw response.
+
 Sports are already the extension point that works. A new league is a `BoardSource` (`sports/types.ts`), an `EvidenceStyle` (`espn/evidence.ts`), and a `PropProfile` (`props/board.ts`), then one line in `sports/index.ts`. Do not replace that with a plugin loader.
 
 ## Database for the cache
@@ -70,14 +74,6 @@ One behavior to fix while splitting that file:
 - There is no retry. A failed Autojev claim is `No call` on that row, and three failures in a row stop the rest of the calls. The Games board stays. Retry Autojev and ESPN a small number of times on timeout and 5xx before that stop. Do not retry The Odds API after a response. A retry of a priced request can spend another credit. A network failure before any response is the only odds retry that is safe.
 
 Before a long `model=tail-jev` walk, call Autojev `/health` once. It is unauthenticated. Fail in a second if the tailnet box is down, instead of after the odds and ESPN work. Do not print the address.
-
-## Worth doing before either of those
-
-These are smaller than a database or a provider split.
-
-**Lock `npm start`.** `runs/last-run.json` is rewritten after each sport. Two processes still race on that file. A lock file in `runs/` makes the second process exit with a clear line.
-
-**Type the odds body at the boundary.** `oddsGet` returns `body: any`, and `board.ts` and `props/board.ts` walk `bookmakers` and `outcomes` untyped. Parse once into `{ id, commence_time, home_team, away_team, bookmakers: { key, markets: { key, outcomes }[] }[] }`. A shape change should throw at `oddsGet`, not render a blank favorite list.
 
 ## Later
 

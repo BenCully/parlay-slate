@@ -3,7 +3,7 @@
 // The brief is the player's ESPN game log. No extra account.
 import { postedMarket } from '../odds/books.js';
 import { nameKey } from '../espn/evidence.js';
-import { oddsCreditFloor, oddsGet, oddsReplayDay } from '../odds/cache.js';
+import { oddsCreditFloor, oddsGet, oddsReplayDay, type OddsBook, type OddsOutcome } from '../odds/cache.js';
 import type { PlayerRef } from '../espn/players.js';
 
 export type YesCopy = {
@@ -127,7 +127,7 @@ function kickoffLabel(iso: string) {
   });
 }
 
-function postedLines(outcomes: any[], book: string): Posted[] {
+function postedLines(outcomes: OddsOutcome[], book: string): Posted[] {
   const groups = new Map<string, Posted>();
   for (const outcome of outcomes) {
     const rawName = String(outcome.name ?? '');
@@ -232,6 +232,7 @@ async function fetchEvent(eventId: string, apiKey: string, profile: PropProfile,
     `?regions=us&oddsFormat=american&markets=${profile.markets.join(',')}`;
   const result = await oddsGet(url, { headers: { 'x-api-key': apiKey } }, { cacheOnly });
   if (result.skipped) return { skipped: true as const };
+  if (!result.body || Array.isArray(result.body)) throw new Error('Odds API returned an unexpected payload.');
   return {
     skipped: false as const,
     body: result.body,
@@ -304,14 +305,14 @@ export async function loadPropBoard(games: SlateGame[], profile: PropProfile) {
       const result = await fetchEvent(game.eventId, apiKey, profile, cacheOnly);
       if (result.skipped) {
         skipped += 1;
-        return { game, books: [] as any[], error: '', skipped: true };
+        return { game, books: [] as OddsBook[], error: '', skipped: true };
       }
       if (result.cached) cachedGames += 1;
       else if (result.remaining != null) remaining = result.remaining;
-      return { game, books: (result.body.bookmakers ?? []) as any[], error: '', skipped: false };
+      return { game, books: result.body.bookmakers, error: '', skipped: false };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'props request failed';
-      return { game, books: [] as any[], error: message, skipped: false };
+      return { game, books: [] as OddsBook[], error: message, skipped: false };
     }
   });
 
