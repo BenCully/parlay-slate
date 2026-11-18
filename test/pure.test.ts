@@ -6,10 +6,12 @@ import { test } from 'node:test';
 import { readStartArgs, requireRunKeys, selectDecisionModel, verify } from '../decisions/judge.js';
 import { aliasTarget, clubKey, createEvidence, nameKey, NFL_EVIDENCE, type GameBrief } from '../espn/evidence.js';
 import { absenceText, applyFotmob, matchClub, openAbsences, parseLeague, pickFixture, type FotmobLeague } from '../sports/soccer/fotmob.js';
+import { espnCacheFresh, ESPN_DAY_HOURS, ESPN_INJURY_HOURS, readEspnCache, writeEspnCache } from '../espn/cache.js';
 import { bookLabel, postedMarket } from '../odds/books.js';
 import { oddsCreditFloor, oddsGet, oddsRequestKey, oddsSlateFamily, parseOddsBody, preferFreshRecord, setOddsReplay } from '../odds/cache.js';
 import { acquireRunLock } from '../scripts/lock.js';
 import { scrubError } from '../scripts/scrub.js';
+import { archiveStamp, saveDecisionSnapshot } from '../scripts/snapshot.js';
 import {
   droppedCall,
   implied,
@@ -568,6 +570,64 @@ test('a credit-floor miss does not call the network', async () => {
     setOddsReplay(null);
     if (previous == null) delete process.env.ODDS_CACHE_DIR;
     else process.env.ODDS_CACHE_DIR = previous;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a replaced snapshot keeps the previous file in the archive', async () => {
+  const dir = await mkdtemp(`${tmpdir()}/parlay-snapshot-`);
+  const first = { savedAt: '2026-11-18T15:00:00.000Z', title: 'first' };
+  const second = { savedAt: '2026-11-18T18:00:00.000Z', title: 'second' };
+  try {
+    const created = await saveDecisionSnapshot(dir, '2026-11-15', 'tail-jev', first);
+    assert.equal(created.archived, undefined);
+    assert.equal(created.path.endsWith('/2026-11-15-tail-jev.json'), true);
+    const replaced = await saveDecisionSnapshot(dir, '2026-11-15', 'tail-jev', second);
+    assert.equal(replaced.path, created.path);
+    assert.match(replaced.archived ?? '', /archive\/2026-11-15-tail-jev-2026-11-18T150000Z\.json$/);
+    const archived = JSON.parse(await readFile(replaced.archived ?? '', 'utf8')) as { title: string };
+    const current = JSON.parse(await readFile(replaced.path, 'utf8')) as { title: string };
+    assert.equal(archived.title, 'first');
+    assert.equal(current.title, 'second');
+    const same = await saveDecisionSnapshot(dir, '2026-11-15', 'tail-jev', second);
+    assert.equal(same.archived, undefined);
+    assert.equal(archiveStamp('2026-11-18T15:00:00.000Z'), '2026-11-18T150000Z');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('espn pages last for the eastern day, and injuries are shorter', () => {
+  const saved = '2026-11-18T15:00:00Z';
+  const threeHours = Date.parse('2026-11-18T18:00:00Z');
+  assert.equal(ESPN_INJURY_HOURS < ESPN_DAY_HOURS, true);
+  assert.equal(espnCacheFresh(saved, 'injury', threeHours - 1), true);
+  assert.equal(espnCacheFresh(saved, 'injury', threeHours), false);
+  assert.equal(espnCacheFresh(saved, 'day', Date.parse('2026-11-18T19:00:01Z')), true);
+  assert.equal(espnCacheFresh('2026-11-18T04:00:00Z', 'day', Date.parse('2026-11-18T06:00:00Z')), false);
+  assert.equal(espnCacheFresh('2026-11-18T06:00:00Z', 'day', Date.parse('2026-11-19T02:00:00Z')), false);
+});
+
+test('a same-day espn page is reused and a stale page is not', async () => {
+  const dir = await mkdtemp(`${tmpdir()}/parlay-espn-`);
+  const previous = process.env.ESPN_CACHE_DIR;
+  process.env.ESPN_CACHE_DIR = dir;
+  const teams = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams?limit=32';
+  const injury = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/injuries';
+  const gamelog = 'https://site.web.api.espn.com/apis/common/v3/sports/football/nfl/athletes/1/gamelog';
+  try {
+    assert.equal(await readEspnCache(teams, 'day'), undefined);
+    await writeEspnCache(teams, { teams: 32 });
+    assert.deepEqual(await readEspnCache(teams, 'day'), { teams: 32 });
+    await writeEspnCache(gamelog, { names: ['rush'] });
+    assert.deepEqual(await readEspnCache(gamelog, 'day'), { names: ['rush'] });
+    await writeEspnCache(injury, { injuries: 1 }, '2020-01-01T00:00:00.000Z');
+    assert.equal(await readEspnCache(injury, 'injury'), undefined);
+    await writeEspnCache('https://example.test/teams', { no: true });
+    assert.equal(await readEspnCache('https://example.test/teams', 'day'), undefined);
+  } finally {
+    if (previous == null) delete process.env.ESPN_CACHE_DIR;
+    else process.env.ESPN_CACHE_DIR = previous;
     await rm(dir, { recursive: true, force: true });
   }
 });

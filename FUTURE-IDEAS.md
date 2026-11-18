@@ -16,6 +16,10 @@ Landed 2026-11-18. These are not open work.
 
 **The odds body is typed at the boundary.** `oddsGet` parses a slate into events and a prop response into one event before either board sees it. Each event has `id`, `commence_time`, `home_team`, `away_team`, and `bookmakers`. A different shape throws there. The cache still stores the raw response.
 
+**A snapshot keeps a trace.** Replacing `snapshots/<day>-<model>.json` first copies the previous file to `snapshots/archive/<day>-<model>-<savedAt>.json`. Compare still reads the current name. An identical rewrite does not add another archive file. `npm run clear-snapshots` removes the archive with the rest of `snapshots/`.
+
+**ESPN pages are cached for the Eastern day.** Teams, schedules, rosters, and gamelogs are reused for 18 hours. Injuries are reused for 3 hours. A page from a previous Eastern day is a miss. Failures are not stored. The scoreboard is still fetched on every run. Files live in gitignored `espn-cache/`. Only `site.api.espn.com` and `site.web.api.espn.com` are stored.
+
 Sports are already the extension point that works. A new league is a `BoardSource` (`sports/types.ts`), an `EvidenceStyle` (`espn/evidence.ts`), and a `PropProfile` (`props/board.ts`), then one line in `sports/index.ts`. Do not replace that with a plugin loader.
 
 ## Database for the cache
@@ -37,7 +41,7 @@ What to store when that file exists:
 | --- | --- | --- |
 | Odds responses | request hash, or sport + markets + Eastern save day | Replace the directory scan. Keep the JSON body. |
 | Decisions | model + hash of kind, question, and state | Replay a tail-jev slate without another tailnet walk. Evidence text is inside the hash, so a new injury report misses. |
-| ESPN pages | URL path + savedAt | Rosters, schedules, and gamelogs are fetched again on every `npm start` and have no timeout today. |
+| ESPN pages | URL path + savedAt | The same-day file cache already covers these pages. A database row is only useful if that folder gets hard to query. |
 
 Leave `runs/last-run.json` and `snapshots/<day>-<model>.json` as the screen contract. They are rendered cells, not a cache.
 
@@ -80,10 +84,6 @@ Before a long `model=tail-jev` walk, call Autojev `/health` once. It is unauthen
 **Decision cache, then SQLite.** JSON files keyed by model and state hash give replay for free and match the odds cache. The empty-body rule has landed. SQLite is the step after the index is in place, using the tables above. Do not migrate `odds-cache/` until `odds=YYYY-MM-DD` and `npm run odds` read the same rows the file cache reads now.
 
 **A small pool for tail-jev.** Claims are strictly one at a time, so a slate is as slow as the sum of the tailnet calls. `props/board.ts` already has `mapPool`. A pool of 2 or 3 against one box is the useful range. Unbounded parallelism will time the box out and then, once retries exist, multiply the load. Cache hits skip the pool.
-
-**Do not overwrite a snapshot without a trace.** `snapshots/<day>-<model>.json` is replaced on every matching run. `npm run compare` needs that exact name. Copy the previous file to `snapshots/archive/` before replace, or refuse when the file exists unless the run passes `--replace`. Compare keeps working. A good tail-jev day is harder to destroy.
-
-**Cache ESPN for the process and for the day.** Teams, injuries, and schedules are already memoized in memory inside `createEvidence`. Player gamelogs are memoized in memory inside `createPlayers`. A second `npm start` the same day fetches them all again. A same-day file cache, hours not weeks, cuts that. Injuries can stay shorter than schedules. This is free data, so the win is reliability and speed, not credits.
 
 **CI is `npm test` and `npm run typecheck`.** `test/pure.test.ts` covers the pure helpers and does not call The Odds API, TypeSafe, or Autojev. Do not add a workflow that does.
 

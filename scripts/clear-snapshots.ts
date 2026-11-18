@@ -1,4 +1,4 @@
-// Deletes every entry in snapshots/. Does not call an API.
+// Deletes every entry in snapshots/, including snapshots/archive/. Does not call an API.
 // Leaves runs/last-run.json and odds-cache/ in place.
 // run: npm run clear-snapshots
 import { lstat, readdir, rm, unlink } from 'node:fs/promises';

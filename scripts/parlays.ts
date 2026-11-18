@@ -16,6 +16,7 @@ import { showSlate, type SavedBoard, type SavedLeague, type SavedSlate, type Sav
 import { SPORTS, type LeagueDef } from '../sports/index.js';
 import { acquireRunLock } from './lock.js';
 import { scrubError } from './scrub.js';
+import { saveDecisionSnapshot } from './snapshot.js';
 
 function gamesOf(board: BuiltBoard): SavedBoard {
   return { title: board.title, groups: board.groups, note: board.note, ticketGroups: board.ticketGroups };
@@ -142,10 +143,9 @@ async function saveRun(saved: SavedSlate) {
 }
 
 async function saveSnapshot(saved: SavedSlate, label: string) {
-  await mkdir(snapshotDir, { recursive: true });
-  const snapshotPath = `${snapshotDir}${label}-${saved.model}.json`;
-  await writeAtomic(snapshotPath, `${JSON.stringify(saved, null, 2)}\n`);
-  console.log(`Saved ${snapshotPath}`);
+  const { path, archived } = await saveDecisionSnapshot(snapshotDir, label, saved.model ?? 'jev', saved);
+  if (archived) console.log(`Archived ${archived}`);
+  console.log(`Saved ${path}`);
 }
 
 main().catch((error) => {

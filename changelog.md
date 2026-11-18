@@ -2,6 +2,14 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-18T19:07:33Z
+
+### Snapshot archive and a same-day ESPN cache
+
+Replacing `snapshots/<day>-<model>.json` copies the previous file to `snapshots/archive/` first. The archive name is that day, model, and the previous `savedAt` with the colons removed, such as `2026-11-15-tail-jev-2026-11-18T150000Z.json`. Compare still reads the current name. An identical rewrite does not add another archive file. `npm run clear-snapshots` removes the archive with the rest of `snapshots/`.
+
+Teams, schedules, rosters, and gamelogs from ESPN are reused for 18 hours when they were saved on the same Eastern day. Injuries are reused for 3 hours. A page from a previous Eastern day is a miss. A failed response is not stored. The scoreboard is still fetched on every run, because it chooses the slate window. The files are in gitignored `espn-cache/`. Only `site.api.espn.com` and `site.web.api.espn.com` are stored.
+
 ## 2026-11-18T18:57:13Z
 
 ### One start at a time, and a typed odds body
