@@ -2,6 +2,20 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-18T01:43:05Z
+
+### FotMob on every soccer brief
+
+Each soccer league now adds the FotMob table to the ESPN brief. The line is place, record, goal difference, expected goals per game, and the home or away split. Players FotMob still lists as unavailable at kickoff fill an empty ESPN injury line. Premier League is 47, Champions League 42, La Liga 87, Serie A 55, Bundesliga 54, and Ligue 1 53. There is no key. A miss leaves the ESPN brief. The previous match lineup is not used as a projected team. Player props still read the ESPN game log.
+
+## 2026-11-18T01:28:19Z
+
+### Ligue 1
+
+Soccer now has Ligue 1 after Bundesliga. The Odds key is `soccer_france_ligue_one` and the ESPN competition is `fra.1`. Games and Props use the same window, 3-way moneyline, and prop markets as the other domestic leagues.
+
+The sports list had the league active. ESPN matched every Odds club name, including Paris FC, Paris Saint Germain, RC Lens, Le Mans FC, and Rennes, with no new alias. US books posted moneylines, spreads, and totals for the scoreboard window. On the first match they posted anytime goal, shots, and shots on target. Assists and cards were not posted, so those rows stay No line.
+
 ## 2026-11-17T23:06:55Z
 
 ### A failed check keeps the slate

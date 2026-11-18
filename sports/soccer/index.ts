@@ -3,21 +3,24 @@ import { createPlayers } from '../../espn/players.js';
 import type { PropProfile } from '../../props/board.js';
 import type { LeagueDef, Sport } from '../types.js';
 import { easternRange, oddsStamp, scoreboardEvents, todayEastern, type OddsWindow } from '../../slate/window.js';
+import { createFotmob } from './fotmob.js';
 
 type SoccerLeague = {
   label: string;
   short: string;
   oddsKey: string;
   espn: string;
+  fotmob: number;
   props: boolean;
 };
 
 const LEAGUES: SoccerLeague[] = [
-  { label: 'Premier League', short: 'EPL', oddsKey: 'soccer_epl', espn: 'eng.1', props: true },
-  { label: 'Champions League', short: 'UCL', oddsKey: 'soccer_uefa_champs_league', espn: 'uefa.champions', props: false },
-  { label: 'La Liga', short: 'La Liga', oddsKey: 'soccer_spain_la_liga', espn: 'esp.1', props: true },
-  { label: 'Serie A', short: 'Serie A', oddsKey: 'soccer_italy_serie_a', espn: 'ita.1', props: true },
-  { label: 'Bundesliga', short: 'Bund', oddsKey: 'soccer_germany_bundesliga', espn: 'ger.1', props: true },
+  { label: 'Premier League', short: 'EPL', oddsKey: 'soccer_epl', espn: 'eng.1', fotmob: 47, props: true },
+  { label: 'Champions League', short: 'UCL', oddsKey: 'soccer_uefa_champs_league', espn: 'uefa.champions', fotmob: 42, props: false },
+  { label: 'La Liga', short: 'La Liga', oddsKey: 'soccer_spain_la_liga', espn: 'esp.1', fotmob: 87, props: true },
+  { label: 'Serie A', short: 'Serie A', oddsKey: 'soccer_italy_serie_a', espn: 'ita.1', fotmob: 55, props: true },
+  { label: 'Bundesliga', short: 'Bund', oddsKey: 'soccer_germany_bundesliga', espn: 'ger.1', fotmob: 54, props: true },
+  { label: 'Ligue 1', short: 'Ligue 1', oddsKey: 'soccer_france_ligue_one', espn: 'fra.1', fotmob: 53, props: true },
 ];
 
 const goalYes = {
@@ -93,6 +96,7 @@ async function windowFor(espn: string, label: string, day: string | undefined): 
 
 function leagueDef(league: SoccerLeague): LeagueDef {
   const evidence = evidenceFor(league.espn);
+  const fotmob = createFotmob(league.fotmob);
   return {
     label: league.label,
     short: league.short,
@@ -103,7 +107,7 @@ function leagueDef(league: SoccerLeague): LeagueDef {
       threeWay: true,
       shortNames: true,
       window: (day) => windowFor(league.espn, league.label, day),
-      getBrief: evidence.getBrief,
+      getBrief: (leg) => fotmob.enrich(leg, evidence.getBrief),
       profile: profileFor(league),
       propsNote: league.props ? '' : 'US books do not post player props for the Champions League.',
     },

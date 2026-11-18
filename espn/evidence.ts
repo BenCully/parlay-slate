@@ -141,6 +141,12 @@ function canon(name: string) {
   return fold(name).toLowerCase().split(/[^a-z0-9]+/).filter((token) => token && !DROP.has(token) && !/^\d+$/.test(token)).join(' ');
 }
 
+/** Club name after dropping FC and AS, then the alias table. FotMob and the Odds API share this key. */
+export function clubKey(name: string) {
+  const key = canon(name);
+  return ALIASES[key] ?? key;
+}
+
 const ESPN_TIMEOUT_MS = 10_000;
 
 function espnFailure(error: unknown, path: string) {
@@ -493,6 +499,8 @@ export type SideBrief = {
   margin: number | null;
   scored: number | null;
   allowed: number | null;
+  /** League table line. Soccer fills this from FotMob. Other sports leave it unset. */
+  table?: string;
 };
 
 export type GameBrief = {

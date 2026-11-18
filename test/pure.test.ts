@@ -3,7 +3,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { test } from 'node:test';
 import { readStartArgs, requireRunKeys, selectDecisionModel, verify } from '../decisions/judge.js';
-import { aliasTarget, createEvidence, nameKey, NFL_EVIDENCE } from '../espn/evidence.js';
+import { aliasTarget, clubKey, createEvidence, nameKey, NFL_EVIDENCE, type GameBrief } from '../espn/evidence.js';
+import { absenceText, applyFotmob, matchClub, openAbsences, parseLeague, pickFixture, type FotmobLeague } from '../sports/soccer/fotmob.js';
 import { oddsCreditFloor, oddsGet, oddsRequestKey, oddsSlateFamily, setOddsReplay } from '../odds/cache.js';
 import {
   droppedCall,
@@ -63,6 +64,78 @@ test('name keys and team aliases', () => {
   assert.equal(aliasTarget('Inter Milan'), 'internazionale');
   assert.equal(aliasTarget('Las Vegas Athletics'), 'athletics');
   assert.equal(aliasTarget('Kansas City Chiefs'), undefined);
+});
+
+function sampleLeague(): FotmobLeague {
+  const league = parseLeague({
+    table: [{
+      data: {
+        table: {
+          all: [
+            { name: 'Paris Saint-Germain', shortName: 'PSG', id: 9847, played: 10, wins: 7, draws: 2, losses: 1, goalConDiff: 12, pts: 23, idx: 1 },
+            { name: 'Paris FC', shortName: 'Paris FC', id: 6379, played: 10, wins: 6, draws: 2, losses: 2, goalConDiff: 4, pts: 20, idx: 3 },
+            { name: 'Lens', shortName: 'Lens', id: 8588, played: 10, wins: 3, draws: 4, losses: 3, goalConDiff: -1, pts: 13, idx: 11 },
+            { name: 'Nice', shortName: 'Nice', id: 9831, played: 10, wins: 5, draws: 2, losses: 3, goalConDiff: 2, pts: 17, idx: 6 },
+          ],
+          home: [
+            { id: 9847, wins: 3, draws: 0, losses: 1, idx: 7 },
+            { id: 9831, wins: 3, draws: 1, losses: 1, idx: 4 },
+          ],
+          away: [{ id: 9847, wins: 4, draws: 2, losses: 0, idx: 1 }],
+          xg: [{ id: 9847, xg: 26, xgConceded: 12 }],
+        },
+      },
+    }],
+    fixtures: {
+      allMatches: [
+        { id: '2', home: { id: '9831', name: 'Nice' }, away: { id: '9847', name: 'Paris Saint-Germain' }, status: { utcTime: '2026-11-21T16:15:00.000Z' } },
+        { id: '3', home: { id: '9847', name: 'Paris Saint-Germain' }, away: { id: '9831', name: 'Nice' }, status: { utcTime: '2027-02-01T20:00:00.000Z' } },
+      ],
+    },
+  });
+  if (!league) throw new Error('sample league');
+  return league;
+}
+
+test('fotmob table matches clubs and keeps the nearer fixture', () => {
+  assert.equal(clubKey('AS Monaco'), 'monaco');
+  assert.equal(clubKey('FC Köln'), 'cologne');
+  assert.equal(clubKey('Bayern München'), 'bayern munich');
+  const league = sampleLeague();
+  assert.equal(matchClub(league.teams, 'Paris FC')?.id, '6379');
+  assert.equal(matchClub(league.teams, 'Paris Saint Germain')?.id, '9847');
+  assert.equal(matchClub(league.teams, 'RC Lens')?.id, '8588');
+  assert.equal(pickFixture(league, 'Paris Saint Germain', 'Nice', '2026-11-21T16:15:00Z')?.id, '2');
+  const brief: GameBrief = {
+    text: 'Paris Saint Germain to win. Paris Saint-Germain injury report: nobody listed Out, Doubtful, Questionable, or on injured reserve. Nice are fine.',
+    pick: { name: 'Paris Saint-Germain', short: 'PSG', record: '7-1-2', rest: '6 days rest', injury: 'no significant injuries listed', margin: 1, scored: 2, allowed: 1 },
+    opponent: { name: 'Nice', short: 'Nice', record: '5-3-2', rest: '6 days rest', injury: 'no significant injuries listed', margin: 0, scored: 1, allowed: 1 },
+  };
+  const next = applyFotmob(brief, {
+    team: 'Paris Saint Germain',
+    opponent: 'Nice',
+    home: false,
+    commence: '2026-11-21T16:15:00Z',
+  }, league, {
+    homeId: '9831',
+    awayId: '9847',
+    home: [],
+    away: [
+      { name: 'Michel Diaz', kind: 'suspended', back: 'Mid November 2026', until: Date.parse('2026-11-21T18:00:00Z') },
+      { name: 'Back Already', kind: 'injured', back: 'Early November 2026', until: Date.parse('2026-11-20T12:00:00Z') },
+    ],
+  });
+  assert.match(next.pick.table ?? '', /1st of 4, 7-2-1, \+12 GD, 2\.6 xG and 1\.2 xGA per game, 1st away \(4-2-0\)/);
+  assert.match(next.opponent.table ?? '', /4th at home \(3-1-1\)/);
+  assert.equal(next.pick.injury, 'Michel Diaz suspended, back Mid November 2026');
+  assert.match(next.text, /FotMob table:/);
+  assert.match(next.text, /Paris Saint-Germain unavailable: Michel Diaz suspended/);
+  assert.equal(next.text.includes('nobody listed'), false);
+  const closed = openAbsences([
+    { name: 'Back Already', kind: 'injured', back: '', until: Date.parse('2026-11-20T12:00:00Z') },
+  ], Date.parse('2026-11-21T16:15:00Z'));
+  assert.equal(absenceText(closed), '');
+  assert.equal(closed.length, 0);
 });
 
 test('odds cache key drops the api key and the kickoff window', () => {

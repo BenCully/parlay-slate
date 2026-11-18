@@ -176,12 +176,20 @@ function scoringText(side: GameBrief['pick']) {
   return `${side.scored.toFixed(1)} scored and ${side.allowed.toFixed(1)} allowed`;
 }
 
+function tableClause(brief: GameBrief, nameOf: (name: string) => string) {
+  const parts = [brief.pick, brief.opponent]
+    .filter((side) => side.table)
+    .map((side) => `${nameOf(side.name)} ${side.table}`);
+  return parts.length ? `Table: ${parts.join('; ')}.` : '';
+}
+
 function lineContext(leg: Leg, brief: GameBrief) {
   return [
     `${brief.pick.name} are ${brief.pick.record}, ${brief.pick.rest}, margin ${marginText(brief.pick)}, scoring ${scoringText(brief.pick)}. Injury: ${brief.pick.injury}.`,
     `${brief.opponent.name} are ${brief.opponent.record}, ${brief.opponent.rest}, margin ${marginText(brief.opponent)}, scoring ${scoringText(brief.opponent)}. Injury: ${brief.opponent.injury}.`,
+    tableClause(brief, (name) => name),
     leg.home ? `${leg.team} is at home.` : `${leg.team} is on the road.`,
-  ].join(' ');
+  ].filter(Boolean).join(' ');
 }
 
 function spreadClaim(leg: Leg, unit: string) {
@@ -240,6 +248,7 @@ function decisionComment(leg: Leg, brief: GameBrief, judgment: Judgment) {
     .filter((side) => side.injury !== 'no significant injuries listed')
     .map((side) => `${nick(side.name)}, ${side.injury}`);
   const injuries = notes.length ? `Injuries: ${notes.join('; ')}.` : 'No significant injuries on either report.';
+  const table = tableClause(brief, nick);
   const call = judgment.kind === 'missed'
     ? judgment.stage === 'rerank'
       ? 'Rerank did not return a score for the brief. Left out.'
@@ -253,7 +262,7 @@ function decisionComment(leg: Leg, brief: GameBrief, judgment: Judgment) {
         : judgment.verdict === 'contradicted'
           ? `Verify says the brief cuts against the win at ${judgment.confidence.toFixed(2)}. Left out.`
           : `Verify says the brief does not establish the win at ${judgment.confidence.toFixed(2)}. Left out.`;
-  return `${facts} ${injuries} ${call}`;
+  return [facts, table, injuries, call].filter(Boolean).join(' ');
 }
 
 function spreadComment(leg: Leg, brief: GameBrief, check: Check) {
@@ -261,8 +270,9 @@ function spreadComment(leg: Leg, brief: GameBrief, check: Check) {
   return [
     `${nick(leg.team)} ${signed(quote.point)} (${priceText(quote.price)}).`,
     `Last 5 margin: ${nick(brief.pick.name)} ${marginText(brief.pick)}; ${nick(brief.opponent.name)} ${marginText(brief.opponent)}.`,
+    tableClause(brief, nick),
     gateSentence(check, 'cover'),
-  ].join(' ');
+  ].filter(Boolean).join(' ');
 }
 
 function supportChance(check: Check) {
@@ -275,9 +285,10 @@ function totalComment(leg: Leg, brief: GameBrief, side: 'Over' | 'Under', check:
   return [
     `${side} ${points(quote.point)} (${priceText(price)}).`,
     `${nick(brief.pick.name)} last 5: ${scoringText(brief.pick)}. ${nick(brief.opponent.name)} last 5: ${scoringText(brief.opponent)}.`,
+    tableClause(brief, nick),
     `The ${side.toLowerCase()} is the stronger side (${supportChance(check).toFixed(2)} vs ${supportChance(other).toFixed(2)}).`,
     gateSentence(check, side === 'Over' ? 'over' : 'under'),
-  ].join(' ');
+  ].filter(Boolean).join(' ');
 }
 
 function kickoffLabel(iso: string) {
