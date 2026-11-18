@@ -7,14 +7,21 @@ import { createHash } from 'node:crypto';
 import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { easternDay } from '../slate/window.js';
+import { fanduelFetch } from './fanduel.js';
 
 const DEFAULT_HOURS = 24 * 7;
+
+/** Which price source filled the record: the Odds API or FanDuel. */
+export function oddsSource() {
+  return process.env.ODDS_SOURCE === 'fanduel' ? 'fanduel' : 'the-odds-api';
+}
 
 type CacheRecord = {
   savedAt: string;
   remaining: number | null;
   body: unknown;
   request: string;
+  source?: string;
 };
 
 export type OddsResponse = {
@@ -106,7 +113,7 @@ export function oddsSlateFamily(request: string) {
   return `${parsed.pathname}?${parsed.searchParams.toString()}`;
 }
 
-async function readHit(file: string): Promise<CacheRecord | null> {
+async function readHit(file: string, source: string): Promise<CacheRecord | null> {
   let raw: string;
   try {
     raw = await readFile(file, 'utf8');
@@ -122,6 +129,7 @@ async function readHit(file: string): Promise<CacheRecord | null> {
   const saved = Date.parse(record?.savedAt ?? '');
   if (!Number.isFinite(saved) || Date.now() - saved > maxAgeMs()) return null;
   if (record.body == null) return null;
+  if (record.source && record.source !== source) return null;
   return record;
 }
 
@@ -165,12 +173,13 @@ async function readAll(): Promise<CacheRecord[]> {
   return records;
 }
 
-async function readReplay(request: string): Promise<CacheRecord | null> {
+async function readReplay(request: string, source: string): Promise<CacheRecord | null> {
   if (!replayDay) return null;
   let best: CacheRecord | null = null;
   let bestSaved = -Infinity;
   for (const record of await readCatalog()) {
     if (easternDay(record.savedAt) !== replayDay) continue;
+    if (record.source && record.source !== source) continue;
     if (!sameSavedRequest(record.request, request)) continue;
     const saved = Date.parse(record.savedAt);
     if (saved <= bestSaved) continue;
@@ -222,7 +231,7 @@ export async function listSavedOdds(): Promise<SavedOddsDay[]> {
     }));
 }
 
-async function readFamily(request: string): Promise<CacheRecord | null> {
+async function readFamily(request: string, source: string): Promise<CacheRecord | null> {
   const want = oddsSlateFamily(request);
   let names: string[];
   try {
@@ -234,7 +243,7 @@ async function readFamily(request: string): Promise<CacheRecord | null> {
   let bestSaved = -Infinity;
   for (const name of names) {
     if (!name.endsWith('.json')) continue;
-    const hit = await readHit(`${cacheDir()}/${name}`);
+    const hit = await readHit(`${cacheDir()}/${name}`, source);
     if (!hit?.request || oddsSlateFamily(hit.request) !== want) continue;
     const saved = Date.parse(hit.savedAt);
     if (saved <= bestSaved) continue;
@@ -252,18 +261,25 @@ async function store(file: string, record: CacheRecord) {
 }
 
 export async function oddsGet(url: string, init?: RequestInit, options?: { cacheOnly?: boolean }): Promise<OddsResponse> {
+  const source = oddsSource();
   const identity = oddsRequestKey(url);
   if (replayDay) {
-    const hit = await readReplay(identity.request);
+    const hit = await readReplay(identity.request, source);
     if (!hit) throw new Error(`No odds saved on ${replayDay} for ${requestLabel(identity.request)}. Nothing was fetched.`);
     return { body: hit.body, remaining: null, cached: true, savedAt: hit.savedAt };
   }
   const file = `${cacheDir()}/${identity.hash}.json`;
   if (!cacheBypass()) {
-    const hit = await readHit(file) ?? await readFamily(identity.request);
+    const hit = await readHit(file, source) ?? await readFamily(identity.request, source);
     if (hit) return { body: hit.body, remaining: null, cached: true, savedAt: hit.savedAt };
   }
   if (options?.cacheOnly) return { body: null, remaining: null, cached: false, savedAt: '', skipped: true };
+  if (source === 'fanduel') {
+    const body = await fanduelFetch(url);
+    const savedAt = new Date().toISOString();
+    await store(file, { savedAt, remaining: null, body, request: identity.request, source });
+    return { body, remaining: null, cached: false, savedAt };
+  }
   let res: Response;
   try {
     res = await fetch(url, { ...init, signal: AbortSignal.timeout(30_000) });

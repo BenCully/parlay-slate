@@ -2,6 +2,12 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-18T18:05:00Z
+
+### FanDuel odds source
+
+`ODDS_SOURCE=fanduel` replaces The Odds API with FanDuel's internal sportsbook API. `odds/fanduel.ts` reads the content-managed-page layout and FanDuel's fixed-odds prices, then normalizes moneyline, spread, and total into the shape the boards already read. Slate requests use the Eastern window; team names resolve to ESPN display names at runtime. The Odds API key is no longer required in that mode and no credits are spent. The disk cache records which source filled it, so Odds API and FanDuel saves do not mix. Games work for NFL, NCAAF, NBA, NHL, and the six soccer leagues. Player props are not fetched yet, so the Props tab shows no line; `handoff.md` lists what is left.
+
 ## 2026-11-18T17:31:28Z
 
 ### Tail-jev stays in decisions/judge.ts

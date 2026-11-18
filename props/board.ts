@@ -289,7 +289,7 @@ function thingFor(info: MarketInfo, side: SideName) {
 
 export async function loadPropBoard(games: SlateGame[], profile: PropProfile) {
   const apiKey = process.env.ODDS_API_KEY;
-  if (!apiKey) throw new Error('ODDS_API_KEY is not set.');
+  if (!apiKey && process.env.ODDS_SOURCE !== 'fanduel') throw new Error('ODDS_API_KEY is not set.');
   const notes: string[] = [];
   let remaining: number | null = null;
   let cachedGames = 0;
@@ -310,7 +310,7 @@ export async function loadPropBoard(games: SlateGame[], profile: PropProfile) {
   const events = await mapPool(games, 3, async (game) => {
     const cacheOnly = remaining != null && remaining < floor;
     try {
-      const result = await fetchEvent(game.eventId, apiKey, profile, cacheOnly);
+      const result = await fetchEvent(game.eventId, apiKey ?? '', profile, cacheOnly);
       if (result.skipped) {
         skipped += 1;
         return { game, books: [] as any[], error: '', skipped: true };
