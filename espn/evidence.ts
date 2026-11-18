@@ -124,6 +124,11 @@ function fold(name: string) {
     .replace(/\p{M}/gu, '');
 }
 
+/** Alias applied after accent folding, or undefined when the name is not in the table. */
+export function aliasTarget(name: string) {
+  return ALIASES[norm(name)];
+}
+
 export function nameKey(name: string) {
   return fold(name).toLowerCase().replace(/\b(jr|sr|ii|iii|iv|v)\b/g, '').replace(/[^a-z0-9]/g, '');
 }
@@ -136,21 +141,46 @@ function canon(name: string) {
   return fold(name).toLowerCase().split(/[^a-z0-9]+/).filter((token) => token && !DROP.has(token) && !/^\d+$/.test(token)).join(' ');
 }
 
+/** Club name after dropping FC and AS, then the alias table. FotMob and the Odds API share this key. */
+export function clubKey(name: string) {
+  const key = canon(name);
+  return ALIASES[key] ?? key;
+}
+
+const ESPN_TIMEOUT_MS = 10_000;
+
+function espnFailure(error: unknown, path: string) {
+  const name = error instanceof Error ? error.name : '';
+  if (name === 'TimeoutError' || name === 'AbortError') return `ESPN ${path} timed out.`;
+  if (error instanceof Error && error.message.startsWith('ESPN ')) return error.message;
+  return `ESPN ${path} did not answer.`;
+}
+
 function buildClient(base: string, style: EvidenceStyle) {
   let teamsPromise: Promise<Map<string, EspnTeam>> | undefined;
-  let injuriesPromise: Promise<Map<string, Injury[]>> | undefined;
+  let injuriesPromise: Promise<{ map: Map<string, Injury[]>; failed: boolean }> | undefined;
   const seasons = new Map<string, Promise<Season | null>>();
 
   async function espn(path: string): Promise<any> {
-    const res = await fetch(`${base}${path}`);
+    let res: Response;
+    try {
+      res = await fetch(`${base}${path}`, { signal: AbortSignal.timeout(ESPN_TIMEOUT_MS) });
+    } catch (error) {
+      throw new Error(espnFailure(error, path));
+    }
     if (!res.ok) throw new Error(`ESPN ${path} returned ${res.status}`);
     return res.json();
   }
 
   function loadTeams() {
     return (teamsPromise ??= (async () => {
-      const limit = style.teamLimit;
-      const body = await espn(`/teams?limit=${limit}`);
+      let body: any;
+      try {
+        body = await espn(`/teams?limit=${style.teamLimit}`);
+      } catch (error) {
+        console.error(espnFailure(error, '/teams'));
+        return new Map<string, EspnTeam>();
+      }
       const rows = body.sports?.[0]?.leagues?.[0]?.teams ?? [];
       const map = new Map<string, EspnTeam>();
       for (const row of rows) {
@@ -226,7 +256,13 @@ function buildClient(base: string, style: EvidenceStyle) {
 
   function loadInjuries() {
     return (injuriesPromise ??= (async () => {
-      const body = await espn('/injuries');
+      let body: any;
+      try {
+        body = await espn('/injuries');
+      } catch (error) {
+        console.error(espnFailure(error, '/injuries'));
+        return { map: new Map<string, Injury[]>(), failed: true };
+      }
       const map = new Map<string, Injury[]>();
       for (const group of body.injuries ?? []) {
         const list: Injury[] = [];
@@ -245,7 +281,7 @@ function buildClient(base: string, style: EvidenceStyle) {
         const label = String(group.displayName ?? '');
         map.set(style.match === 'football' ? norm(label) : canon(label), list);
       }
-      return map;
+      return { map, failed: false };
     })());
   }
 
@@ -260,7 +296,14 @@ function buildClient(base: string, style: EvidenceStyle) {
     if (cached) return cached;
     const pending = (async (): Promise<Season | null> => {
       const route = style.schedule === 'nfl-abbr' ? team.abbr.toLowerCase() : team.id;
-      const body = await espn(`/teams/${route}/schedule`);
+      const path = `/teams/${route}/schedule`;
+      let body: any;
+      try {
+        body = await espn(path);
+      } catch (error) {
+        console.error(`${team.name}: ${espnFailure(error, path)}`);
+        return null;
+      }
       const games: Played[] = [];
       for (const event of body.events ?? []) {
         if (style.schedule === 'nfl-abbr') {
@@ -358,23 +401,30 @@ function buildClient(base: string, style: EvidenceStyle) {
     return `${name} injury report: ${lines.join('; ')}${more}.`;
   }
 
-  async function teamBrief(name: string, commence: number, teams: Map<string, EspnTeam>, injuries: Map<string, Injury[]>): Promise<{ prose: string; side: SideBrief }> {
-    const unknown = (label: string): { prose: string; side: SideBrief } => ({
-      prose: `${name}: ${label}.`,
-      side: { name, short: name, record: 'record unavailable', rest: 'rest unavailable', injury: label, margin: null, scored: null, allowed: null },
+  async function teamBrief(name: string, commence: number, teams: Map<string, EspnTeam>, injuries: { map: Map<string, Injury[]>; failed: boolean }): Promise<{ prose: string; side: SideBrief }> {
+    const unavailable = (label: string): { prose: string; side: SideBrief } => ({
+      prose: `${name}: ${label}. No recent games. No significant injuries listed.`,
+      side: { name, short: name, record: 'record unavailable', rest: 'rest unavailable', injury: 'no significant injuries listed', margin: null, scored: null, allowed: null },
     });
     const team = findTeam(teams, name);
-    if (!team) return unknown('no ESPN team match');
+    if (!team) return unavailable('no ESPN team match');
     const season = await loadSeason(team);
     const reportKey = style.match === 'football' ? norm(team.name) : canon(team.name);
-    const report = injuries.get(reportKey) ?? [];
-    if (!season) return unknown('schedule unavailable');
+    const report = injuries.map.get(reportKey) ?? [];
+    const injury = injuries.failed ? 'no significant injuries listed' : shortInjury(report);
+    const injuryProse = injuries.failed ? 'No significant injuries listed.' : injuryText(team.name, report);
+    if (!season) {
+      return {
+        prose: `${team.name}: schedule unavailable. No recent games. ${injuryProse}`,
+        side: { name: team.name, short: team.short, record: 'record unavailable', rest: 'rest unavailable', injury, margin: null, scored: null, allowed: null },
+      };
+    }
     const record = recordOf(season.games);
     const rest = restLabel(season.games, commence);
     const form = recentForm(season.games);
     return {
-      prose: `${team.name} are ${record}, last 5: ${lastFive(season.games)}, ${rest}. ${form.sentence} ${injuryText(team.name, report)}`,
-      side: { name: team.name, short: team.short, record, rest, injury: shortInjury(report), margin: form.margin, scored: form.scored, allowed: form.allowed },
+      prose: `${team.name} are ${record}, last 5: ${lastFive(season.games)}, ${rest}. ${form.sentence} ${injuryProse}`,
+      side: { name: team.name, short: team.short, record, rest, injury, margin: form.margin, scored: form.scored, allowed: form.allowed },
     };
   }
 
@@ -425,9 +475,10 @@ function buildClient(base: string, style: EvidenceStyle) {
 
   async function injuryFor(teamName: string, playerName: string): Promise<string | null> {
     const [teams, injuries] = await Promise.all([loadTeams(), loadInjuries()]);
+    if (injuries.failed) return null;
     const team = findTeam(teams, teamName);
     const reportKey = style.match === 'football' ? norm(team?.name ?? teamName) : canon(team?.name ?? teamName);
-    const list = injuries.get(reportKey) ?? [];
+    const list = injuries.map.get(reportKey) ?? [];
     const key = nameKey(playerName);
     const hit = list.find((injury) => nameKey(injury.player) === key);
     if (!hit) return null;
@@ -448,6 +499,8 @@ export type SideBrief = {
   margin: number | null;
   scored: number | null;
   allowed: number | null;
+  /** League table line. Soccer fills this from FotMob. Other sports leave it unset. */
+  table?: string;
 };
 
 export type GameBrief = {

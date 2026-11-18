@@ -89,65 +89,162 @@ export function decisionModel() {
   return active;
 }
 
+/** Fail before any sport is walked. A replay reads saved odds and does not need ODDS_API_KEY. */
+export function requireRunKeys(model: DecisionModel, replay: boolean) {
+  const missing: string[] = [];
+  if (!replay && !process.env.ODDS_API_KEY?.trim()) missing.push('ODDS_API_KEY');
+  if (model === 'jev' && !process.env.TYPESAFE_API_KEY?.trim()) missing.push('TYPESAFE_API_KEY');
+  if (model === 'tail-jev') {
+    if (!process.env.AUTOJEV_URL?.trim()) missing.push('AUTOJEV_URL');
+    if (!process.env.AUTOJEV_API_KEY?.trim()) missing.push('AUTOJEV_API_KEY');
+  }
+  if (!missing.length) return;
+  const names = missing.length === 1
+    ? missing[0]
+    : `${missing.slice(0, -1).join(', ')} and ${missing.at(-1)}`;
+  throw new Error(`Set ${names} in .env before npm start.`);
+}
+
+export type RankedItem = { id: string; text: string; relevance: number };
+
+export type RankResult = {
+  items: RankedItem[];
+  /** Every item that received a score, including ones under the gate or outside topK. */
+  scored: RankedItem[];
+  problem?: string;
+  /** Tail-jev stopped calling after repeated failures. Rows without a score stay on the board. */
+  stopped?: boolean;
+};
+
+const STOP_AFTER_FAILURES = 3;
+
+function keepRanked(scored: RankedItem[], topK: number, minRelevance: number) {
+  return scored
+    .filter((item) => item.relevance >= minRelevance)
+    .sort((a, b) => b.relevance - a.relevance)
+    .slice(0, topK);
+}
+
+function joinProblems(problems: string[]) {
+  return [...new Set(problems)].join(' ');
+}
+
+function failureText(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
 export async function rerank(input: {
   query: string;
   items: { id: string; text: string }[];
   topK: number;
   minRelevance: number;
-}) {
-  if (active === 'jev') return jevRerank(input);
-  const scored = await mapInOrder(input.items, 'Ranking', async (item) => {
-    const result = await decide({
-      kind: 'noul',
-      state: { query: input.query, item: item.text },
-      question: RERANK_QUESTION,
+}): Promise<RankResult> {
+  if (active === 'jev') {
+    const result = await jevRerank({
+      query: input.query,
+      items: input.items,
+      topK: Math.max(input.items.length, 1),
+      minRelevance: 0,
     });
-    return { ...item, relevance: yesProbability(result) };
-  });
-  const items = scored
-    .filter((item) => item.relevance >= input.minRelevance)
-    .sort((a, b) => b.relevance - a.relevance)
-    .slice(0, input.topK);
-  return { items };
+    return { items: keepRanked(result.items, input.topK, input.minRelevance), scored: result.items };
+  }
+  const scored: RankedItem[] = [];
+  const problems: string[] = [];
+  let consecutive = 0;
+  let stopped = false;
+  for (let index = 0; index < input.items.length; index++) {
+    const item = input.items[index]!;
+    if (input.items.length > 1) console.log(`Ranking ${index + 1} of ${input.items.length}...`);
+    try {
+      const result = await decide({
+        kind: 'noul',
+        state: { query: input.query, item: item.text },
+        question: RERANK_QUESTION,
+      });
+      scored.push({ ...item, relevance: yesProbability(result) });
+      consecutive = 0;
+    } catch (error) {
+      consecutive += 1;
+      const message = failureText(error, 'Autojev decide failed.');
+      problems.push(message);
+      console.error(`Ranking failed: ${message}`);
+      if (consecutive >= STOP_AFTER_FAILURES) {
+        problems.push('Stopped ranking after 3 failures in a row.');
+        stopped = true;
+        break;
+      }
+    }
+  }
+  const problem = joinProblems(problems);
+  return {
+    items: keepRanked(scored, input.topK, input.minRelevance),
+    scored,
+    ...(problem ? { problem } : {}),
+    ...(stopped ? { stopped } : {}),
+  };
 }
 
-export async function verify(input: { claims: Claim[]; minConfidence: number }) {
-  if (active === 'jev') return jevVerify(input);
+export async function verify(input: { claims: Claim[]; minConfidence: number }): Promise<{
+  checks: {
+    id: string;
+    verdict: Verdict;
+    confidence: number;
+    status: 'ready' | 'review';
+    probabilities: Record<Verdict, number>;
+  }[];
+  problem?: string;
+  stopped?: boolean;
+}> {
+  if (active === 'jev') {
+    const result = await jevVerify(input);
+    return { checks: result.checks };
+  }
   if (!input.claims.length) throw new Error('Verify needs at least one claim.');
   const seen = new Set<string>();
   for (const claim of input.claims) {
     if (seen.has(claim.id)) throw new Error(`Claim ids must be unique. Repeated id: ${claim.id}`);
     seen.add(claim.id);
   }
-  const checks = await mapInOrder(input.claims, 'Checking', async (claim) => {
-    const result = await decide({
-      kind: 'choice',
-      state: { claim: claim.claim, evidence: claim.evidence },
-      question: VERIFY_QUESTION,
-      options: VERDICTS,
-      criteria: VERIFY_CRITERIA,
-    });
-    const probabilities = probabilityMap(result);
-    const verdict = verdictOf(result.choice);
-    const confidence = probabilities[verdict];
-    return {
-      id: claim.id,
-      verdict,
-      confidence,
-      status: confidence >= input.minConfidence ? 'ready' as const : 'review' as const,
-      probabilities,
-    };
-  });
-  return { checks };
-}
-
-async function mapInOrder<T, R>(items: T[], label: string, run: (item: T) => Promise<R>) {
-  const results: R[] = [];
-  for (let index = 0; index < items.length; index++) {
-    if (items.length > 1) console.log(`${label} ${index + 1} of ${items.length}...`);
-    results.push(await run(items[index]!));
+  const checks = [];
+  const problems: string[] = [];
+  let consecutive = 0;
+  let stopped = false;
+  for (let index = 0; index < input.claims.length; index++) {
+    const claim = input.claims[index]!;
+    if (input.claims.length > 1) console.log(`Checking ${index + 1} of ${input.claims.length}...`);
+    try {
+      const result = await decide({
+        kind: 'choice',
+        state: { claim: claim.claim, evidence: claim.evidence },
+        question: VERIFY_QUESTION,
+        options: VERDICTS,
+        criteria: VERIFY_CRITERIA,
+      });
+      const probabilities = probabilityMap(result);
+      const verdict = verdictOf(result.choice);
+      const confidence = probabilities[verdict];
+      checks.push({
+        id: claim.id,
+        verdict,
+        confidence,
+        status: confidence >= input.minConfidence ? 'ready' as const : 'review' as const,
+        probabilities,
+      });
+      consecutive = 0;
+    } catch (error) {
+      consecutive += 1;
+      const message = failureText(error, 'Autojev decide failed.');
+      problems.push(message);
+      console.error(`Check failed: ${message}`);
+      if (consecutive >= STOP_AFTER_FAILURES) {
+        problems.push('Stopped checking after 3 failures in a row.');
+        stopped = true;
+        break;
+      }
+    }
   }
-  return results;
+  const problem = joinProblems(problems);
+  return { checks, ...(problem ? { problem } : {}), ...(stopped ? { stopped } : {}) };
 }
 
 function autojevConfig() {

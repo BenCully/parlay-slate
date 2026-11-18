@@ -8,6 +8,8 @@ import type { SavedBoard, SavedProps } from '../ui/screen.js';
 import type { BoardSource } from '../sports/types.js';
 
 const MIN_IMPLIED = 0.6;
+const RERANK_TOP_K = 8;
+const RERANK_MIN = 0.6;
 
 type Quote = { point: number; price: number };
 
@@ -26,11 +28,11 @@ type Leg = {
   total: { point: number; overPrice: number; underPrice: number } | null;
 };
 
-function implied(american: number) {
+export function implied(american: number) {
   return american < 0 ? -american / (-american + 100) : 100 / (american + 100);
 }
 
-function toDecimal(american: number) {
+export function toDecimal(american: number) {
   return american < 0 ? 1 + 100 / -american : 1 + american / 100;
 }
 
@@ -124,12 +126,34 @@ function restPhrase(rest: string) {
   return `on ${rest}`;
 }
 
-type Judgment =
-  | { kind: 'dropped' }
+export type DropReason = 'gate' | 'cap';
+
+export type Judgment =
+  | { kind: 'dropped'; relevance: number | null; reason: DropReason }
+  | { kind: 'missed'; stage: 'rerank' | 'verify' }
   | { kind: 'checked'; verdict: 'supported' | 'contradicted' | 'unsupported'; confidence: number; status: 'ready' | 'review' };
 
+/** Two decimals, unless rounding would move the score across the 0.60 gate. */
+export function formatRelevance(value: number) {
+  const text = value.toFixed(2);
+  const shown = Number(text);
+  if ((shown >= RERANK_MIN && value < RERANK_MIN) || (shown < RERANK_MIN && value >= RERANK_MIN)) return value.toFixed(3);
+  return text;
+}
+
+export function droppedCall(relevance: number | null, reason: DropReason) {
+  if (reason === 'cap' && relevance != null) {
+    return `Rerank scored the brief at ${formatRelevance(relevance)}, which clears 0.60, but only the top ${RERANK_TOP_K} briefs are checked. Left out.`;
+  }
+  if (relevance == null) return 'Rerank scored the brief under 0.60, so the win was never checked. Left out.';
+  return `Rerank scored the brief at ${formatRelevance(relevance)}, under 0.60, so the win was never checked. Left out.`;
+}
+
 function decisionLabel(judgment: Judgment) {
-  if (judgment.kind === 'dropped') return 'Dropped';
+  if (judgment.kind === 'missed') return 'No call';
+  if (judgment.kind === 'dropped') {
+    return judgment.relevance == null ? 'Dropped' : `Dropped ${formatRelevance(judgment.relevance)}`;
+  }
   const word = judgment.status === 'ready' ? 'Ready' : 'Review';
   return `${word} ${judgment.confidence.toFixed(2)}`;
 }
@@ -152,12 +176,20 @@ function scoringText(side: GameBrief['pick']) {
   return `${side.scored.toFixed(1)} scored and ${side.allowed.toFixed(1)} allowed`;
 }
 
+function tableClause(brief: GameBrief, nameOf: (name: string) => string) {
+  const parts = [brief.pick, brief.opponent]
+    .filter((side) => side.table)
+    .map((side) => `${nameOf(side.name)} ${side.table}`);
+  return parts.length ? `Table: ${parts.join('; ')}.` : '';
+}
+
 function lineContext(leg: Leg, brief: GameBrief) {
   return [
     `${brief.pick.name} are ${brief.pick.record}, ${brief.pick.rest}, margin ${marginText(brief.pick)}, scoring ${scoringText(brief.pick)}. Injury: ${brief.pick.injury}.`,
     `${brief.opponent.name} are ${brief.opponent.record}, ${brief.opponent.rest}, margin ${marginText(brief.opponent)}, scoring ${scoringText(brief.opponent)}. Injury: ${brief.opponent.injury}.`,
+    tableClause(brief, (name) => name),
     leg.home ? `${leg.team} is at home.` : `${leg.team} is on the road.`,
-  ].join(' ');
+  ].filter(Boolean).join(' ');
 }
 
 function spreadClaim(leg: Leg, unit: string) {
@@ -190,19 +222,19 @@ function sideLabel(check: Check) {
   return `Pass ${confidence}`;
 }
 
-function moneylineSlip(leg: Leg, judgment: Judgment) {
+export function moneylineSlip(leg: { team: string; price: number }, judgment: Judgment) {
   if (judgment.kind === 'checked' && judgment.verdict === 'supported') return `Take ${nick(leg.team)} ${priceText(leg.price)}`;
   return 'Pass';
 }
 
-function spreadSlip(leg: Leg, check: Check) {
+export function spreadSlip(leg: { team: string; opponent: string; spread: { point: number } | null }, check: Check) {
   const point = leg.spread!.point;
   if (check.verdict === 'supported') return `Take ${nick(leg.team)} ${signed(point)}`;
   if (check.verdict === 'contradicted') return `Take ${nick(leg.opponent)} ${signed(-point)}`;
   return 'Pass';
 }
 
-function totalSlip(side: 'Over' | 'Under', point: number, check: Check) {
+export function totalSlip(side: 'Over' | 'Under', point: number, check: Check) {
   if (check.verdict !== 'supported') return 'Pass';
   return `Take the ${side.toLowerCase()} ${points(point)}`;
 }
@@ -216,8 +248,13 @@ function decisionComment(leg: Leg, brief: GameBrief, judgment: Judgment) {
     .filter((side) => side.injury !== 'no significant injuries listed')
     .map((side) => `${nick(side.name)}, ${side.injury}`);
   const injuries = notes.length ? `Injuries: ${notes.join('; ')}.` : 'No significant injuries on either report.';
-  const call = judgment.kind === 'dropped'
-    ? 'Rerank scored the brief under 0.60, so the win was never checked. Left out.'
+  const table = tableClause(brief, nick);
+  const call = judgment.kind === 'missed'
+    ? judgment.stage === 'rerank'
+      ? 'Rerank did not return a score for the brief. Left out.'
+      : 'Verify did not return a decision for the win. Left out.'
+    : judgment.kind === 'dropped'
+    ? droppedCall(judgment.relevance, judgment.reason)
     : judgment.verdict === 'supported' && judgment.status === 'ready'
       ? `Verify says the brief supports the win at ${judgment.confidence.toFixed(2)}, which clears 0.80. Eligible for a parlay.`
       : judgment.verdict === 'supported'
@@ -225,7 +262,7 @@ function decisionComment(leg: Leg, brief: GameBrief, judgment: Judgment) {
         : judgment.verdict === 'contradicted'
           ? `Verify says the brief cuts against the win at ${judgment.confidence.toFixed(2)}. Left out.`
           : `Verify says the brief does not establish the win at ${judgment.confidence.toFixed(2)}. Left out.`;
-  return `${facts} ${injuries} ${call}`;
+  return [facts, table, injuries, call].filter(Boolean).join(' ');
 }
 
 function spreadComment(leg: Leg, brief: GameBrief, check: Check) {
@@ -233,8 +270,9 @@ function spreadComment(leg: Leg, brief: GameBrief, check: Check) {
   return [
     `${nick(leg.team)} ${signed(quote.point)} (${priceText(quote.price)}).`,
     `Last 5 margin: ${nick(brief.pick.name)} ${marginText(brief.pick)}; ${nick(brief.opponent.name)} ${marginText(brief.opponent)}.`,
+    tableClause(brief, nick),
     gateSentence(check, 'cover'),
-  ].join(' ');
+  ].filter(Boolean).join(' ');
 }
 
 function supportChance(check: Check) {
@@ -247,9 +285,10 @@ function totalComment(leg: Leg, brief: GameBrief, side: 'Over' | 'Under', check:
   return [
     `${side} ${points(quote.point)} (${priceText(price)}).`,
     `${nick(brief.pick.name)} last 5: ${scoringText(brief.pick)}. ${nick(brief.opponent.name)} last 5: ${scoringText(brief.opponent)}.`,
+    tableClause(brief, nick),
     `The ${side.toLowerCase()} is the stronger side (${supportChance(check).toFixed(2)} vs ${supportChance(other).toFixed(2)}).`,
     gateSentence(check, side === 'Over' ? 'over' : 'under'),
-  ].join(' ');
+  ].filter(Boolean).join(' ');
 }
 
 function kickoffLabel(iso: string) {
@@ -283,29 +322,40 @@ function slateGames(legs: Leg[]): SlateGame[] {
 }
 
 async function verifyAll(claims: { id: string; claim: string; evidence: string }[]) {
-  const checks = [];
+  const checks: (Check & { id: string })[] = [];
+  const problems: string[] = [];
+  let consecutive = 0;
   const size = 50;
   for (let index = 0; index < claims.length; index += size) {
     const slice = claims.slice(index, index + size);
     console.log(`Checking ${index + slice.length} of ${claims.length} claims...`);
-    const result = await verify({ claims: slice, minConfidence: 0.8 });
-    checks.push(...result.checks);
+    try {
+      const result = await verify({ claims: slice, minConfidence: 0.8 });
+      checks.push(...result.checks);
+      if (result.problem) problems.push(result.problem);
+      if (result.stopped) break;
+      consecutive = result.problem && result.checks.length === 0 ? consecutive + 1 : 0;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'The decision check failed.';
+      problems.push(message);
+      console.error(message);
+      consecutive += 1;
+    }
+    if (consecutive >= 3) {
+      problems.push('Stopped checking after 3 failures in a row.');
+      break;
+    }
   }
-  return checks;
+  const problem = [...new Set(problems)].join(' ');
+  return { checks, ...(problem ? { problem } : {}) };
 }
 
 async function propTab(pending: ReturnType<typeof loadPropBoard>): Promise<SavedProps> {
   try {
     const board = await pending;
-    let problem = '';
-    const checks = board.claims.length
-      ? await verifyAll(board.claims).catch((error: unknown) => {
-        problem = error instanceof Error ? error.message : 'The prop decision check failed.';
-        return [];
-      })
-      : [];
+    const verified = board.claims.length ? await verifyAll(board.claims) : { checks: [] };
     if (board.remaining != null) console.log(`Odds API credits remaining: ${board.remaining}.`);
-    return board.finish(checks, problem || undefined);
+    return board.finish(verified.checks, verified.problem);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Player props failed.';
     return { title: 'Player props', groups: [], note: message };
@@ -353,12 +403,22 @@ async function buildBoardInner(source: BoardSource, day: string | undefined): Pr
       teamShorts.set(brief.opponent.name, brief.opponent.short);
     }
   }
-  const ranked = await rerank({
-    query: source.query,
-    items: briefs.map((row) => ({ id: row.leg.id, text: `${row.leg.pick}. ${row.brief.text}` })),
-    topK: 8,
-    minRelevance: 0.6,
-  });
+  let rankProblem = '';
+  let ranked: Awaited<ReturnType<typeof rerank>>;
+  try {
+    ranked = await rerank({
+      query: source.query,
+      items: briefs.map((row) => ({ id: row.leg.id, text: `${row.leg.pick}. ${row.brief.text}` })),
+      topK: RERANK_TOP_K,
+      minRelevance: RERANK_MIN,
+    });
+    rankProblem = ranked.problem ?? '';
+  } catch (error) {
+    rankProblem = error instanceof Error ? error.message : 'The decision check failed.';
+    console.error(rankProblem);
+    ranked = { items: [], scored: [] };
+  }
+  const scoreOf = new Map(ranked.scored.map((item) => [item.id, item.relevance]));
   const rankedIds = new Set(ranked.items.map((item) => item.id));
 
   const claims = briefs.flatMap(({ leg, brief }) => {
@@ -393,15 +453,27 @@ async function buildBoardInner(source: BoardSource, day: string | undefined): Pr
     }
     return rows;
   });
-  const checks = claims.length ? await verifyAll(claims) : [];
-  const verdict = new Map(checks.map((check) => [check.id, check]));
+  const verified = claims.length && !ranked.stopped
+    ? await verifyAll(claims)
+    : { checks: [] as (Check & { id: string })[], problem: undefined as string | undefined };
+  const problem = [rankProblem, verified.problem].filter(Boolean).join(' ');
+  const verdict = new Map(verified.checks.map((check) => [check.id, check]));
   const ordered = [...briefs].sort((a, b) => b.leg.implied - a.leg.implied);
 
+  const judgmentFor = (id: string): Judgment => {
+    const check = verdict.get(id);
+    if (!rankedIds.has(id)) {
+      const relevance = scoreOf.get(id);
+      if (relevance == null) return { kind: 'missed', stage: 'rerank' };
+      if (relevance >= RERANK_MIN) return { kind: 'dropped', relevance, reason: 'cap' };
+      return { kind: 'dropped', relevance, reason: 'gate' };
+    }
+    if (!check) return { kind: 'missed', stage: 'verify' };
+    return { kind: 'checked', verdict: check.verdict, confidence: check.confidence, status: check.status };
+  };
+
   const groups = ordered.map(({ leg, brief }) => {
-      const check = verdict.get(leg.id);
-      const judgment: Judgment = !rankedIds.has(leg.id) || !check
-        ? { kind: 'dropped' }
-        : { kind: 'checked', verdict: check.verdict, confidence: check.confidence, status: check.status };
+      const judgment = judgmentFor(leg.id);
       const moneyline = [
         leg.team,
         priceText(leg.price),
@@ -429,7 +501,7 @@ async function buildBoardInner(source: BoardSource, day: string | undefined): Pr
       return [moneyline, spread, total];
     });
 
-  const keep = checks
+  const keep = verified.checks
     .filter((check) => check.status === 'ready' && check.verdict === 'supported')
     .map((check) => legs.find((leg) => leg.id === check.id)!)
     .filter(Boolean);
@@ -438,7 +510,7 @@ async function buildBoardInner(source: BoardSource, day: string | undefined): Pr
     const names = keep.map((leg) => nick(leg.team));
     const onlyName = names.length === 1 ? (teamShorts ? names[0] : `the ${names[0]}`) : '';
     const only = onlyName ? ` Only ${onlyName} cleared 0.80.` : '';
-    const note = `No parlay. A ticket needs two legs the brief supports at 0.80 or better.${only}`;
+    const note = [`No parlay. A ticket needs two legs the brief supports at 0.80 or better.${only}`, problem].filter(Boolean).join(' ');
     return { title, groups, note: withCache(note, cachedAt), props };
   }
 
@@ -465,7 +537,7 @@ async function buildBoardInner(source: BoardSource, day: string | undefined): Pr
     parlay.map((leg) => `${nick(leg.team)} ${priceText(leg.price)}`).join(' + '),
     `${listNames(parlay.map((leg) => nick(leg.team)))} each cleared 0.80. The hit rate multiplies their market prices. It is not a separate prediction.`,
   ]]);
-  return { title, groups, ticketGroups, note: withCache(undefined, cachedAt), props };
+  return { title, groups, ticketGroups, note: withCache(problem || undefined, cachedAt), props };
 }
 
 function totalRow(leg: Leg, brief: GameBrief, overCheck: Check | undefined, underCheck: Check | undefined) {

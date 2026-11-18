@@ -5,10 +5,10 @@
 //      npm start -- 2026-11-15 model=jev      TypeSafe through jev-recipes (also the default)
 //      npm start -- 2026-11-15 model=tail-jev Autojev on the tailnet (model=autojev is the same)
 //      npm start -- odds=2026-11-15 model=jev prices saved that Eastern day, no Odds API call
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readStartArgs, selectDecisionModel } from '../decisions/judge.js';
+import { readStartArgs, requireRunKeys, selectDecisionModel } from '../decisions/judge.js';
 import { setOddsReplay } from '../odds/cache.js';
 import { buildBoard, type BuiltBoard } from '../slate/board.js';
 import { todayEastern } from '../slate/window.js';
@@ -46,13 +46,34 @@ async function runLeague(league: LeagueDef, slateDay: string | undefined): Promi
   }
 }
 
+function currentSlate(sports: SavedSport[], model: SavedSlate['model'], odds: string | undefined): SavedSlate {
+  const first = openedBoard(sports);
+  return {
+    savedAt: new Date().toISOString(),
+    model,
+    ...(odds ? { oddsDay: odds } : {}),
+    title: first?.games?.title ?? '',
+    groups: first?.games?.groups ?? [],
+    note: first?.games?.note,
+    ticketGroups: first?.games?.ticketGroups,
+    props: first?.props,
+    sports,
+  };
+}
+
 async function main() {
   const { day, model, odds } = readStartArgs(process.argv.slice(2));
   if (odds) setOddsReplay(odds);
   const chosen = selectDecisionModel(model);
+  requireRunKeys(chosen, Boolean(odds));
   console.log(odds ? `Decisions: ${chosen}. Odds saved on ${odds}.` : `Decisions: ${chosen}.`);
   const sports: SavedSport[] = [];
   let built = false;
+  const label = odds ?? day ?? todayEastern();
+  const remember = async () => {
+    if (!built) return;
+    await saveRun(currentSlate(sports, chosen, odds));
+  };
   for (const sport of SPORTS) {
     if (sport.kind === 'board') {
       try {
@@ -68,6 +89,7 @@ async function main() {
           props: { title: 'Player props', groups: [], note: safe },
         });
       }
+      await remember();
       continue;
     }
     const leagues: SavedLeague[] = [];
@@ -78,6 +100,7 @@ async function main() {
       leagues.push(result.league);
     }
     sports.push({ label: sport.label, leagues });
+    await remember();
   }
 
   if (!built) {
@@ -85,19 +108,9 @@ async function main() {
     process.exit(1);
   }
 
-  const first = openedBoard(sports);
-  const saved: SavedSlate = {
-    savedAt: new Date().toISOString(),
-    model: chosen,
-    ...(odds ? { oddsDay: odds } : {}),
-    title: first?.games?.title ?? '',
-    groups: first?.games?.groups ?? [],
-    note: first?.games?.note,
-    ticketGroups: first?.games?.ticketGroups,
-    props: first?.props,
-    sports,
-  };
-  await saveSlate(saved, odds ?? day ?? todayEastern());
+  const saved = currentSlate(sports, chosen, odds);
+  await saveRun(saved);
+  await saveSnapshot(saved, label);
   await showSlate(saved);
 }
 
@@ -113,14 +126,22 @@ function openedBoard(sports: SavedSport[]) {
 const savedPath = fileURLToPath(new URL('../runs/last-run.json', import.meta.url));
 const snapshotDir = fileURLToPath(new URL('../snapshots/', import.meta.url));
 
-async function saveSlate(saved: SavedSlate, label: string) {
-  const body = `${JSON.stringify(saved, null, 2)}\n`;
+async function writeAtomic(path: string, body: string) {
+  const temp = `${path}.${process.pid}.tmp`;
+  await writeFile(temp, body);
+  await rename(temp, path);
+}
+
+async function saveRun(saved: SavedSlate) {
   await mkdir(dirname(savedPath), { recursive: true });
-  await mkdir(snapshotDir, { recursive: true });
-  await writeFile(savedPath, body);
-  const snapshotPath = `${snapshotDir}${label}-${saved.model}.json`;
-  await writeFile(snapshotPath, body);
+  await writeAtomic(savedPath, `${JSON.stringify(saved, null, 2)}\n`);
   console.log(`Saved ${savedPath}`);
+}
+
+async function saveSnapshot(saved: SavedSlate, label: string) {
+  await mkdir(snapshotDir, { recursive: true });
+  const snapshotPath = `${snapshotDir}${label}-${saved.model}.json`;
+  await writeAtomic(snapshotPath, `${JSON.stringify(saved, null, 2)}\n`);
   console.log(`Saved ${snapshotPath}`);
 }
 

@@ -2,6 +2,44 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-18T02:17:08Z
+
+### Pull request labels
+
+`.github/workflows/label.yml` runs `actions/labeler` v7 on a pull request. `.github/labeler.yml` maps changed paths to labels: each sport, the shared sports files, and ui, odds, espn, decisions, slate, props, scripts, tests, docs, dependencies, tooling, and ci. A label is removed when the pull request no longer touches that path. The workflow reads the config from `main` and does not check out the pull request. `issues: write` lets the action create a label the first time it is needed.
+
+## 2026-11-18T01:43:05Z
+
+### FotMob on every soccer brief
+
+Each soccer league now adds the FotMob table to the ESPN brief. The line is place, record, goal difference, expected goals per game, and the home or away split. Players FotMob still lists as unavailable at kickoff fill an empty ESPN injury line. Premier League is 47, Champions League 42, La Liga 87, Serie A 55, Bundesliga 54, and Ligue 1 53. There is no key. A miss leaves the ESPN brief. The previous match lineup is not used as a projected team. Player props still read the ESPN game log.
+
+## 2026-11-18T01:28:19Z
+
+### Ligue 1
+
+Soccer now has Ligue 1 after Bundesliga. The Odds key is `soccer_france_ligue_one` and the ESPN competition is `fra.1`. Games and Props use the same window, 3-way moneyline, and prop markets as the other domestic leagues.
+
+The sports list had the league active. ESPN matched every Odds club name, including Paris FC, Paris Saint Germain, RC Lens, Le Mans FC, and Rennes, with no new alias. US books posted moneylines, spreads, and totals for the scoreboard window. On the first match they posted anytime goal, shots, and shots on target. Assists and cards were not posted, so those rows stay No line.
+
+## 2026-11-17T23:06:55Z
+
+### A failed check keeps the slate
+
+One Autojev timeout no longer replaces that league's Games tab with an error. The failed row is `No call`, the error is in the board note, and three failures in a row stop the rest of the calls. Props already kept their rows. They now keep the checks that succeeded too.
+
+A favorite that clears 0.60 and loses the top-8 cut says so. The Decision cell includes the relevance. It is no longer described as a score under 0.60. A missing score is `No call`.
+
+`npm start` checks `ODDS_API_KEY`, and `TYPESAFE_API_KEY` or the Autojev pair, before it walks a sport. An `odds=` replay does not need `ODDS_API_KEY`.
+
+Live prop requests stop when the last Odds API credit header is under `ODDS_CREDIT_FLOOR`. The default is 30. Cached props are still read. `0` keeps fetching. Requests already in flight can finish, so the account can land a few credits under the floor.
+
+ESPN requests time out after 10 seconds. The Odds API times out after 30 seconds. A failed team list, injury report, or schedule becomes "no recent games" and "no significant injuries listed" for that side. A failed scoreboard uses the same window as an empty scoreboard. Player roster and gamelog failures stay on that player.
+
+`runs/last-run.json` is rewritten after each sport once any board has been built. The write is a temp file renamed into place. The snapshot is written when the run finishes, so a kill mid-run leaves the previous snapshot alone.
+
+`npm test` runs `test/pure.test.ts` with `node:test`. It does not call The Odds API, TypeSafe, or Autojev.
+
 ## 2026-11-17T22:27:27Z
 
 ### Emoji columns keep their width

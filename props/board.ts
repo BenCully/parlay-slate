@@ -3,7 +3,7 @@
 // The brief is the player's ESPN game log. No extra account.
 import { BOOKS } from '../odds/books.js';
 import { nameKey } from '../espn/evidence.js';
-import { oddsGet, oddsReplayDay } from '../odds/cache.js';
+import { oddsCreditFloor, oddsGet, oddsReplayDay } from '../odds/cache.js';
 import type { PlayerRef } from '../espn/players.js';
 
 export type YesCopy = {
@@ -236,11 +236,17 @@ export type PropProfile = {
   featureExtra: (option: { market: string; ref: PlayerRef }, featured: Set<string>) => boolean;
 };
 
-async function fetchEvent(eventId: string, apiKey: string, profile: PropProfile) {
+async function fetchEvent(eventId: string, apiKey: string, profile: PropProfile, cacheOnly: boolean) {
   const url = `https://api.the-odds-api.com/v4/sports/${profile.sport}/events/${eventId}/odds` +
     `?regions=us&oddsFormat=american&markets=${profile.markets.join(',')}`;
-  const result = await oddsGet(url, { headers: { 'x-api-key': apiKey } });
-  return { body: result.body, remaining: result.cached ? null : result.remaining, cached: result.cached };
+  const result = await oddsGet(url, { headers: { 'x-api-key': apiKey } }, { cacheOnly });
+  if (result.skipped) return { skipped: true as const };
+  return {
+    skipped: false as const,
+    body: result.body,
+    remaining: result.cached ? null : result.remaining,
+    cached: result.cached,
+  };
 }
 
 function support(check: PropCheck) {
@@ -287,6 +293,8 @@ export async function loadPropBoard(games: SlateGame[], profile: PropProfile) {
   const notes: string[] = [];
   let remaining: number | null = null;
   let cachedGames = 0;
+  let skipped = 0;
+  const floor = oddsCreditFloor();
   if (!games.length) {
     return {
       claims: [] as Claim[],
@@ -300,14 +308,19 @@ export async function loadPropBoard(games: SlateGame[], profile: PropProfile) {
   const what = profile.logLabel ? `${profile.logLabel} player props` : 'player props';
   console.log(`Pulling ${what} for ${games.length} game${games.length === 1 ? '' : 's'}...`);
   const events = await mapPool(games, 3, async (game) => {
+    const cacheOnly = remaining != null && remaining < floor;
     try {
-      const result = await fetchEvent(game.eventId, apiKey, profile);
+      const result = await fetchEvent(game.eventId, apiKey, profile, cacheOnly);
+      if (result.skipped) {
+        skipped += 1;
+        return { game, books: [] as any[], error: '', skipped: true };
+      }
       if (result.cached) cachedGames += 1;
       else if (result.remaining != null) remaining = result.remaining;
-      return { game, books: (result.body.bookmakers ?? []) as any[], error: '' };
+      return { game, books: (result.body.bookmakers ?? []) as any[], error: '', skipped: false };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'props request failed';
-      return { game, books: [] as any[], error: message };
+      return { game, books: [] as any[], error: message, skipped: false };
     }
   });
 
@@ -323,7 +336,15 @@ export async function loadPropBoard(games: SlateGame[], profile: PropProfile) {
     notes.push(`ESPN roster missing for ${rosters.failed.map(nick).join(', ')}.`);
   }
 
+  if (skipped) {
+    const left = remaining == null ? '' : ` ${remaining} credits remaining.`;
+    const line = `Skipped ${skipped} prop board${skipped === 1 ? '' : 's'}.${left} Under the floor of ${floor} Odds API credits.`;
+    console.log(line);
+    notes.push(line);
+  }
+
   const jobs = events.flatMap((event) => {
+    if (event.skipped) return [];
     if (event.error) {
       notes.push(`${nick(event.game.away)} at ${nick(event.game.home)}: ${event.error}.`);
       return [];
