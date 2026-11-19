@@ -2,6 +2,12 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-19T01:52:21Z
+
+### Check workflow runs on Node 24 actions
+
+`.github/workflows/check.yml` uses `actions/checkout` v6 and `actions/setup-node` v6. Those actions run on Node 24. The job still installs Node 22 for `npm ci`, `npm test`, and `npm run typecheck`.
+
 ## 2026-11-19T01:48:27Z
 
 ### Replay commands follow the active odds source
