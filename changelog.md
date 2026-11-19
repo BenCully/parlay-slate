@@ -2,6 +2,12 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-19T02:10:41Z
+
+### Odds source on the header
+
+The top row now reads `Odds Source: FanDuel` or `Odds Source: The Odds API` between the model and the x button. `runs/last-run.json` and the snapshot store `oddsSource` as `fanduel` or `the-odds-api`. A compare screen shows both names when the two saves used different sources. An older save with no `oddsSource` leaves that spot blank. A row that cannot keep the first sport drops the odds source before it drops the model.
+
 ## 2026-11-19T01:52:21Z
 
 ### Check workflow runs on Node 24 actions

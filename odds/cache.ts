@@ -20,6 +20,13 @@ export function oddsSource() {
   return process.env.ODDS_SOURCE === 'fanduel' ? 'fanduel' : 'the-odds-api';
 }
 
+/** Screen and error name for a stored source id. An unknown id stays blank. */
+export function oddsSourceLabel(source: string | undefined) {
+  if (source === 'fanduel') return 'FanDuel';
+  if (source === 'the-odds-api') return 'The Odds API';
+  return '';
+}
+
 /** Replay command for one saved day. A shell prefix overrides a different ODDS_SOURCE in .env. */
 export function oddsReplayCommand(day: string, savedSource: string, model: string) {
   const prefix = savedSource === oddsSource() ? '' : `ODDS_SOURCE=${savedSource} `;
@@ -412,7 +419,7 @@ async function store(file: string, record: CacheRecord) {
 }
 
 function sourceName(source: string) {
-  return source === 'fanduel' ? 'FanDuel' : 'The Odds API';
+  return oddsSourceLabel(source) || 'The Odds API';
 }
 
 async function replayMissError(request: string, source: string) {

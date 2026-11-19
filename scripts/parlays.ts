@@ -9,7 +9,7 @@ import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readStartArgs, requireRunKeys, selectDecisionModel } from '../decisions/judge.js';
-import { setOddsReplay } from '../odds/cache.js';
+import { oddsSource, setOddsReplay } from '../odds/cache.js';
 import { buildBoard, type BuiltBoard } from '../slate/board.js';
 import { todayEastern } from '../slate/window.js';
 import { showSlate, type SavedBoard, type SavedLeague, type SavedSlate, type SavedSport } from '../ui/screen.js';
@@ -44,11 +44,12 @@ async function runLeague(league: LeagueDef, slateDay: string | undefined): Promi
   }
 }
 
-function currentSlate(sports: SavedSport[], model: SavedSlate['model'], odds: string | undefined): SavedSlate {
+function currentSlate(sports: SavedSport[], model: SavedSlate['model'], odds: string | undefined, source: string): SavedSlate {
   const first = openedBoard(sports);
   return {
     savedAt: new Date().toISOString(),
     model,
+    oddsSource: source,
     ...(odds ? { oddsDay: odds } : {}),
     title: first?.games?.title ?? '',
     groups: first?.games?.groups ?? [],
@@ -62,6 +63,7 @@ function currentSlate(sports: SavedSport[], model: SavedSlate['model'], odds: st
 async function main() {
   const { day, model, odds } = readStartArgs(process.argv.slice(2));
   if (odds) setOddsReplay(odds);
+  const source = oddsSource();
   const chosen = selectDecisionModel(model);
   requireRunKeys(chosen, Boolean(odds));
   const release = await acquireRunLock(dirname(savedPath));
@@ -72,7 +74,7 @@ async function main() {
     const label = odds ?? day ?? todayEastern();
     const remember = async () => {
       if (!built) return;
-      await saveRun(currentSlate(sports, chosen, odds));
+      await saveRun(currentSlate(sports, chosen, odds, source));
     };
     for (const sport of SPORTS) {
       if (sport.kind === 'board') {
@@ -109,7 +111,7 @@ async function main() {
       return;
     }
 
-    const saved = currentSlate(sports, chosen, odds);
+    const saved = currentSlate(sports, chosen, odds, source);
     await saveRun(saved);
     await saveSnapshot(saved, label);
     await showSlate(saved);

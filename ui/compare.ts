@@ -1,6 +1,6 @@
 // Side-by-side decisions from two saved slates. No network calls.
 import { presentScreen, renderTable, wrapParagraph, type ScreenPage } from './table.js';
-import { sportsOf, type SavedBoard, type SavedLeague, type SavedSlate, type SavedSport } from './screen.js';
+import { savedOddsLabel, sportsOf, type SavedBoard, type SavedLeague, type SavedSlate, type SavedSport } from './screen.js';
 
 const sportShort: Record<string, string> = {
   Football: 'FB',
@@ -220,5 +220,5 @@ export function showComparison(jev: SavedSlate, tail: SavedSlate) {
   const left = jev.model?.trim() || 'jev';
   const right = tail.model?.trim() || 'tail-jev';
   const model = left === right ? left : `${left} · ${right}`;
-  return presentScreen(comparisonPages(jev, tail), { model });
+  return presentScreen(comparisonPages(jev, tail), { model, oddsSource: savedOddsLabel(jev.oddsSource, tail.oddsSource) });
 }

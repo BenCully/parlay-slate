@@ -1,3 +1,4 @@
+import { oddsSourceLabel } from '../odds/cache.js';
 import { headerText, presentScreen, renderTable, wrapParagraph, type ScreenPage } from './table.js';
 
 export type SavedProps = {
@@ -30,6 +31,8 @@ export type SavedSport = {
 export type SavedSlate = {
   savedAt: string;
   model?: string;
+  /** Price source that filled this slate: `fanduel` or `the-odds-api`. Absent on an older save. */
+  oddsSource?: string;
   /** Eastern day whose saved odds were replayed. Absent on a live run. */
   oddsDay?: string;
   title: string;
@@ -170,10 +173,20 @@ export function slatePages(saved: SavedSlate): ScreenPage[] {
   });
 }
 
+/** Display names for the header. One name when every save used the same source. */
+export function savedOddsLabel(...sources: (string | undefined)[]) {
+  const names: string[] = [];
+  for (const source of sources) {
+    const name = oddsSourceLabel(source);
+    if (name && !names.includes(name)) names.push(name);
+  }
+  return names.join(' · ');
+}
+
 export function showSlate(saved: SavedSlate) {
-  return presentScreen(slatePages(saved), { model: saved.model });
+  return presentScreen(slatePages(saved), { model: saved.model, oddsSource: savedOddsLabel(saved.oddsSource) });
 }
 
 export function slateHeaders(saved: SavedSlate, width: number, indexes: number[] = []) {
-  return headerText(slatePages(saved), width, indexes, saved.model);
+  return headerText(slatePages(saved), width, indexes, saved.model, savedOddsLabel(saved.oddsSource));
 }

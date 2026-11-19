@@ -7,7 +7,7 @@ import { readStartArgs, requireRunKeys, selectDecisionModel, verify } from '../d
 import { espnCacheFresh, ESPN_DAY_HOURS, ESPN_INJURY_HOURS, readEspnCache, writeEspnCache } from '../espn/cache.js';
 import { aliasTarget, clubKey, createEvidence, nameKey, NFL_EVIDENCE, type GameBrief } from '../espn/evidence.js';
 import { bookLabel, postedMarket } from '../odds/books.js';
-import { listSavedOdds, oddsCacheName, oddsCreditFloor, oddsGet, oddsReplayCommand, oddsRequestKey, oddsSlateFamily, parseOddsBody, preferFreshRecord, setOddsReplay } from '../odds/cache.js';
+import { listSavedOdds, oddsCacheName, oddsCreditFloor, oddsGet, oddsReplayCommand, oddsRequestKey, oddsSlateFamily, oddsSourceLabel, parseOddsBody, preferFreshRecord, setOddsReplay } from '../odds/cache.js';
 import { buildTeamIndex, classifyProp, eventSides, marketOutcomes, propOutcomes, resolveTeamName, sidesFromName } from '../odds/fanduel.js';
 import { easternClock, quotaEntry } from '../odds/quota.js';
 import { acquireRunLock } from '../scripts/lock.js';
@@ -26,6 +26,7 @@ import {
   type Judgment,
 } from '../slate/board.js';
 import { easternDay, easternRange, oddsStamp, scoreboardEvents } from '../slate/window.js';
+import { savedOddsLabel, slateHeaders, type SavedSlate } from '../ui/screen.js';
 
 function withEnv(values: Record<string, string | undefined>, run: () => void) {
   const previous = new Map<string, string | undefined>();
@@ -1032,5 +1033,49 @@ test('a live odds response writes a quota line without the url or the key', asyn
     if (previousCache == null) delete process.env.ODDS_CACHE;
     else process.env.ODDS_CACHE = previousCache;
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('the header names the odds source beside the model', () => {
+  assert.equal(oddsSourceLabel('fanduel'), 'FanDuel');
+  assert.equal(oddsSourceLabel('the-odds-api'), 'The Odds API');
+  assert.equal(oddsSourceLabel(undefined), '');
+  assert.equal(savedOddsLabel('fanduel', 'fanduel'), 'FanDuel');
+  assert.equal(savedOddsLabel('fanduel', 'the-odds-api'), 'FanDuel · The Odds API');
+  assert.equal(savedOddsLabel(undefined), '');
+
+  const board = { title: 'NFL', groups: [] as string[][][] };
+  const saved: SavedSlate = {
+    savedAt: '2026-11-19T02:00:24.234Z',
+    model: 'jev',
+    oddsSource: 'fanduel',
+    title: 'NFL',
+    groups: [],
+    sports: [{
+      label: 'Football',
+      leagues: [{ label: 'NFL', short: 'NFL', games: board, props: { title: 'Props', groups: [] } }],
+    }],
+  };
+  const wide = slateHeaders(saved, 100, [0, 0, 0]);
+  assert.match(wide[0] ?? '', /Model: Jev {2}Odds Source: FanDuel {3}x $/);
+  assert.equal((wide[0] ?? '').length, 100);
+  const oddsApi = slateHeaders({ ...saved, oddsSource: 'the-odds-api' }, 120, [0, 0, 0]);
+  assert.match(oddsApi[0] ?? '', /Model: Jev {2}Odds Source: The Odds API {3}x $/);
+  const blank = slateHeaders({ ...saved, oddsSource: undefined }, 100, [0, 0, 0]);
+  assert.equal((blank[0] ?? '').includes('Odds Source'), false);
+  assert.match(blank[0] ?? '', /Model: Jev {3}x $/);
+  const narrow = slateHeaders(saved, 30, [0, 0, 0]);
+  assert.equal((narrow[0] ?? '').includes('Odds Source'), false);
+  assert.match(narrow[0] ?? '', /Model: Jev {3}x $/);
+  const squeezed = slateHeaders(saved, 40, [0, 0, 0]);
+  assert.match(squeezed[0] ?? '', /^ Football /);
+  assert.equal((squeezed[0] ?? '').includes('Odds Source'), false);
+  for (const width of [30, 40, 60, 80, 120]) {
+    for (const line of slateHeaders(saved, width, [0, 0, 0])) {
+      assert.equal(line.length <= width, true, `${line.length} > ${width}`);
+    }
+    for (const line of slateHeaders({ ...saved, model: 'tail-jev', oddsSource: 'the-odds-api' }, width, [0, 0, 0])) {
+      assert.equal(line.length <= width, true, `${line.length} > ${width}`);
+    }
   }
 });
