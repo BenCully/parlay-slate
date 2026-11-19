@@ -20,6 +20,12 @@ export function oddsSource() {
   return process.env.ODDS_SOURCE === 'fanduel' ? 'fanduel' : 'the-odds-api';
 }
 
+/** Replay command for one saved day. A shell prefix overrides a different ODDS_SOURCE in .env. */
+export function oddsReplayCommand(day: string, savedSource: string, model: string) {
+  const prefix = savedSource === oddsSource() ? '' : `ODDS_SOURCE=${savedSource} `;
+  return `${prefix}npm start -- odds=${day} model=${model}`;
+}
+
 type CacheRecord = {
   savedAt: string;
   remaining: number | null;
@@ -402,6 +408,19 @@ async function store(file: string, record: CacheRecord) {
   const temp = `${file}.${process.pid}.tmp`;
   await writeFile(temp, `${JSON.stringify(record)}\n`);
   await rename(temp, file);
+  catalog = null;
+}
+
+function sourceName(source: string) {
+  return source === 'fanduel' ? 'FanDuel' : 'The Odds API';
+}
+
+async function replayMissError(request: string, source: string) {
+  const other = source === 'fanduel' ? 'the-odds-api' : 'fanduel';
+  const alternate = await readReplay(request, other);
+  const missed = `No ${sourceName(source)} odds saved on ${replayDay} for ${requestLabel(request)}.`;
+  if (!alternate) return `${missed} Nothing was fetched.`;
+  return `${missed} That day was saved by ${sourceName(other)}. Replay with ODDS_SOURCE=${other}. Nothing was fetched.`;
 }
 
 export async function oddsGet(url: string, init?: RequestInit, options?: { cacheOnly?: boolean }): Promise<OddsResponse> {
@@ -409,7 +428,7 @@ export async function oddsGet(url: string, init?: RequestInit, options?: { cache
   const identity = oddsRequestKey(url);
   if (replayDay) {
     const hit = await readReplay(identity.request, source);
-    if (!hit) throw new Error(`No odds saved on ${replayDay} for ${requestLabel(identity.request)}. Nothing was fetched.`);
+    if (!hit) throw new Error(await replayMissError(identity.request, source));
     await appendQuota(quotaEntry(identity.request, 'cached', null));
     return { body: parseOddsBody(hit.body), remaining: null, cached: true, savedAt: hit.savedAt };
   }

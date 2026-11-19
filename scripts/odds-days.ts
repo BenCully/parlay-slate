@@ -1,7 +1,7 @@
 // Lists Eastern days that have saved odds. Does not call the network.
-// A FanDuel day prints ODDS_SOURCE=fanduel on the replay command.
+// A day saved by a different source than the active one prints ODDS_SOURCE= on the replay command.
 // run: npm run odds
-import { listSavedOdds } from '../odds/cache.js';
+import { listSavedOdds, oddsReplayCommand } from '../odds/cache.js';
 
 const days = await listSavedOdds();
 if (!days.length) {
@@ -18,7 +18,6 @@ for (const day of days) {
     console.log(`  ${slate.sport}  ${games}${window}`);
   }
   if (day.props) console.log(`  props  ${day.props} event file${day.props === 1 ? '' : 's'}`);
-  const source = fanduel ? 'ODDS_SOURCE=fanduel ' : '';
-  console.log(`  ${source}npm start -- odds=${day.day} model=jev`);
-  console.log(`  ${source}npm start -- odds=${day.day} model=tail-jev`);
+  console.log(`  ${oddsReplayCommand(day.day, day.source, 'jev')}`);
+  console.log(`  ${oddsReplayCommand(day.day, day.source, 'tail-jev')}`);
 }

@@ -2,6 +2,12 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-19T01:48:27Z
+
+### Replay commands follow the active odds source
+
+`npm run odds` prints `ODDS_SOURCE=` on a saved day when that source is not the active one. A value in `.env` no longer hides an older Odds API day, or a FanDuel day, when you copy the printed command. A replay miss names the source it searched. If that day was saved by the other source, the error names it and the override. A live save in the same process shows up in the saved-day list.
+
 ## 2026-11-19T01:14:14Z
 
 ### FanDuel team names and separate cache files

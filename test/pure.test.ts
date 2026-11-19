@@ -7,7 +7,7 @@ import { readStartArgs, requireRunKeys, selectDecisionModel, verify } from '../d
 import { espnCacheFresh, ESPN_DAY_HOURS, ESPN_INJURY_HOURS, readEspnCache, writeEspnCache } from '../espn/cache.js';
 import { aliasTarget, clubKey, createEvidence, nameKey, NFL_EVIDENCE, type GameBrief } from '../espn/evidence.js';
 import { bookLabel, postedMarket } from '../odds/books.js';
-import { listSavedOdds, oddsCacheName, oddsCreditFloor, oddsGet, oddsRequestKey, oddsSlateFamily, parseOddsBody, preferFreshRecord, setOddsReplay } from '../odds/cache.js';
+import { listSavedOdds, oddsCacheName, oddsCreditFloor, oddsGet, oddsReplayCommand, oddsRequestKey, oddsSlateFamily, parseOddsBody, preferFreshRecord, setOddsReplay } from '../odds/cache.js';
 import { buildTeamIndex, classifyProp, eventSides, marketOutcomes, propOutcomes, resolveTeamName, sidesFromName } from '../odds/fanduel.js';
 import { easternClock, quotaEntry } from '../odds/quota.js';
 import { acquireRunLock } from '../scripts/lock.js';
@@ -818,6 +818,82 @@ test('FanDuel cache files do not replace Odds API files', async () => {
     assert.equal(champs[0]?.slates[0]?.sport, 'soccer_uefa_champs_league');
     assert.equal(champs[1]?.slates[0]?.games, 1);
   } finally {
+    setOddsReplay(null);
+    if (previousDir == null) delete process.env.ODDS_CACHE_DIR;
+    else process.env.ODDS_CACHE_DIR = previousDir;
+    if (previousSource == null) delete process.env.ODDS_SOURCE;
+    else process.env.ODDS_SOURCE = previousSource;
+    if (previousCache == null) delete process.env.ODDS_CACHE;
+    else process.env.ODDS_CACHE = previousCache;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('replay commands override a different active source', () => {
+  withEnv({ ODDS_SOURCE: 'fanduel' }, () => {
+    assert.equal(
+      oddsReplayCommand('2026-11-17', 'the-odds-api', 'jev'),
+      'ODDS_SOURCE=the-odds-api npm start -- odds=2026-11-17 model=jev',
+    );
+    assert.equal(oddsReplayCommand('2026-11-17', 'fanduel', 'tail-jev'), 'npm start -- odds=2026-11-17 model=tail-jev');
+  });
+  withEnv({ ODDS_SOURCE: undefined }, () => {
+    assert.equal(oddsReplayCommand('2026-11-17', 'the-odds-api', 'jev'), 'npm start -- odds=2026-11-17 model=jev');
+    assert.equal(
+      oddsReplayCommand('2026-11-17', 'fanduel', 'jev'),
+      'ODDS_SOURCE=fanduel npm start -- odds=2026-11-17 model=jev',
+    );
+  });
+});
+
+test('a replay miss names the source, and a live save updates the day list', async () => {
+  const dir = await mkdtemp(`${tmpdir()}/parlay-odds-`);
+  const previousDir = process.env.ODDS_CACHE_DIR;
+  const previousSource = process.env.ODDS_SOURCE;
+  const previousCache = process.env.ODDS_CACHE;
+  const original = globalThis.fetch;
+  const savedUrl = 'https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds?regions=us&markets=h2h';
+  const missingUrl = 'https://api.the-odds-api.com/v4/sports/basketball_nba/odds?regions=us&markets=h2h';
+  const liveUrl = 'https://api.the-odds-api.com/v4/sports/icehockey_nhl/odds?regions=us&markets=h2h';
+  const savedAt = new Date().toISOString();
+  process.env.ODDS_CACHE_DIR = dir;
+  process.env.ODDS_CACHE = '1';
+  delete process.env.ODDS_SOURCE;
+  setOddsReplay(null);
+  globalThis.fetch = async () => new Response(JSON.stringify([oddsGame('fresh')]), {
+    status: 200,
+    headers: { 'x-requests-remaining': '10' },
+  });
+  try {
+    const { hash, request } = oddsRequestKey(savedUrl);
+    await writeFile(`${dir}/${hash}.json`, `${JSON.stringify({
+      savedAt,
+      remaining: 10,
+      body: [oddsGame('odds-api')],
+      request,
+    })}\n`);
+    process.env.ODDS_SOURCE = 'fanduel';
+    setOddsReplay(easternDay(savedAt));
+    await assert.rejects(oddsGet(savedUrl), /No FanDuel odds saved on .+ by The Odds API[\s\S]*ODDS_SOURCE=the-odds-api/);
+    await assert.rejects(oddsGet(missingUrl), (error: Error) => {
+      assert.match(error.message, /No FanDuel odds saved/);
+      assert.doesNotMatch(error.message, /ODDS_SOURCE=/);
+      return true;
+    });
+    delete process.env.ODDS_SOURCE;
+    const replay = await oddsGet(savedUrl);
+    assert.equal(replay.cached, true);
+    assert.ok(Array.isArray(replay.body));
+    assert.equal(replay.body[0]?.id, 'odds-api');
+    setOddsReplay(null);
+    await listSavedOdds();
+    const live = await oddsGet(liveUrl);
+    assert.equal(live.cached, false);
+    const days = await listSavedOdds();
+    const nhl = days.flatMap((day) => day.slates).find((slate) => slate.sport === 'icehockey_nhl');
+    assert.equal(nhl?.games, 1);
+  } finally {
+    globalThis.fetch = original;
     setOddsReplay(null);
     if (previousDir == null) delete process.env.ODDS_CACHE_DIR;
     else process.env.ODDS_CACHE_DIR = previousDir;
