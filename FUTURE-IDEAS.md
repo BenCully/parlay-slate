@@ -1,10 +1,10 @@
 # Future ideas
 
-Recommendations from a read of the code on 2026-11-17. Nothing here is scheduled. The 0.60 favorite gate, the 0.60 rerank gate, and the 0.80 verify gate stay. Do not add a paid odds or news source. `changelog.md` is only for changes that have landed.
+Recommendations from a read of the code on 2026-11-19. Nothing here is scheduled. The 0.60 favorite gate, the 0.60 rerank gate, and the 0.80 verify gate stay. Do not add a paid odds or news source. `ODDS_SOURCE=fanduel` is the free source that already exists. `changelog.md` is only for changes that have landed.
 
 ## Done
 
-Landed 2026-11-18. These are not open work.
+Landed 2026-11-18. The check action pins were updated 2026-11-19. These are not open work.
 
 **An empty odds file does not hide a slate.** `readFamily` skips an empty body when another save for that sport and markets is still inside `ODDS_CACHE_HOURS` and still has games. The empty file is used when it is the only fresh one. A hit on the exact request hash still returns that file.
 
@@ -20,7 +20,7 @@ Landed 2026-11-18. These are not open work.
 
 **ESPN pages are cached for the Eastern day.** Teams, schedules, rosters, and gamelogs are reused for 18 hours. Injuries are reused for 3 hours. A page from a previous Eastern day is a miss. Failures are not stored. The scoreboard is still fetched on every run. Files live in gitignored `espn-cache/`. Only `site.api.espn.com` and `site.web.api.espn.com` are stored.
 
-**CI runs the offline checks.** `.github/workflows/check.yml` runs `npm ci`, `npm test`, and `npm run typecheck` on a pull request and on a push to `main`. It does not call The Odds API, TypeSafe, or Autojev.
+**CI runs the offline checks.** `.github/workflows/check.yml` runs `npm ci`, `npm test`, and `npm run typecheck` on a pull request and on a push to `main`. It does not call The Odds API, TypeSafe, or Autojev. The steps use `actions/checkout` v6 and `actions/setup-node` v6, so the action runtime is Node 24. The job still installs Node 22.
 
 **Odds credits are logged.** Each odds response appends one JSON line to gitignored `runs/quota.jsonl`. The line is Eastern time, the sport, the event id for a prop, `cached` or `live`, and credits remaining. It has no URL and no key. `QUOTA_LOG=0` turns it off.
 
@@ -30,20 +30,20 @@ Sports are already the extension point that works. A new league is a `BoardSourc
 
 Not a server database. Postgres or anything that needs a daemon is the wrong tool for a one-person CLI whose data is already gitignored files next to the script.
 
-The odds cache in `odds/cache.ts` is a folder of JSON files, one per request hash. That is the right store for raw Odds API bodies. A hit spends no credit, writes are atomic (`write` then `rename`), and `apiKey` is stripped from the key. Keep that until the folder is hard to query.
+The odds cache in `odds/cache.ts` is a folder of JSON files. The Odds API file name is the request hash. A FanDuel file is `fanduel-` plus that hash, so it does not replace a paid save. Each record stores `source`. A save with no source is The Odds API and must not be reused for FanDuel. A hit spends no credit, writes are atomic (`write` then `rename`), and `apiKey` is stripped from the key. Keep the JSON bodies until the folder is hard to query.
 
-Two behaviors are the actual problem, and a database does not fix them by itself:
+Two behaviors are still the problem, and a database does not fix them by itself:
 
-- `readFamily` re-reads every file in `odds-cache/` on a miss. `listSavedOdds` parses the whole folder too. Prop files grow one per game. An index of `{hash, sport, markets, savedAt, games, easternDay}` removes the scan. A JSON index next to the folder is enough.
-- Decisions are not cached. `odds=` replays prices and still calls TypeSafe or Autojev. A tail-jev day is one HTTP call per claim (`decisions/judge.ts` `mapInOrder`). The expensive repeat is the model, not the odds file.
+- `readFamily` does not use the in-memory catalog. On a miss it reads every `.json` file in `odds-cache/`, then keeps the matching source, sport, and markets. `listSavedOdds` and an `odds=` replay use `readCatalog`, which parses the whole folder once per process and again after a write. Prop files still grow one per game. An index of `{hash, source, sport, markets, savedAt, games, easternDay}` removes the scan. A JSON index next to the folder is enough. The index has to carry `source`, or a FanDuel file can satisfy an Odds API lookup.
+- Decisions are not cached. `odds=` replays prices and still calls TypeSafe or Autojev. A tail-jev day is one HTTP call per claim (`decisions/judge.ts` decides each claim in order). The expensive repeat is the model, not the odds file.
 
-Do those two in the files that exist. Move to one local SQLite file after that, and only if you want history you can query: line movement, which book posted a price, and decision reuse across runs. Node 24 on this machine already exposes `node:sqlite` (`DatabaseSync`), so that file needs no new package and no server. One gitignored database can hold the odds index, decision rows, and a short ESPN cache. Do not put API keys or request URLs in it.
+Do those two in the files that exist. Move to one local SQLite file after that, and only if you want history you can query: line movement, which book posted a price, and decision reuse across runs. The check workflow installs Node 22, so `DatabaseSync` has to import there before that job can use it. Node 24 on this machine already exposes `node:sqlite` (`DatabaseSync`). That file needs no new package and no server. One gitignored database can hold the odds index, decision rows, and a short ESPN cache. Do not put API keys or request URLs in it.
 
 What to store when that file exists:
 
 | Table | Key | Why |
 | --- | --- | --- |
-| Odds responses | request hash, or sport + markets + Eastern save day | Replace the directory scan. Keep the JSON body. |
+| Odds responses | request hash and source, or source + sport + markets + Eastern save day | Replace the directory scan. Keep the JSON body. Keep FanDuel rows off the Odds API hash. |
 | Decisions | model + hash of kind, question, and state | Replay a tail-jev slate without another tailnet walk. Evidence text is inside the hash, so a new injury report misses. |
 | ESPN pages | URL path + savedAt | The same-day file cache already covers these pages. A database row is only useful if that folder gets hard to query. |
 
@@ -79,13 +79,13 @@ Do not build a plugin directory, a config language, or a generic "HTTP decision"
 
 One behavior to fix while splitting that file:
 
-- There is no retry. A failed Autojev claim is `No call` on that row, and three failures in a row stop the rest of the calls. The Games board stays. Retry Autojev and ESPN a small number of times on timeout and 5xx before that stop. Do not retry The Odds API after a response. A retry of a priced request can spend another credit. A network failure before any response is the only odds retry that is safe.
+- Autojev and ESPN still have no retry. A failed Autojev claim is `No call` on that row, and three failures in a row stop the rest of the calls. The Games board stays. Retry Autojev and ESPN a small number of times on timeout and 5xx before that stop. Do not retry The Odds API after a response. A retry of a priced request can spend another credit. A network failure before any response is the only odds retry that is safe. FanDuel already asks again, in smaller chunks, for market ids a short price response left out. That split is not this retry.
 
 Before a long `model=tail-jev` walk, call Autojev `/health` once. It is unauthenticated. Fail in a second if the tailnet box is down, instead of after the odds and ESPN work. Do not print the address.
 
 ## Later
 
-**Decision cache, then SQLite.** JSON files keyed by model and state hash give replay for free and match the odds cache. The empty-body rule has landed. SQLite is the step after the index is in place, using the tables above. Do not migrate `odds-cache/` until `odds=YYYY-MM-DD` and `npm run odds` read the same rows the file cache reads now.
+**Decision cache, then SQLite.** JSON files keyed by model and state hash give replay for free and match the odds cache. The empty-body rule has landed. The in-memory catalog is not the index: it still parses every body, and `readFamily` ignores it. SQLite is the step after a source-aware index is in place, using the tables above. Do not migrate `odds-cache/` until `odds=YYYY-MM-DD` and `npm run odds` read the same rows the file cache reads now, including the FanDuel prefix.
 
 **A small pool for tail-jev.** Claims are strictly one at a time, so a slate is as slow as the sum of the tailnet calls. `props/board.ts` already has `mapPool`. A pool of 2 or 3 against one box is the useful range. Unbounded parallelism will time the box out and then, once retries exist, multiply the load. Cache hits skip the pool.
 
@@ -96,3 +96,4 @@ Before a long `model=tail-jev` walk, call Autojev `/health` once. It is unauthen
 - `jev-recipes` as the TypeSafe client. Wrapping it in a provider is enough.
 - Rendering `SavedSlate` cells instead of re-deciding inside `npm run view`.
 - Adding sports by folder. The decision-provider map should follow that pattern, not invent a new one.
+- Odds API and FanDuel cache files stay separate. A file with no `source` stays an Odds API save.
