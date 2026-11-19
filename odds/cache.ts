@@ -129,8 +129,13 @@ async function readHit(file: string, source: string): Promise<CacheRecord | null
   const saved = Date.parse(record?.savedAt ?? '');
   if (!Number.isFinite(saved) || Date.now() - saved > maxAgeMs()) return null;
   if (record.body == null) return null;
-  if (record.source && record.source !== source) return null;
+  if (recordedSource(record) !== source) return null;
   return record;
+}
+
+/** Saves written before the source field are Odds API responses. */
+function recordedSource(record: CacheRecord) {
+  return record.source ?? 'the-odds-api';
 }
 
 function sportOf(request: string) {
@@ -179,7 +184,7 @@ async function readReplay(request: string, source: string): Promise<CacheRecord 
   let bestSaved = -Infinity;
   for (const record of await readCatalog()) {
     if (easternDay(record.savedAt) !== replayDay) continue;
-    if (record.source && record.source !== source) continue;
+    if (recordedSource(record) !== source) continue;
     if (!sameSavedRequest(record.request, request)) continue;
     const saved = Date.parse(record.savedAt);
     if (saved <= bestSaved) continue;
@@ -301,6 +306,7 @@ export async function oddsGet(url: string, init?: RequestInit, options?: { cache
     remaining: Number.isFinite(remaining) ? remaining : null,
     body,
     request: identity.request,
+    source: 'the-odds-api',
   });
   return { body, remaining: Number.isFinite(remaining) ? remaining : null, cached: false, savedAt };
 }

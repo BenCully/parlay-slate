@@ -1,6 +1,6 @@
 // FanDuel's internal sportsbook API, normalized into the shape the boards read from The Odds API.
 // Turn it on with ODDS_SOURCE=fanduel. It needs no Odds API key and spends no credits.
-// Games only for now: moneyline, spread, and total. Player props are not fetched yet.
+// Games come from the content-managed page. Player props come from the facet search for that event.
 import { clubKey, nameKey, aliasTarget } from '../espn/evidence.js';
 import { oddsStamp } from '../slate/window.js';
 import { createInterface } from 'node:readline';
@@ -11,6 +11,7 @@ const REGION = 'IL';
 const TIMEOUT = 30_000;
 const LAYOUT = 'https://api.sportsbook.fanduel.com/sbapi/content-managed-page';
 const PRICES = 'https://smp.il.sportsbook.fanduel.com/api/sports/fixedodds/readonly/v1/getMarketPrices?priceHistory=0';
+const FACET = 'https://scan.il.sportsbook.fanduel.com/api/sports/navigation/facet/v1.0/search';
 const TEAMS = 'https://site.api.espn.com/apis/site/v2/sports';
 
 export type FanDuelSport = {
@@ -180,16 +181,226 @@ function gameMarkets(list: any[]) {
 
 async function fetchPrices(marketIds: string[]) {
   const prices = new Map<string, any>();
-  for (let start = 0; start < marketIds.length; start += 100) {
-    const chunk = marketIds.slice(start, start + 100);
+  let pending = [...new Set(marketIds)];
+  let size = 40;
+  while (pending.length) {
+    const chunk = pending.slice(0, size);
+    pending = pending.slice(size);
     const body = await getJson(PRICES, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ marketIds: chunk }),
     });
-    for (const item of body) prices.set(item.marketId, item);
+    const got = new Set<string>();
+    for (const item of body ?? []) {
+      prices.set(item.marketId, item);
+      got.add(item.marketId);
+    }
+    const missed = chunk.filter((id) => !got.has(id));
+    if (!missed.length) continue;
+    if (size === 1) continue;
+    pending = [...missed, ...pending];
+    size = Math.max(1, Math.floor(size / 2));
   }
   return prices;
+}
+
+async function facetSearch(filter: Record<string, unknown>, facets: unknown[]) {
+  return getJson(FACET, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-application': API_KEY },
+    body: JSON.stringify({
+      filter: {
+        productTypes: ['SPORTSBOOK'],
+        contentGroup: { language: 'en', regionCode: 'NAMERICA' },
+        ...filter,
+      },
+      facets,
+      currencyCode: 'USD',
+    }),
+  });
+}
+
+function americanImplied(price: number) {
+  return price < 0 ? -price / (-price + 100) : 100 / (price + 100);
+}
+
+export type PropClass =
+  | { key: string; kind: 'yes' }
+  | { key: string; kind: 'ou' }
+  | { key: string; kind: 'milestone'; point: number };
+
+const YES_PROPS: Record<string, string> = {
+  ANY_TIME_TOUCHDOWN_SCORER: 'player_anytime_td',
+  ANY_TIME_TOUCHDOWN_SCORER_CFB: 'player_anytime_td',
+  ANY_TIME_GOAL_SCORER: 'player_goal_scorer_anytime',
+  TO_SCORE: 'player_goal_scorer_anytime',
+};
+
+const OU_PROPS: Record<string, string> = {
+  PLAYER_TOTAL_SHOTS: 'player_shots_on_goal',
+  PLAYER_TOTAL_SAVES: 'player_total_saves',
+};
+
+const STAT_KEYS: Record<string, string> = {
+  PASSING_YARDS: 'player_pass_yds',
+  RECEIVING_YARDS: 'player_reception_yds',
+  RUSHING_YARDS: 'player_rush_yds',
+  RECEPTIONS: 'player_receptions',
+  PASSING_TOUCHDOWNS: 'player_pass_tds',
+  PASS_COMPLETIONS: 'player_pass_completions',
+  RUSH_ATTEMPTS: 'player_rush_attempts',
+  POINTS: 'player_points',
+  REBOUNDS: 'player_rebounds',
+  ASSISTS: 'player_assists',
+  MADE_3_POINT_FIELD_GOALS: 'player_threes',
+  BLOCKS: 'player_blocks',
+  STEALS: 'player_steals',
+};
+
+/** Map a full-game FanDuel market type onto an Odds API prop key. Alternates and period markets are skipped. */
+export function classifyProp(marketType: string): PropClass | null {
+  if (/ALT|QUARTER|HALF|PERIOD|INNING|DRIVE|LONGEST|\+/.test(marketType)) return null;
+  const yes = YES_PROPS[marketType];
+  if (yes) return { key: yes, kind: 'yes' };
+  const ou = OU_PROPS[marketType];
+  if (ou) return { key: ou, kind: 'ou' };
+  if (marketType === 'ANYTIME_ASSIST') return { key: 'player_assists', kind: 'milestone', point: 0.5 };
+  const onTarget = /^PLAYER_TO_HAVE_(\d+)_OR_MORE_SHOTS_ON_TARGET$/.exec(marketType);
+  if (onTarget) return { key: 'player_shots_on_target', kind: 'milestone', point: Number(onTarget[1]) - 0.5 };
+  const shots = /^PLAYER_TO_HAVE_(\d+)_OR_MORE_SHOTS$/.exec(marketType);
+  if (shots) return { key: 'player_shots', kind: 'milestone', point: Number(shots[1]) - 0.5 };
+  const nba = /^PLAYER_[A-Z]_TOTAL_(POINTS|REBOUNDS|ASSISTS|MADE_3_POINT_FIELD_GOALS|BLOCKS|STEALS)$/.exec(marketType);
+  if (nba?.[1] && STAT_KEYS[nba[1]]) return { key: STAT_KEYS[nba[1]], kind: 'ou' };
+  const nfl = /^PLAYER_X_(PASSING_YARDS|RECEIVING_YARDS|RUSHING_YARDS|RECEPTIONS|PASSING_TOUCHDOWNS|PASS_COMPLETIONS|RUSH_ATTEMPTS)_(LOW|MEDIUM|HIGH)$/.exec(marketType);
+  if (nfl?.[1] && STAT_KEYS[nfl[1]]) return { key: STAT_KEYS[nfl[1]], kind: 'ou' };
+  const college = /^PLAYER_(LOW|MEDIUM|HIGH)_(PASSING_YARDS|RUSHING_YARDS|RECEIVING_YARDS|RECEPTIONS|PASSING_TOUCHDOWNS|PASS_COMPLETIONS|RUSH_ATTEMPTS)_CFB$/.exec(marketType);
+  if (college?.[2] && STAT_KEYS[college[2]]) return { key: STAT_KEYS[college[2]], kind: 'ou' };
+  return null;
+}
+
+export type PropRunner = {
+  runnerName: string;
+  handicap?: number | null;
+  resultType?: string | null;
+  odds?: number | null;
+  runnerStatus?: string | null;
+};
+
+export type PropOutcome = { name: string; description: string; price: number; point: number | null };
+
+function ouSide(runner: PropRunner): 'Over' | 'Under' | null {
+  const type = runner.resultType?.toUpperCase();
+  if (type === 'OVER' || type === 'UNDER') return type === 'OVER' ? 'Over' : 'Under';
+  const match = /(?:\s+-\s+|\s+)(Over|Under)$/i.exec(runner.runnerName.trim());
+  if (!match) return null;
+  return match[1]!.toLowerCase() === 'over' ? 'Over' : 'Under';
+}
+
+function playerFromOu(name: string) {
+  return name.trim().replace(/(?:\s+-\s+|\s+)(Over|Under)$/i, '').trim();
+}
+
+function linePoint(handicap: number | null | undefined) {
+  const point = Number(handicap);
+  if (!Number.isFinite(point) || point === 0) return null;
+  return point;
+}
+
+/** One FanDuel market as Odds API outcomes. The props board picks the line from these. */
+export function propOutcomes(classified: PropClass, runners: PropRunner[]): PropOutcome[] {
+  const rows: PropOutcome[] = [];
+  for (const runner of runners) {
+    if (runner.runnerStatus && runner.runnerStatus !== 'ACTIVE') continue;
+    const odds = Number(runner.odds);
+    if (!Number.isFinite(odds)) continue;
+    const price = Math.round(odds);
+    const name = runner.runnerName.trim();
+    if (!name || name.toLowerCase() === 'no') continue;
+    if (classified.kind === 'yes') {
+      rows.push({ name: 'Yes', description: name, price, point: null });
+      continue;
+    }
+    if (classified.kind === 'milestone') {
+      rows.push({ name: 'Over', description: name, price, point: classified.point });
+      continue;
+    }
+    const side = ouSide(runner);
+    const point = linePoint(runner.handicap);
+    const player = playerFromOu(name);
+    if (!side || point == null || !player) continue;
+    rows.push({ name: side, description: player, price, point });
+  }
+  return rows;
+}
+
+const SOCCER_TOTAL_CODES = ['05', '15', '25', '35', '45', '55', '65', '75', '85', '95'].map((line) => `OVER_UNDER_${line}`);
+const SOCCER_SPREAD_CODES = ['HOME', 'AWAY'].flatMap((side) =>
+  ['0.5', '1.5', '2.5', '3.5', '4.5', '5.5'].map((line) => `${side}_TEAM_-${line}_GOALS`),
+);
+
+function parseSoccerRunner(name: string): { label: string; point: number } | null {
+  const total = /^(Over|Under)\s+(\d+(?:\.\d+)?)\b/i.exec(name.trim());
+  if (total) {
+    return { label: total[1]!.toLowerCase() === 'over' ? 'Over' : 'Under', point: Number(total[2]) };
+  }
+  const spread = /^(.*?)\s+([+-]\d+(?:\.\d+)?)\s+Goals$/i.exec(name.trim());
+  if (!spread) return null;
+  return { label: spread[1]!.trim(), point: Number(spread[2]) };
+}
+
+function soccerQuotes(market: any, price: any) {
+  const byId = new Map<string, any>();
+  for (const detail of price?.runnerDetails ?? []) byId.set(String(detail.selectionId), detail);
+  const rows: { label: string; price: number; point: number }[] = [];
+  for (const runner of market.runners ?? []) {
+    const detail = byId.get(String(runner.selectionId));
+    const odds = Number(detail?.winRunnerOdds?.americanDisplayOdds?.americanOdds);
+    const status = detail?.runnerStatus ?? runner.runnerStatus;
+    if (status && status !== 'ACTIVE') continue;
+    if (!Number.isFinite(odds)) continue;
+    const parsed = parseSoccerRunner(String(runner.runnerName ?? ''));
+    if (!parsed || !Number.isFinite(parsed.point)) continue;
+    rows.push({ label: parsed.label, price: Math.round(odds), point: parsed.point });
+  }
+  return rows;
+}
+
+function pickBalanced(markets: any[], prices: Map<string, any>) {
+  let best: { label: string; price: number; point: number }[] | null = null;
+  let bestScore = Infinity;
+  for (const market of markets) {
+    const quotes = soccerQuotes(market, prices.get(market.marketId));
+    if (quotes.length < 2) continue;
+    const score = Math.min(...quotes.map((quote) => Math.abs(americanImplied(quote.price) - 0.5)));
+    if (score >= bestScore) continue;
+    best = quotes;
+    bestScore = score;
+  }
+  return best ?? [];
+}
+
+async function loadSoccerLines(eventIds: string[]) {
+  const map = new Map<string, { spreads: any[]; totals: any[] }>();
+  if (!eventIds.length) return map;
+  let body: any;
+  try {
+    body = await facetSearch({
+      eventIds: eventIds.map(Number),
+      marketTypeCodes: [...SOCCER_TOTAL_CODES, ...SOCCER_SPREAD_CODES],
+      attachments: ['MARKET'],
+    }, [{ type: 'MARKET' }]);
+  } catch {
+    return map;
+  }
+  for (const market of Object.values(body.attachments?.sportsBookMarkets ?? {}) as any[]) {
+    const id = String(market.eventId);
+    const bucket = map.get(id) ?? { spreads: [], totals: [] };
+    if (/^OVER_UNDER_\d+$/.test(market.marketType)) bucket.totals.push(market);
+    else if (/^(HOME|AWAY)_TEAM_-[\d.]+_GOALS$/.test(market.marketType)) bucket.spreads.push(market);
+    map.set(id, bucket);
+  }
+  return map;
 }
 
 /** Slate games in the requested window, normalized like a The Odds API slate response. */
@@ -223,6 +434,13 @@ export async function fanduelSlate(sportKey: string, from: string, to: string): 
   }
   if (!games.length) return [];
 
+  const soccerLines = sport.match === 'club'
+    ? await loadSoccerLines(games.map((game) => String(game.event.eventId)))
+    : new Map<string, { spreads: any[]; totals: any[] }>();
+  for (const bucket of soccerLines.values()) {
+    for (const market of [...bucket.spreads, ...bucket.totals]) wanted.add(market.marketId);
+  }
+
   const prices = await fetchPrices([...wanted]);
   const teams = await espnTeams(sport);
   const index = teamIndex(teams, sport.match);
@@ -236,14 +454,23 @@ export async function fanduelSlate(sportKey: string, from: string, to: string): 
     const h2h = raw
       .filter((outcome: any) => outcome.kind !== 'DRAW' && outcome.kind !== 'TIE')
       .map((outcome: any) => ({ name: outcome.name, price: outcome.price }));
-    const spreads = game.spreads
+    const extra = soccerLines.get(String(event.eventId));
+    const spreadQuotes = game.spreads
       ? (await marketOutcomes(game.spreads, prices.get(game.spreads.marketId), resolve))
           .map((outcome: any) => ({ name: outcome.name, price: outcome.price, point: outcome.point }))
-      : [];
+      : await Promise.all(pickBalanced(extra?.spreads ?? [], prices).map(async (quote) => ({
+          name: await resolve(quote.label),
+          price: quote.price,
+          point: quote.point,
+        })));
     const totals = game.totals
       ? (await marketOutcomes(game.totals, prices.get(game.totals.marketId), resolve))
           .map((outcome: any) => ({ name: outcome.name, price: outcome.price, point: outcome.point }))
-      : [];
+      : pickBalanced(extra?.totals ?? [], prices).map((quote) => ({
+          name: quote.label,
+          price: quote.price,
+          point: quote.point,
+        }));
     return {
       id: String(event.eventId),
       sport_key: sportKey,
@@ -256,7 +483,7 @@ export async function fanduelSlate(sportKey: string, from: string, to: string): 
         last_update: new Date().toISOString(),
         markets: [
           { key: 'h2h', last_update: new Date().toISOString(), outcomes: h2h },
-          { key: 'spreads', last_update: new Date().toISOString(), outcomes: spreads },
+          { key: 'spreads', last_update: new Date().toISOString(), outcomes: spreadQuotes },
           { key: 'totals', last_update: new Date().toISOString(), outcomes: totals },
         ],
       }],
@@ -265,9 +492,71 @@ export async function fanduelSlate(sportKey: string, from: string, to: string): 
   return built;
 }
 
-/** Player props are not fetched from FanDuel yet. The props board shows no line for every row. */
-export async function fanduelProps(): Promise<any[]> {
-  return [];
+function emptyProps(eventId: string) {
+  return {
+    id: String(eventId),
+    bookmakers: [{ key: 'fanduel', last_update: new Date().toISOString(), markets: [] as any[] }],
+  };
+}
+
+/** One event's player props, in the shape `/events/{id}/odds` returns. */
+export async function fanduelProps(eventId: string, wanted: Set<string>) {
+  if (!wanted.size) return emptyProps(eventId);
+  const listed = await facetSearch(
+    { eventIds: [Number(eventId)], maxResults: 0 },
+    [{ type: 'MARKET_TYPE' }],
+  );
+  const types: string[] = [];
+  for (const facet of listed.facets ?? []) {
+    if (facet.type !== 'MARKET_TYPE') continue;
+    for (const value of facet.values ?? []) if (value?.value) types.push(String(value.value));
+  }
+  const selected = types.filter((type) => {
+    const classified = classifyProp(type);
+    return classified != null && wanted.has(classified.key);
+  });
+  if (!selected.length) return emptyProps(eventId);
+
+  const found = await facetSearch(
+    { eventIds: [Number(eventId)], marketTypeCodes: selected, attachments: ['MARKET'] },
+    [{ type: 'MARKET' }],
+  );
+  const markets = (Object.values(found.attachments?.sportsBookMarkets ?? {}) as any[])
+    .filter((market) => String(market.eventId) === String(eventId));
+  const open = markets.filter((market) => market.marketStatus == null || market.marketStatus === 'OPEN');
+  const prices = await fetchPrices(open.map((market) => market.marketId));
+  const grouped = new Map<string, PropOutcome[]>();
+  for (const market of open) {
+    const classified = classifyProp(market.marketType);
+    if (!classified || !wanted.has(classified.key)) continue;
+    const price = prices.get(market.marketId);
+    const bySelection = new Map<string, any>();
+    for (const detail of price?.runnerDetails ?? []) bySelection.set(String(detail.selectionId), detail);
+    const runners: PropRunner[] = (market.runners ?? []).map((runner: any) => {
+      const detail = bySelection.get(String(runner.selectionId));
+      return {
+        runnerName: String(runner.runnerName ?? ''),
+        handicap: linePoint(detail?.handicap) ?? linePoint(runner.handicap),
+        resultType: runner.result?.type ?? null,
+        odds: detail?.winRunnerOdds?.americanDisplayOdds?.americanOdds ?? null,
+        runnerStatus: detail?.runnerStatus ?? runner.runnerStatus ?? null,
+      };
+    });
+    const rows = propOutcomes(classified, runners);
+    if (!rows.length) continue;
+    const list = grouped.get(classified.key) ?? [];
+    list.push(...rows);
+    grouped.set(classified.key, list);
+  }
+  const now = new Date().toISOString();
+  return {
+    id: String(eventId),
+    bookmakers: [{
+      key: 'fanduel',
+      last_update: now,
+      markets: [...grouped.entries()].map(([key, outcomes]) => ({ key, last_update: now, outcomes })),
+    }],
+  };
 }
 
 /** Read either a slate URL or an events URL from The Odds API shape and answer from FanDuel. */
@@ -275,7 +564,12 @@ export async function fanduelFetch(url: string): Promise<any> {
   const parsed = new URL(url);
   const sportKey = /\/sports\/([^/]+)/.exec(parsed.pathname)?.[1];
   if (!sportKey) throw new Error(`FanDuel could not read the sport from ${parsed.pathname}.`);
-  if (parsed.pathname.includes('/events/')) return fanduelProps();
+  if (parsed.pathname.includes('/events/')) {
+    const eventId = /\/events\/([^/]+)/.exec(parsed.pathname)?.[1];
+    if (!eventId) throw new Error('FanDuel could not read the event.');
+    const wanted = new Set((parsed.searchParams.get('markets') ?? '').split(',').filter(Boolean));
+    return fanduelProps(eventId, wanted);
+  }
   const from = parsed.searchParams.get('commenceTimeFrom') ?? '';
   const to = parsed.searchParams.get('commenceTimeTo') ?? '';
   return fanduelSlate(sportKey, from, to);

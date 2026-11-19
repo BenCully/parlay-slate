@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { test } from 'node:test';
 import { readStartArgs, requireRunKeys, selectDecisionModel, verify } from '../decisions/judge.js';
 import { aliasTarget, clubKey, createEvidence, nameKey, NFL_EVIDENCE, type GameBrief } from '../espn/evidence.js';
 import { absenceText, applyFotmob, matchClub, openAbsences, parseLeague, pickFixture, type FotmobLeague } from '../sports/soccer/fotmob.js';
 import { oddsCreditFloor, oddsGet, oddsRequestKey, oddsSlateFamily, setOddsReplay } from '../odds/cache.js';
+import { classifyProp, propOutcomes } from '../odds/fanduel.js';
 import {
   droppedCall,
   implied,
@@ -376,6 +377,78 @@ test('a credit-floor miss does not call the network', async () => {
     setOddsReplay(null);
     if (previous == null) delete process.env.ODDS_CACHE_DIR;
     else process.env.ODDS_CACHE_DIR = previous;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('FanDuel prop types map onto the markets the boards ask for', () => {
+  assert.deepEqual(classifyProp('ANY_TIME_TOUCHDOWN_SCORER'), { key: 'player_anytime_td', kind: 'yes' });
+  assert.deepEqual(classifyProp('PLAYER_X_PASSING_YARDS_HIGH'), { key: 'player_pass_yds', kind: 'ou' });
+  assert.deepEqual(classifyProp('PLAYER_LOW_RECEIVING_YARDS_CFB'), { key: 'player_reception_yds', kind: 'ou' });
+  assert.deepEqual(classifyProp('PLAYER_M_TOTAL_MADE_3_POINT_FIELD_GOALS'), { key: 'player_threes', kind: 'ou' });
+  assert.deepEqual(classifyProp('PLAYER_TOTAL_SHOTS'), { key: 'player_shots_on_goal', kind: 'ou' });
+  assert.deepEqual(classifyProp('TO_SCORE'), { key: 'player_goal_scorer_anytime', kind: 'yes' });
+  assert.deepEqual(classifyProp('PLAYER_TO_HAVE_2_OR_MORE_SHOTS'), { key: 'player_shots', kind: 'milestone', point: 1.5 });
+  assert.deepEqual(classifyProp('PLAYER_TO_HAVE_1_OR_MORE_SHOTS_ON_TARGET'), { key: 'player_shots_on_target', kind: 'milestone', point: 0.5 });
+  assert.equal(classifyProp('PLAYER_X_ALT_PASSING_YARDS_HIGH'), null);
+  assert.equal(classifyProp('PLAYER_X_1ST_QUARTER_PASSING_YARDS'), null);
+  assert.equal(classifyProp('PLAYER_X_PASSING_+_RUSHING_YARDS'), null);
+  assert.equal(classifyProp('TO_SCORE_2_OR_MORE_GOALS'), null);
+});
+
+test('FanDuel runners become over, under, and yes outcomes', () => {
+  assert.deepEqual(propOutcomes({ key: 'player_pass_yds', kind: 'ou' }, [
+    { runnerName: 'Daniel Jones Over', handicap: 180.5, resultType: 'OVER', odds: -114, runnerStatus: 'ACTIVE' },
+    { runnerName: 'Daniel Jones Under', handicap: 180.5, resultType: 'UNDER', odds: -106, runnerStatus: 'ACTIVE' },
+    { runnerName: 'Daniel Jones Over', handicap: 0, resultType: 'OVER', odds: -600, runnerStatus: 'ACTIVE' },
+  ]), [
+    { name: 'Over', description: 'Daniel Jones', price: -114, point: 180.5 },
+    { name: 'Under', description: 'Daniel Jones', price: -106, point: 180.5 },
+  ]);
+  assert.deepEqual(propOutcomes({ key: 'player_shots_on_goal', kind: 'ou' }, [
+    { runnerName: 'Alex DeBrincat - Over', handicap: 3.5, resultType: 'OVER', odds: -115.4, runnerStatus: 'ACTIVE' },
+  ]), [
+    { name: 'Over', description: 'Alex DeBrincat', price: -115, point: 3.5 },
+  ]);
+  assert.deepEqual(propOutcomes({ key: 'player_anytime_td', kind: 'yes' }, [
+    { runnerName: 'Jonathan Taylor', handicap: 0, odds: 125, runnerStatus: 'ACTIVE' },
+    { runnerName: 'No', handicap: 0, odds: -150, runnerStatus: 'ACTIVE' },
+  ]), [
+    { name: 'Yes', description: 'Jonathan Taylor', price: 125, point: null },
+  ]);
+  assert.deepEqual(propOutcomes({ key: 'player_shots', kind: 'milestone', point: 1.5 }, [
+    { runnerName: 'Erling Haaland', handicap: 0, odds: -140, runnerStatus: 'SUSPENDED' },
+    { runnerName: 'Phil Foden', handicap: 0, odds: 120, runnerStatus: 'ACTIVE' },
+  ]), [
+    { name: 'Over', description: 'Phil Foden', price: 120, point: 1.5 },
+  ]);
+});
+
+test('a FanDuel read ignores an Odds API cache record', async () => {
+  const dir = await mkdtemp(`${tmpdir()}/parlay-odds-`);
+  const previousDir = process.env.ODDS_CACHE_DIR;
+  const previousSource = process.env.ODDS_SOURCE;
+  const url = 'https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds?regions=us&markets=h2h';
+  process.env.ODDS_CACHE_DIR = dir;
+  process.env.ODDS_SOURCE = 'fanduel';
+  setOddsReplay(null);
+  try {
+    const { hash, request } = oddsRequestKey(url);
+    await writeFile(`${dir}/${hash}.json`, `${JSON.stringify({
+      savedAt: new Date().toISOString(),
+      remaining: 10,
+      body: [{ id: 'odds-api' }],
+      request,
+    })}\n`);
+    const result = await oddsGet(url, undefined, { cacheOnly: true });
+    assert.equal(result.skipped, true);
+    assert.equal(result.cached, false);
+  } finally {
+    setOddsReplay(null);
+    if (previousDir == null) delete process.env.ODDS_CACHE_DIR;
+    else process.env.ODDS_CACHE_DIR = previousDir;
+    if (previousSource == null) delete process.env.ODDS_SOURCE;
+    else process.env.ODDS_SOURCE = previousSource;
     await rm(dir, { recursive: true, force: true });
   }
 });

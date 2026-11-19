@@ -2,6 +2,14 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-19T00:22:30Z
+
+### FanDuel player props
+
+`ODDS_SOURCE=fanduel` now fills the Props tab from FanDuel's event search, then prices those markets the same way the slate prices moneylines. Full-game lines map onto the markets the boards already ask for: football passing, rushing, receiving, and anytime touchdowns, NBA points, rebounds, assists, threes, blocks, and steals, NHL anytime goals, shots, and saves, and soccer anytime goals, shots, shots on target, and assists. Alternate and period lines are left out, so each player keeps the main over/under. A price batch that comes back short is requested again in smaller pieces. Soccer spreads and totals are the posted goal line closest to even, because the layout page does not carry those markets. A cache file with no source is an Odds API save and is not reused for FanDuel.
+
+FanDuel does not post a two-way line for player kicking, hockey points, hockey assists, power-play points, or soccer cards, so those rows stay no line. MLB is still offseason and has no competition filter.
+
 ## 2026-11-18T18:05:00Z
 
 ### FanDuel odds source
