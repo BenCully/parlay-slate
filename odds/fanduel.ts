@@ -3,7 +3,7 @@
 // Games come from the content-managed page. Player props come from the facet search for that event.
 // Team names resolve to ESPN display names with no prompt. A miss keeps the FanDuel name.
 import { readEspnCache, writeEspnCache } from '../espn/cache.js';
-import { aliasTarget, clubKey, matchKey } from '../espn/evidence.js';
+import { aliasTarget, clubKey, matchKey, nameKey } from '../espn/evidence.js';
 import { oddsStamp } from '../slate/window.js';
 
 const SPORTSBOOK_APP = 'FhMFpcPWXMeyZxOx';
@@ -21,6 +21,8 @@ export type FanDuelSport = {
   competitionId?: number | string;
   teams: string;
   match: 'football' | 'club';
+  /** Driver prices for one race, not a home and away moneyline. Formula 1 uses this. */
+  outright?: boolean;
 };
 
 const SPORTS: Record<string, FanDuelSport> = {
@@ -35,6 +37,8 @@ const SPORTS: Record<string, FanDuelSport> = {
   soccer_italy_serie_a: { page: 'SPORT', eventTypeId: 1, competitionId: 81, teams: 'soccer/ita.1', match: 'club' },
   soccer_germany_bundesliga: { page: 'SPORT', eventTypeId: 1, competitionId: 59, teams: 'soccer/ger.1', match: 'club' },
   soccer_france_ligue_one: { page: 'SPORT', eventTypeId: 1, competitionId: 55, teams: 'soccer/fra.1', match: 'club' },
+  // Motor Sport event type 8. Competition 12433415 is Formula 1, not NASCAR on the same page.
+  motorsport_f1: { page: 'SPORT', eventTypeId: 8, competitionId: 12433415, teams: 'racing/f1', match: 'football', outright: true },
 };
 
 /** FanDuel names that ESPN spells differently. Football keys keep spaces. Club keys are clubKey. */
@@ -440,10 +444,140 @@ async function loadSoccerLines(eventIds: string[]) {
   return map;
 }
 
+/** Hardest Formula 1 bet first. A driver keeps the first one whose price clears 0.60. */
+export const F1_DRIVER_MARKETS = [
+  { type: 'OUTRIGHT_BETTING', phrase: 'to win the race' },
+  { type: 'F1_ALT_DRIVER_TO_FINISH_TOP_2', phrase: 'to finish top 2' },
+  { type: 'PODIUM_FINISH', phrase: 'to finish on the podium' },
+] as const;
+
+const F1_DRIVER_RANK = new Map(F1_DRIVER_MARKETS.map((market, index) => [market.type, index]));
+const F1_DRIVER_PHRASE = new Map(F1_DRIVER_MARKETS.map((market) => [market.type, market.phrase]));
+
+export type DriverQuote = {
+  marketType: string;
+  name: string;
+  price: number;
+  selectionId: string;
+};
+
+export type DriverBet = DriverQuote & { phrase: string };
+
+/** One bet per driver. Race win beats top 2, and top 2 beats a podium, when each price is at least 0.60. */
+export function chooseDriverBets(quotes: DriverQuote[]): DriverBet[] {
+  const best = new Map<string, DriverBet & { rank: number }>();
+  for (const quote of quotes) {
+    const rank = F1_DRIVER_RANK.get(quote.marketType as (typeof F1_DRIVER_MARKETS)[number]['type']);
+    if (rank == null) continue;
+    if (americanImplied(quote.price) < 0.6) continue;
+    const key = nameKey(quote.name);
+    if (!key) continue;
+    const phrase = F1_DRIVER_PHRASE.get(quote.marketType as (typeof F1_DRIVER_MARKETS)[number]['type']);
+    if (!phrase) continue;
+    const current = best.get(key);
+    if (current && current.rank <= rank) continue;
+    best.set(key, { ...quote, phrase, rank });
+  }
+  return [...best.values()].map((bet) => ({
+    marketType: bet.marketType,
+    name: bet.name,
+    price: bet.price,
+    selectionId: bet.selectionId,
+    phrase: bet.phrase,
+  }));
+}
+
+function raceLabel(name: string) {
+  const text = name.replace(/^F1\s+/i, '').trim();
+  return text || 'Formula 1';
+}
+
+function runnerQuotes(market: any, price: any): DriverQuote[] {
+  const runners = new Map<string, any>();
+  for (const runner of market?.runners ?? []) runners.set(String(runner.selectionId), runner);
+  const details = price?.runnerDetails?.length ? price.runnerDetails : (market?.runners ?? []);
+  const rows: DriverQuote[] = [];
+  for (const detail of details) {
+    const runner = runners.get(String(detail.selectionId)) ?? detail;
+    const status = detail.runnerStatus ?? runner.runnerStatus;
+    if (status && status !== 'ACTIVE') continue;
+    const raw = detail.winRunnerOdds?.americanDisplayOdds?.americanOdds
+      ?? runner.winRunnerOdds?.americanDisplayOdds?.americanOdds;
+    if (raw == null || raw === '') continue;
+    const odds = Math.round(Number(raw));
+    if (!Number.isFinite(odds)) continue;
+    const name = String(runner.runnerName ?? '').trim();
+    if (!name) continue;
+    rows.push({
+      marketType: String(market.marketType ?? ''),
+      name,
+      price: odds,
+      selectionId: String(runner.selectionId ?? detail.selectionId ?? name),
+    });
+  }
+  return rows;
+}
+
+/** One race becomes one event per driver whose hardest qualifying bet clears 0.60. */
+async function outrightSlate(sportKey: string, sport: FanDuelSport, from: string, to: string): Promise<any[]> {
+  const layout = await getJson(layoutUrl(sport));
+  const events: Record<string, any> = layout.attachments?.events ?? {};
+  const markets: Record<string, any> = layout.attachments?.markets ?? {};
+  const byEvent = new Map<string, any[]>();
+  for (const market of Object.values(markets) as any[]) {
+    if (!F1_DRIVER_RANK.has(market.marketType)) continue;
+    const list = byEvent.get(String(market.eventId)) ?? [];
+    list.push(market);
+    byEvent.set(String(market.eventId), list);
+  }
+
+  const races: { event: any; markets: any[] }[] = [];
+  for (const event of Object.values(events) as any[]) {
+    if (sport.competitionId != null && String(event.competitionId) !== String(sport.competitionId)) continue;
+    if (!event.openDate) continue;
+    const commence = Date.parse(event.openDate);
+    if (from && commence < Date.parse(from)) continue;
+    if (to && commence > Date.parse(to)) continue;
+    const found = byEvent.get(String(event.eventId)) ?? [];
+    if (!found.length) continue;
+    races.push({ event, markets: found });
+  }
+  if (!races.length) return [];
+
+  const prices = await fetchPrices(races.flatMap((race) => race.markets.map((market) => String(market.marketId))));
+  const now = new Date().toISOString();
+  const slate: any[] = [];
+  for (const race of races) {
+    const quotes = race.markets.flatMap((market) => runnerQuotes(market, prices.get(String(market.marketId))));
+    const raceName = raceLabel(String(race.event.name ?? ''));
+    for (const bet of chooseDriverBets(quotes)) {
+      slate.push({
+        id: `${race.event.eventId}:${bet.selectionId}`,
+        sport_key: sportKey,
+        sport_title: raceName,
+        home_team: bet.name,
+        away_team: raceName,
+        commence_time: oddsStamp(race.event.openDate),
+        bookmakers: [{
+          key: 'fanduel',
+          last_update: now,
+          markets: [{
+            key: 'h2h',
+            last_update: now,
+            outcomes: [{ name: bet.name, price: bet.price, description: bet.phrase }],
+          }],
+        }],
+      });
+    }
+  }
+  return slate;
+}
+
 /** Slate games in the requested window, normalized like a The Odds API slate response. */
 export async function fanduelSlate(sportKey: string, from: string, to: string): Promise<any[]> {
   const sport = SPORTS[sportKey];
   if (!sport) throw new Error(`FanDuel has no odds for ${sportKey}.`);
+  if (sport.outright) return outrightSlate(sportKey, sport, from, to);
   const layout = await getJson(layoutUrl(sport));
   const events: Record<string, any> = layout.attachments?.events ?? {};
   const markets: Record<string, any> = layout.attachments?.markets ?? {};

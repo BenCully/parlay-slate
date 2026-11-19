@@ -20,6 +20,18 @@ export function oddsSource() {
   return process.env.ODDS_SOURCE === 'fanduel' ? 'fanduel' : 'the-odds-api';
 }
 
+/** Formula 1 is posted on FanDuel only. That sport keeps FanDuel prices when the run uses The Odds API. */
+export function oddsRequestSource(url: string) {
+  let sport = '';
+  try {
+    sport = /\/sports\/([^/]+)/.exec(new URL(url, 'https://api.the-odds-api.com').pathname)?.[1] ?? '';
+  } catch {
+    sport = '';
+  }
+  if (sport === 'motorsport_f1') return 'fanduel';
+  return oddsSource();
+}
+
 /** Screen and error name for a stored source id. An unknown id stays blank. */
 export function oddsSourceLabel(source: string | undefined) {
   if (source === 'fanduel') return 'FanDuel';
@@ -431,7 +443,7 @@ async function replayMissError(request: string, source: string) {
 }
 
 export async function oddsGet(url: string, init?: RequestInit, options?: { cacheOnly?: boolean }): Promise<OddsResponse> {
-  const source = oddsSource();
+  const source = oddsRequestSource(url);
   const identity = oddsRequestKey(url);
   if (replayDay) {
     const hit = await readReplay(identity.request, source);

@@ -23,6 +23,10 @@ baseball:
 - changed-files:
   - any-glob-to-any-file: 'sports/baseball/**'
 
+formula1:
+- changed-files:
+  - any-glob-to-any-file: 'sports/formula1/**'
+
 sports:
 - changed-files:
   - any-glob-to-any-file:

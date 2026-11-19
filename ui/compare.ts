@@ -8,6 +8,7 @@ const sportShort: Record<string, string> = {
   Hockey: 'Hockey',
   Basketball: 'Bask',
   Baseball: 'Base',
+  'Formula 1': 'F1',
 };
 
 const gameHeaders = ['Team', 'Price', 'Market', 'jev', 'tail-jev', 'Agree', 'Slips'];

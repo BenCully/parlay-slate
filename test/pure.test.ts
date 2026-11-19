@@ -7,12 +7,13 @@ import { readStartArgs, requireRunKeys, selectDecisionModel, verify } from '../d
 import { espnCacheFresh, ESPN_DAY_HOURS, ESPN_INJURY_HOURS, readEspnCache, writeEspnCache } from '../espn/cache.js';
 import { aliasTarget, clubKey, createEvidence, nameKey, NFL_EVIDENCE, type GameBrief } from '../espn/evidence.js';
 import { bookLabel, postedMarket } from '../odds/books.js';
-import { listSavedOdds, oddsCacheName, oddsCreditFloor, oddsGet, oddsReplayCommand, oddsRequestKey, oddsSlateFamily, oddsSourceLabel, parseOddsBody, preferFreshRecord, setOddsReplay } from '../odds/cache.js';
-import { buildTeamIndex, classifyProp, eventSides, marketOutcomes, propOutcomes, resolveTeamName, sidesFromName } from '../odds/fanduel.js';
+import { listSavedOdds, oddsCacheName, oddsCreditFloor, oddsGet, oddsReplayCommand, oddsRequestKey, oddsRequestSource, oddsSlateFamily, oddsSourceLabel, parseOddsBody, preferFreshRecord, setOddsReplay } from '../odds/cache.js';
+import { buildTeamIndex, chooseDriverBets, classifyProp, eventSides, marketOutcomes, propOutcomes, resolveTeamName, sidesFromName } from '../odds/fanduel.js';
 import { easternClock, quotaEntry } from '../odds/quota.js';
 import { acquireRunLock } from '../scripts/lock.js';
 import { scrubError } from '../scripts/scrub.js';
 import { archiveStamp, saveDecisionSnapshot } from '../scripts/snapshot.js';
+import { describeDriver, driverLine, driverLines, matchDriver } from '../sports/formula1/brief.js';
 import { absenceText, applyFotmob, matchClub, openAbsences, parseLeague, pickFixture, type FotmobLeague } from '../sports/soccer/fotmob.js';
 
 process.env.QUOTA_LOG ??= '0';
@@ -184,6 +185,10 @@ test('slip text follows the verdict', () => {
   const team = { team: 'Kansas City Chiefs', price: -150 };
   assert.equal(moneylineSlip(team, supported), 'Take Chiefs -150');
   assert.equal(moneylineSlip({ ...team, price: 130 }, supported), 'Take Chiefs +130');
+  assert.equal(
+    moneylineSlip({ team: 'Max Verstappen', price: -195, phrase: 'to finish top 2' }, supported),
+    'Take Verstappen to finish top 2 -195',
+  );
   assert.equal(moneylineSlip(team, unsupported), 'Pass');
   assert.equal(moneylineSlip(team, { kind: 'dropped', relevance: 0.71, reason: 'cap' }), 'Pass');
   assert.equal(moneylineSlip(team, { kind: 'missed', stage: 'verify' }), 'Pass');
@@ -1076,6 +1081,148 @@ test('the header names the odds source beside the model', () => {
     }
     for (const line of slateHeaders({ ...saved, model: 'tail-jev', oddsSource: 'the-odds-api' }, width, [0, 0, 0])) {
       assert.equal(line.length <= width, true, `${line.length} > ${width}`);
+    }
+  }
+});
+
+test('a Formula 1 driver keeps the hardest bet that clears 0.60', () => {
+  const quotes = [
+    { marketType: 'PODIUM_FINISH', name: 'Max Verstappen', price: -360, selectionId: 'podium-max' },
+    { marketType: 'F1_ALT_DRIVER_TO_FINISH_TOP_2', name: 'Max Verstappen', price: -195, selectionId: 'top2-max' },
+    { marketType: 'OUTRIGHT_BETTING', name: 'Max Verstappen', price: 145, selectionId: 'win-max' },
+    { marketType: 'PODIUM_FINISH', name: 'George Russell', price: -195, selectionId: 'podium-george' },
+    { marketType: 'F1_ALT_DRIVER_TO_FINISH_TOP_2', name: 'George Russell', price: 140, selectionId: 'top2-george' },
+    { marketType: 'PODIUM_FINISH', name: 'Lando Norris', price: -140, selectionId: 'podium-lando' },
+    { marketType: 'OUTRIGHT_BETTING', name: 'Kimi Antonelli', price: -150, selectionId: 'win-kimi' },
+    { marketType: 'PODIUM_FINISH', name: 'Kimi Antonelli', price: -400, selectionId: 'podium-kimi' },
+    { marketType: 'SAFETY_CAR', name: 'Yes', price: -275, selectionId: 'safety' },
+  ];
+  const chosen = chooseDriverBets(quotes);
+  const byName = new Map(chosen.map((bet) => [bet.name, bet]));
+  assert.equal(byName.get('Max Verstappen')?.phrase, 'to finish top 2');
+  assert.equal(byName.get('Max Verstappen')?.selectionId, 'top2-max');
+  assert.equal(byName.get('George Russell')?.phrase, 'to finish on the podium');
+  assert.equal(byName.has('Lando Norris'), false);
+  assert.equal(byName.get('Kimi Antonelli')?.phrase, 'to win the race');
+  assert.equal(byName.get('Kimi Antonelli')?.price, -150);
+  assert.equal(byName.has('Yes'), false);
+});
+
+test('Formula 1 prices stay on FanDuel when the run uses The Odds API', async () => {
+  const dir = await mkdtemp(`${tmpdir()}/parlay-odds-`);
+  const previousDir = process.env.ODDS_CACHE_DIR;
+  const previousSource = process.env.ODDS_SOURCE;
+  const previousFetch = globalThis.fetch;
+  const url = 'https://api.the-odds-api.com/v4/sports/motorsport_f1/odds?regions=us&markets=h2h&commenceTimeFrom=2026-11-19T05:00:00Z&commenceTimeTo=2026-11-20T05:00:00Z';
+  process.env.ODDS_CACHE_DIR = dir;
+  process.env.ODDS_SOURCE = 'the-odds-api';
+  setOddsReplay(null);
+  let called = false;
+  globalThis.fetch = (async () => {
+    called = true;
+    throw new Error('Formula 1 must not call The Odds API.');
+  }) as typeof fetch;
+  try {
+    assert.equal(oddsRequestSource(url), 'fanduel');
+    withEnv({ ODDS_SOURCE: 'fanduel' }, () => {
+      assert.equal(oddsRequestSource(url), 'fanduel');
+    });
+    assert.equal(oddsRequestSource('https://api.the-odds-api.com/v4/sports/icehockey_nhl/odds'), 'the-odds-api');
+    const { hash, request } = oddsRequestKey(url);
+    await writeFile(`${dir}/${oddsCacheName(hash, 'fanduel')}`, `${JSON.stringify({
+      savedAt: new Date().toISOString(),
+      remaining: null,
+      body: [{
+        id: '36297007:82532500',
+        commence_time: '2026-11-20T00:30:00Z',
+        home_team: 'Max Verstappen',
+        away_team: 'Las Vegas Grand Prix',
+        bookmakers: [{ key: 'fanduel', markets: [{ key: 'h2h', outcomes: [{ name: 'Max Verstappen', price: -195, description: 'to finish top 2' }] }] }],
+      }],
+      request,
+      source: 'fanduel',
+    })}\n`);
+    const result = await oddsGet(url);
+    assert.equal(called, false);
+    assert.equal(result.cached, true);
+    assert.equal(Array.isArray(result.body) && result.body[0]?.home_team, 'Max Verstappen');
+  } finally {
+    globalThis.fetch = previousFetch;
+    setOddsReplay(null);
+    if (previousDir == null) delete process.env.ODDS_CACHE_DIR;
+    else process.env.ODDS_CACHE_DIR = previousDir;
+    if (previousSource == null) delete process.env.ODDS_SOURCE;
+    else process.env.ODDS_SOURCE = previousSource;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a Formula 1 brief uses championship points from the last five races', () => {
+  const line = driverLine({
+    athlete: { displayName: 'Max Verstappen' },
+    stats: [
+      { name: 'rank', displayValue: '2' },
+      { name: 'championshipPts', displayValue: '279' },
+      { name: 'USA', displayValue: '15', played: true },
+      { name: 'MEX', displayValue: '25', played: true },
+      { name: 'BRA', displayValue: '-', played: true },
+      { name: 'LAS', displayValue: '-', played: false },
+    ],
+  });
+  assert.deepEqual(line, {
+    name: 'Max Verstappen',
+    rank: '2',
+    points: '279',
+    recent: ['15', '25', 'DNF'],
+  });
+  const lines = driverLines({
+    children: [{ abbreviation: 'Driver', standings: { entries: [line && {
+      athlete: { displayName: line.name },
+      stats: [
+        { name: 'rank', displayValue: '2' },
+        { name: 'championshipPts', displayValue: '279' },
+      ],
+    }] } }],
+  });
+  assert.equal(matchDriver(lines, 'Max Verstappen')?.rank, '2');
+  assert.equal(matchDriver(lines, 'George Russell'), undefined);
+  const text = describeDriver('Max Verstappen', line ?? undefined, 'to finish top 2', 'Las Vegas Grand Prix');
+  assert.match(text, /P2 in the 2026 championship with 279 points/);
+  assert.match(text, /15, 25, and DNF points/);
+  assert.match(text, /to finish top 2 at the Las Vegas Grand Prix/);
+  assert.match(describeDriver('Oscar Piastri', undefined, 'to win the race', 'Las Vegas Grand Prix'), /no 2026 championship line/);
+});
+
+test('the sport row keeps Formula 1 inside the terminal width', () => {
+  const league = (label: string, short: string) => ({
+    label,
+    short,
+    games: { title: label, groups: [] as string[][][] },
+    props: { title: 'Props', groups: [] as string[][][] },
+  });
+  const saved: SavedSlate = {
+    savedAt: '2026-11-19T18:00:00.000Z',
+    model: 'jev',
+    oddsSource: 'the-odds-api',
+    title: 'NFL',
+    groups: [],
+    sports: [
+      { label: 'Football', leagues: [league('NFL', 'NFL')] },
+      { label: 'Soccer', leagues: [league('Premier League', 'EPL')] },
+      { label: 'Hockey', leagues: [league('NHL', 'NHL')] },
+      { label: 'Basketball', leagues: [league('NBA', 'NBA')] },
+      { label: 'Baseball', leagues: [league('MLB', 'MLB')] },
+      { label: 'Formula 1', leagues: [league('F1', 'F1')] },
+    ],
+  };
+  const wide = slateHeaders(saved, 160, [0, 0, 0]);
+  assert.match(wide[0] ?? '', /Formula 1/);
+  const shorts = slateHeaders(saved, 100, [0, 0, 0]);
+  assert.match(shorts[0] ?? '', / F1 /);
+  assert.equal((shorts[0] ?? '').includes('Formula 1'), false);
+  for (const width of [40, 55, 70, 90, 120, 160]) {
+    for (const line of slateHeaders(saved, width, [5, 0, 0])) {
+      assert.equal(line.length <= width, true, `${line.length} > ${width}: ${line}`);
     }
   }
 });

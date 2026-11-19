@@ -2,6 +2,12 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-19T22:55:49Z
+
+### Formula 1
+
+Formula 1 is the last parent tab, with one F1 league. Prices come from FanDuel even when `ODDS_SOURCE` is The Odds API, and the cache file stays a FanDuel file. The Odds API does not post this sport. Each driver priced at 60% or better is one moneyline. The bet is the race win when that price clears 0.60, otherwise a top-2 finish, otherwise a podium. A driver keeps only that bet, so two drivers from the same race can share a ticket. The Games page has no spread and no total. The brief is the ESPN championship standing and the points from the last five races. The Props tab is a note. Qualifying, fastest lap, top 10, and team markets stay off the slate. The 0.60 favorite gate, the 0.60 rerank gate, and the 0.80 verify gate are unchanged. The other sports still use the configured odds source.
+
 ## 2026-11-19T02:10:41Z
 
 ### Odds source on the header

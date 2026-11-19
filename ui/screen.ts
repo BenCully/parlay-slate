@@ -141,6 +141,7 @@ const sportShort: Record<string, string> = {
   Hockey: 'Hockey',
   Basketball: 'Bask',
   Baseball: 'Base',
+  'Formula 1': 'F1',
 };
 
 export function sportsOf(saved: SavedSlate): SavedSport[] {

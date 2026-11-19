@@ -12,6 +12,8 @@ export type EvidenceLeg = {
   opponent: string;
   home: boolean;
   commence: string;
+  /** Formula 1 sets this to the bet, for example "to finish on the podium". */
+  phrase?: string;
 };
 
 type EspnTeam = { name: string; abbr: string; id: string; short: string };

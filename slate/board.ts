@@ -25,6 +25,7 @@ type Leg = {
   implied: number;
   commence: string;
   book: string;
+  phrase?: string;
   spread: Quote | null;
   spreadBook: string | null;
   total: { point: number; overPrice: number; underPrice: number } | null;
@@ -47,28 +48,31 @@ function atBook(detail: string, book: string | null) {
   return book ? `${detail} at ${book}.` : `${detail}.`;
 }
 
-function cacheSentence(cachedAt: string | null) {
+function cacheSentence(cachedAt: string | null, fanduelBoard: boolean) {
   if (!cachedAt) return '';
   const when = `Game prices are from the odds cache, saved ${ageLabel(cachedAt)}.`;
   const replay = oddsReplayDay();
   if (replay) return `${when} Replay of odds saved on ${replay}. Games that have since kicked off stay in this slate. No Odds API request was made.`;
-  if (oddsSource() === 'fanduel') return `${when} npm start -- --fresh reads FanDuel again.`;
+  if (fanduelBoard || oddsSource() === 'fanduel') return `${when} npm start -- --fresh reads FanDuel again.`;
   return `${when} npm start -- --fresh spends credits on new lines.`;
 }
 
-function withCache(note: string | undefined, cachedAt: string | null) {
-  const extra = cacheSentence(cachedAt);
-  const text = [note, extra].filter(Boolean).join(' ');
+function withCache(note: string | undefined, cachedAt: string | null, fanduelNote?: string) {
+  const parts = [note];
+  if (fanduelNote && oddsSource() !== 'fanduel') parts.push(fanduelNote);
+  parts.push(cacheSentence(cachedAt, Boolean(fanduelNote)));
+  const text = parts.filter(Boolean).join(' ');
   return text || undefined;
 }
 
-async function getLegs(oddsKey: string, from: string, to: string, threeWay: boolean): Promise<{ legs: Leg[]; cachedAt: string | null }> {
+async function getLegs(oddsKey: string, from: string, to: string, threeWay: boolean, outright: boolean): Promise<{ legs: Leg[]; cachedAt: string | null }> {
   const url = `https://api.the-odds-api.com/v4/sports/${oddsKey}/odds?apiKey=${process.env.ODDS_API_KEY}` +
     `&regions=us&markets=h2h,spreads,totals&oddsFormat=american&commenceTimeFrom=${from}&commenceTimeTo=${to}`;
   const result = await oddsGet(url);
   const body = result.body;
   if (!Array.isArray(body)) throw new Error('Odds API returned an unexpected payload.');
   if (result.cached) console.log(`Odds cache hit for ${oddsKey} (${ageLabel(result.savedAt)}).`);
+  else if (oddsKey === 'motorsport_f1') console.log(`Fetched ${oddsKey} odds from FanDuel.`);
   else console.log(`Fetched ${oddsKey} odds.${result.remaining == null ? '' : ` Credits remaining: ${result.remaining}.`}`);
   const legs = body.flatMap((game) => {
     if (!oddsReplayDay() && Date.parse(game.commence_time) <= Date.now()) return [];
@@ -86,15 +90,17 @@ async function getLegs(oddsKey: string, from: string, to: string, threeWay: bool
       : null;
     return moneylines.flatMap((outcome) => {
       if (threeWay && /^(draw|tie)$/i.test(String(outcome.name))) return [];
+      if (outright && outcome.name !== game.home_team) return [];
       const spreadOutcome = spreads.find((quote) => quote.name === outcome.name);
-      const spread = spreadOutcome && typeof spreadOutcome.point === 'number'
+      const spread = !outright && spreadOutcome && typeof spreadOutcome.point === 'number'
         ? { point: spreadOutcome.point, price: spreadOutcome.price }
         : null;
+      const phrase = outright ? outcome.description?.trim() || undefined : undefined;
       return [{
         id: `${game.id}:${outcome.name}`,
         eventId: String(game.id),
-        game: `${game.away_team} @ ${game.home_team}`,
-        pick: `${outcome.name} to win`,
+        game: outright ? `${game.away_team}: ${outcome.name}` : `${game.away_team} @ ${game.home_team}`,
+        pick: phrase ? `${outcome.name} ${phrase}` : `${outcome.name} to win`,
         team: outcome.name,
         opponent: outcome.name === game.home_team ? game.away_team : game.home_team,
         home: outcome.name === game.home_team,
@@ -102,10 +108,11 @@ async function getLegs(oddsKey: string, from: string, to: string, threeWay: bool
         implied: implied(outcome.price),
         commence: game.commence_time,
         book: moneyMarket?.book ?? 'the book',
+        phrase,
         spread,
         spreadBook: spread ? spreadMarket?.book ?? null : null,
-        total,
-        totalBook: total ? totalMarket?.book ?? null : null,
+        total: outright ? null : total,
+        totalBook: !outright && total ? totalMarket?.book ?? null : null,
       }];
     });
   });
@@ -146,12 +153,12 @@ export function formatRelevance(value: number) {
   return text;
 }
 
-export function droppedCall(relevance: number | null, reason: DropReason) {
+export function droppedCall(relevance: number | null, reason: DropReason, thing = 'win') {
   if (reason === 'cap' && relevance != null) {
     return `Rerank scored the brief at ${formatRelevance(relevance)}, which clears 0.60, but only the top ${RERANK_TOP_K} briefs are checked. Left out.`;
   }
-  if (relevance == null) return 'Rerank scored the brief under 0.60, so the win was never checked. Left out.';
-  return `Rerank scored the brief at ${formatRelevance(relevance)}, under 0.60, so the win was never checked. Left out.`;
+  if (relevance == null) return `Rerank scored the brief under 0.60, so the ${thing} was never checked. Left out.`;
+  return `Rerank scored the brief at ${formatRelevance(relevance)}, under 0.60, so the ${thing} was never checked. Left out.`;
 }
 
 function decisionLabel(judgment: Judgment) {
@@ -227,8 +234,12 @@ function sideLabel(check: Check) {
   return `Pass ${confidence}`;
 }
 
-export function moneylineSlip(leg: { team: string; price: number }, judgment: Judgment) {
-  if (judgment.kind === 'checked' && judgment.verdict === 'supported') return `Take ${nick(leg.team)} ${priceText(leg.price)}`;
+export function moneylineSlip(leg: { team: string; price: number; phrase?: string }, judgment: Judgment) {
+  if (judgment.kind === 'checked' && judgment.verdict === 'supported') {
+    const who = nick(leg.team);
+    const bet = leg.phrase ? `${who} ${leg.phrase}` : who;
+    return `Take ${bet} ${priceText(leg.price)}`;
+  }
   return 'Pass';
 }
 
@@ -244,6 +255,21 @@ export function totalSlip(side: 'Over' | 'Under', point: number, check: Check) {
   return `Take the ${side.toLowerCase()} ${points(point)}`;
 }
 
+function callSentence(judgment: Judgment, thing: string) {
+  if (judgment.kind === 'missed') {
+    return judgment.stage === 'rerank'
+      ? 'Rerank did not return a score for the brief. Left out.'
+      : `Verify did not return a decision for the ${thing}. Left out.`;
+  }
+  if (judgment.kind === 'dropped') return droppedCall(judgment.relevance, judgment.reason, thing);
+  if (judgment.verdict === 'supported' && judgment.status === 'ready') {
+    return `Verify says the brief supports the ${thing} at ${judgment.confidence.toFixed(2)}, which clears 0.80. Eligible for a parlay.`;
+  }
+  if (judgment.verdict === 'supported') return `Verify leans toward the ${thing} at ${judgment.confidence.toFixed(2)}, short of 0.80. Left out.`;
+  if (judgment.verdict === 'contradicted') return `Verify says the brief cuts against the ${thing} at ${judgment.confidence.toFixed(2)}. Left out.`;
+  return `Verify says the brief does not establish the ${thing} at ${judgment.confidence.toFixed(2)}. Left out.`;
+}
+
 function decisionComment(leg: Leg, brief: GameBrief, judgment: Judgment) {
   const opp = nick(brief.opponent.name);
   const article = teamShorts ? '' : 'the ';
@@ -255,20 +281,12 @@ function decisionComment(leg: Leg, brief: GameBrief, judgment: Judgment) {
   const injuries = notes.length ? `Injuries: ${notes.join('; ')}.` : 'No significant injuries on either report.';
   const table = tableClause(brief, nick);
   const price = atBook(`Price is ${priceText(leg.price)}`, leg.book);
-  const call = judgment.kind === 'missed'
-    ? judgment.stage === 'rerank'
-      ? 'Rerank did not return a score for the brief. Left out.'
-      : 'Verify did not return a decision for the win. Left out.'
-    : judgment.kind === 'dropped'
-    ? droppedCall(judgment.relevance, judgment.reason)
-    : judgment.verdict === 'supported' && judgment.status === 'ready'
-      ? `Verify says the brief supports the win at ${judgment.confidence.toFixed(2)}, which clears 0.80. Eligible for a parlay.`
-      : judgment.verdict === 'supported'
-        ? `Verify leans toward the win at ${judgment.confidence.toFixed(2)}, short of 0.80. Left out.`
-        : judgment.verdict === 'contradicted'
-          ? `Verify says the brief cuts against the win at ${judgment.confidence.toFixed(2)}. Left out.`
-          : `Verify says the brief does not establish the win at ${judgment.confidence.toFixed(2)}. Left out.`;
-  return [price, facts, table, injuries, call].filter(Boolean).join(' ');
+  return [price, facts, table, injuries, callSentence(judgment, 'win')].filter(Boolean).join(' ');
+}
+
+function outrightComment(leg: Leg, brief: GameBrief, judgment: Judgment) {
+  const price = atBook(`Price is ${priceText(leg.price)}`, leg.book);
+  return [price, brief.text, callSentence(judgment, 'bet')].filter(Boolean).join(' ');
 }
 
 function spreadComment(leg: Leg, brief: GameBrief, check: Check) {
@@ -380,7 +398,8 @@ export async function buildBoard(source: BoardSource, day: string | undefined): 
 
 async function buildBoardInner(source: BoardSource, day: string | undefined): Promise<BuiltBoard> {
   const slate = await source.window(day);
-  const pulled = await getLegs(source.oddsKey, slate.from, slate.to, source.threeWay);
+  const outright = source.outright === true;
+  const pulled = await getLegs(source.oddsKey, slate.from, slate.to, source.threeWay, outright);
   const allLegs = pulled.legs;
   const cachedAt = pulled.cachedAt;
   const legs = allLegs.filter((leg) => leg.implied >= MIN_IMPLIED);
@@ -388,15 +407,21 @@ async function buildBoardInner(source: BoardSource, day: string | undefined): Pr
   propBoard?.catch(() => {});
   const games = new Set(legs.map((leg) => leg.game)).size;
   const replay = oddsReplayDay();
-  const title = replay
-    ? `${slate.label}. Odds saved on ${replay}: ${games} game${games === 1 ? '' : 's'} with a favorite at 60% or better.`
-    : `${slate.label}: ${games} upcoming game${games === 1 ? '' : 's'} with a favorite at 60% or better.`;
-  const skippedProps = { title: 'Player props', groups: [] as string[][][], note: source.propsNote };
+  const drivers = `${games} driver${games === 1 ? '' : 's'} priced at 60% or better`;
+  const title = outright
+    ? replay
+      ? `${slate.label}. Odds saved on ${replay}: ${drivers}.`
+      : `${slate.label}: ${drivers}.`
+    : replay
+      ? `${slate.label}. Odds saved on ${replay}: ${games} game${games === 1 ? '' : 's'} with a favorite at 60% or better.`
+      : `${slate.label}: ${games} upcoming game${games === 1 ? '' : 's'} with a favorite at 60% or better.`;
+  const skippedProps = { title: outright ? 'Props' : 'Player props', groups: [] as string[][][], note: source.propsNote };
+  const noteFor = (note?: string) => withCache(note, cachedAt, source.fanduelNote);
   console.log(title);
   if (!legs.length) {
     const props = propBoard ? await propTab(propBoard) : skippedProps;
     console.log('No qualifying legs.');
-    return { title, groups: [], note: withCache('No qualifying legs.', cachedAt), props };
+    return { title, groups: [], note: noteFor('No qualifying legs.'), props };
   }
 
   const briefs = await Promise.all(legs.map(async (leg) => ({ leg, brief: await source.getBrief(leg) })));
@@ -481,12 +506,12 @@ async function buildBoardInner(source: BoardSource, day: string | undefined): Pr
   const groups = ordered.map(({ leg, brief }) => {
       const judgment = judgmentFor(leg.id);
       const moneyline = [
-        leg.team,
+        leg.phrase ? `${leg.team} ${leg.phrase}` : leg.team,
         priceText(leg.price),
         `${(leg.implied * 100).toFixed(1)}%`,
         decisionLabel(judgment),
         moneylineSlip(leg, judgment),
-        decisionComment(leg, brief, judgment),
+        outright ? outrightComment(leg, brief, judgment) : decisionComment(leg, brief, judgment),
       ];
       const spreadCheck = verdict.get(`${leg.id}:spread`);
       const spread = !leg.spread
@@ -501,6 +526,7 @@ async function buildBoardInner(source: BoardSource, day: string | undefined): Pr
               spreadSlip(leg, spreadCheck),
               spreadComment(leg, brief, spreadCheck),
             ];
+      if (outright) return [moneyline];
       const overCheck = verdict.get(`${leg.id}:over`);
       const underCheck = verdict.get(`${leg.id}:under`);
       const total = totalRow(leg, brief, overCheck, underCheck);
@@ -517,7 +543,7 @@ async function buildBoardInner(source: BoardSource, day: string | undefined): Pr
     const onlyName = names.length === 1 ? (teamShorts ? names[0] : `the ${names[0]}`) : '';
     const only = onlyName ? ` Only ${onlyName} cleared 0.80.` : '';
     const note = [`No parlay. A ticket needs two legs the brief supports at 0.80 or better.${only}`, problem].filter(Boolean).join(' ');
-    return { title, groups, note: withCache(note, cachedAt), props };
+    return { title, groups, note: noteFor(note), props };
   }
 
   const combos: Leg[][] = [];
@@ -540,10 +566,10 @@ async function buildBoardInner(source: BoardSource, day: string | undefined): Pr
   const ticketGroups = tickets.map(({ parlay, hitProb, payout }) => [[
     `${(hitProb * 100).toFixed(1)}%`,
     `${payout.toFixed(2)}x`,
-    parlay.map((leg) => `${nick(leg.team)} ${priceText(leg.price)}`).join(' + '),
+    parlay.map((leg) => `${nick(leg.team)}${leg.phrase ? ` ${leg.phrase}` : ''} ${priceText(leg.price)}`).join(' + '),
     `${listNames(parlay.map((leg) => nick(leg.team)))} each cleared 0.80. The hit rate multiplies their market prices. It is not a separate prediction.`,
   ]]);
-  return { title, groups, ticketGroups, note: withCache(problem || undefined, cachedAt), props };
+  return { title, groups, ticketGroups, note: noteFor(problem || undefined), props };
 }
 
 function totalRow(leg: Leg, brief: GameBrief, overCheck: Check | undefined, underCheck: Check | undefined) {
