@@ -31,7 +31,7 @@ Each favorite is three rows inside one border.
 
 On this NFL board the Bills are -15000, a 99.3% favorite, and the slip is still Pass. Verify did not establish the win at 0.37, so the row says `Left out`. The Vikings and the Jaguars show Take because the brief leans toward the win, and Review because 0.26 and 0.77 are short of 0.80. Their spreads and totals are Pass. This page has no ticket. A ticket needs two moneylines the brief supports at 0.80 or better.
 
-Prices come from FanDuel, then DraftKings, then BetMGM, then Caesars, then the first book that posted the market. NCAA, soccer, and MLB slips use the ESPN short name, so a slip can read `Take Man City -180` or `Take Red Sox -150`.
+Prices come from FanDuel, then DraftKings, then BetMGM, then Caesars, then the first book that posted the market. The comment on that row names the book, so a moneyline and a spread on the same game can come from different books. A prop comment names its book the same way. NCAA, soccer, and MLB slips use the ESPN short name, so a slip can read `Take Man City -180` or `Take Red Sox -150`.
 
 ### A ticket
 
@@ -131,9 +131,9 @@ A window too narrow for the headers stacks each row: the name, then the other fi
 
 ## Saved slate
 
-`npm start` overwrites `parlay-slate/runs/last-run.json` after the lookups finish, then prints `Saved` and the file path. It also writes `snapshots/<day>-<model>.json`. The day is the `odds=` day, the slate date, or today's Eastern date. The next run of that same day and model replaces that snapshot. Both files are gitignored.
+`npm start` overwrites `parlay-slate/runs/last-run.json` after the lookups finish, then prints `Saved` and the file path. A second `npm start` exits while the first is still running, including while its screen is open. The message names the other process id. It also writes `snapshots/<day>-<model>.json`. The day is the `odds=` day, the slate date, or today's Eastern date. The next run of that same day and model copies the previous file into `snapshots/archive/` and then replaces that snapshot, so compare still opens the current name. Both folders are gitignored. Team pages, schedules, rosters, and gamelogs from ESPN are reused for the rest of the Eastern day. Injury reports are reused for 3 hours. The scoreboard is read on every run.
 
-`npm run compare -- 2026-11-15` opens `snapshots/2026-11-15-jev.json` beside `snapshots/2026-11-15-tail-jev.json`. A missing file prints the `npm start` command that writes it. `npm run clear-snapshots` deletes the files in `snapshots/` and leaves that folder, `runs/`, and `odds-cache/` in place.
+`npm run compare -- 2026-11-15` opens `snapshots/2026-11-15-jev.json` beside `snapshots/2026-11-15-tail-jev.json`. A missing file prints the `npm start` command that writes it. `npm run clear-snapshots` deletes the files in `snapshots/`, including `snapshots/archive/`, and leaves that folder, `runs/`, and `odds-cache/` in place.
 
 The file is the finished screen, not the raw API responses. Each table cell is already decided. It stores:
 

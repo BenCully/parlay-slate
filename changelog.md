@@ -10,6 +10,46 @@ Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
 FanDuel does not post a two-way line for player kicking, hockey points, hockey assists, power-play points, or soccer cards, so those rows stay no line. MLB is still offseason and has no competition filter.
 
+## 2026-11-18T19:30:35Z
+
+### Pull request secret scan
+
+`.github/workflows/secrets.yml` runs gitleaks on a pull request. It scans the commits in that pull request and fails the check when it finds a secret. The finding is redacted and the report is not uploaded. This repo is a personal account, so the action does not need a license. An organization account needs a `GITLEAKS_LICENSE` secret.
+
+## 2026-11-18T19:25:54Z
+
+### Offline CI and an odds quota log
+
+`.github/workflows/check.yml` runs `npm ci`, `npm test`, and `npm run typecheck` on a pull request and on a push to `main`. It does not call The Odds API, TypeSafe, or Autojev.
+
+Each odds response appends one JSON line to gitignored `runs/quota.jsonl`. The line is the Eastern time, the sport, the event id when the request is a prop, `cached` or `live`, and the credits remaining. A cache hit records `remaining` as null. The line has no URL and no key. `QUOTA_LOG=0` turns the log off. A write failure does not fail the slate.
+
+## 2026-11-18T19:07:33Z
+
+### Snapshot archive and a same-day ESPN cache
+
+Replacing `snapshots/<day>-<model>.json` copies the previous file to `snapshots/archive/` first. The archive name is that day, model, and the previous `savedAt` with the colons removed, such as `2026-11-15-tail-jev-2026-11-18T150000Z.json`. Compare still reads the current name. An identical rewrite does not add another archive file. `npm run clear-snapshots` removes the archive with the rest of `snapshots/`.
+
+Teams, schedules, rosters, and gamelogs from ESPN are reused for 18 hours when they were saved on the same Eastern day. Injuries are reused for 3 hours. A page from a previous Eastern day is a miss. A failed response is not stored. The scoreboard is still fetched on every run, because it chooses the slate window. The files are in gitignored `espn-cache/`. Only `site.api.espn.com` and `site.web.api.espn.com` are stored.
+
+## 2026-11-18T18:57:13Z
+
+### One start at a time, and a typed odds body
+
+`npm start` takes `runs/slate.lock` for the whole run, including the screen, and removes it when the process finishes. A second start exits and names the process id that holds the lock. A lock whose process is gone is taken over. A lock file that has no process id is left in place, and the message says to remove `runs/slate.lock`.
+
+`oddsGet` parses the Odds API body before the Games or Props board sees it. A slate is an array of events. A prop response is one event. Each event keeps `id`, `commence_time`, `home_team`, `away_team`, and `bookmakers`. A different shape throws. The cache still stores the raw response. A missing bookmaker list is an empty list. A game with no bookmakers still counts as a game.
+
+## 2026-11-18T18:48:45Z
+
+### Empty odds files, scrubbed errors, and the book on the row
+
+Family lookup skips an empty Odds API body when another save for that sport and markets is still inside `ODDS_CACHE_HOURS` and still has games. The empty file is used when it is the only fresh one. A hit on the exact request hash still returns that file, including an empty one. `odds=` still reads the saves from that Eastern day.
+
+`main().catch` scrubs `apiKey=` the same way a league or sport failure does, and prints that message instead of the raw error.
+
+Moneyline, spread, total, and prop comments name the book that posted the price. FanDuel, DraftKings, BetMGM, and Caesars use those names. Any other book uses its title, then its key. A missing spread or total says that no book posted it.
+
 ## 2026-11-18T18:05:00Z
 
 ### FanDuel odds source

@@ -1,9 +1,9 @@
 // Player props for one sport. The sport module supplies the markets and the ESPN lookups.
 // Lines come from The Odds API event odds (same key as the slate).
 // The brief is the player's ESPN game log. No extra account.
-import { BOOKS } from '../odds/books.js';
+import { postedMarket } from '../odds/books.js';
 import { nameKey } from '../espn/evidence.js';
-import { oddsCreditFloor, oddsGet, oddsReplayDay } from '../odds/cache.js';
+import { oddsCreditFloor, oddsGet, oddsReplayDay, type OddsBook, type OddsOutcome } from '../odds/cache.js';
 import type { PlayerRef } from '../espn/players.js';
 
 export type YesCopy = {
@@ -46,6 +46,7 @@ type Posted = {
   overPrice: number | null;
   underPrice: number | null;
   yesPrice: number | null;
+  book: string;
 };
 
 type Brief = { evidence: string; blurb: string };
@@ -65,6 +66,7 @@ type YardRow = {
   underId: string;
   overBrief: Brief;
   underBrief: Brief;
+  book: string;
 };
 
 type SingleRow = {
@@ -82,6 +84,7 @@ type SingleRow = {
   id: string;
   extra: boolean;
   brief: Brief;
+  book: string;
 };
 
 type MissingRow = {
@@ -124,19 +127,7 @@ function kickoffLabel(iso: string) {
   });
 }
 
-function outcomesFor(books: any[], market: string) {
-  const ordered = [
-    ...BOOKS.map((key) => books.find((book) => book.key === key)).filter(Boolean),
-    ...books,
-  ];
-  for (const book of ordered) {
-    const outcomes = book.markets?.find((item: any) => item.key === market)?.outcomes;
-    if (outcomes?.length) return outcomes as any[];
-  }
-  return [];
-}
-
-function postedLines(outcomes: any[]): Posted[] {
+function postedLines(outcomes: OddsOutcome[], book: string): Posted[] {
   const groups = new Map<string, Posted>();
   for (const outcome of outcomes) {
     const rawName = String(outcome.name ?? '');
@@ -144,7 +135,7 @@ function postedLines(outcomes: any[]): Posted[] {
     if (!playerName) continue;
     const point = outcome.point == null ? null : Number(outcome.point);
     const key = `${nameKey(playerName)}|${point ?? 'yes'}`;
-    const row = groups.get(key) ?? { playerName, point, overPrice: null, underPrice: null, yesPrice: null };
+    const row = groups.get(key) ?? { playerName, point, overPrice: null, underPrice: null, yesPrice: null, book };
     const price = Number(outcome.price);
     if (!Number.isFinite(price)) continue;
     if (rawName === 'Over') row.overPrice = price;
@@ -241,6 +232,7 @@ async function fetchEvent(eventId: string, apiKey: string, profile: PropProfile,
     `?regions=us&oddsFormat=american&markets=${profile.markets.join(',')}`;
   const result = await oddsGet(url, { headers: { 'x-api-key': apiKey } }, { cacheOnly });
   if (result.skipped) return { skipped: true as const };
+  if (!result.body || Array.isArray(result.body)) throw new Error('Odds API returned an unexpected payload.');
   return {
     skipped: false as const,
     body: result.body,
@@ -313,14 +305,14 @@ export async function loadPropBoard(games: SlateGame[], profile: PropProfile) {
       const result = await fetchEvent(game.eventId, apiKey ?? '', profile, cacheOnly);
       if (result.skipped) {
         skipped += 1;
-        return { game, books: [] as any[], error: '', skipped: true };
+        return { game, books: [] as OddsBook[], error: '', skipped: true };
       }
       if (result.cached) cachedGames += 1;
       else if (result.remaining != null) remaining = result.remaining;
-      return { game, books: (result.body.bookmakers ?? []) as any[], error: '', skipped: false };
+      return { game, books: result.body.bookmakers, error: '', skipped: false };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'props request failed';
-      return { game, books: [] as any[], error: message, skipped: false };
+      return { game, books: [] as OddsBook[], error: message, skipped: false };
     }
   });
 
@@ -356,7 +348,10 @@ export async function loadPropBoard(games: SlateGame[], profile: PropProfile) {
     return teams.map((team) => ({ game: event.game, team, books: event.books }));
   });
   const built = await mapPool(jobs, 6, async (job) => {
-    const markets = new Map(profile.markets.map((market) => [market, postedLines(outcomesFor(job.books, market))]));
+    const markets = new Map(profile.markets.map((market) => {
+      const posted = postedMarket(job.books, market);
+      return [market, posted ? postedLines(posted.outcomes, posted.book) : []] as const;
+    }));
     const core = await Promise.all(profile.core.map((info) => coreRow(job.game, job.team, info, markets.get(info.market) ?? [], rosters.match, profile, label)));
     const featured = new Set(core.flatMap((row) => row.kind === 'missing' ? [] : [nameKey(row.player.name)]));
     const extra = await extraRow(job.game, job.team, markets, rosters.match, featured, profile, label);
@@ -466,6 +461,7 @@ async function coreRow(
       implied: implied(price),
       id: idFor(game.eventId, info.market, best.row.player.name, 'yes'),
       extra: false,
+      book: best.row.line.book,
       brief: await describe(best.row.player, info, 'yes', null, team.name, team.opponent, team.home, game.commence, profile),
     };
   }
@@ -497,6 +493,7 @@ async function coreRow(
         implied: implied(picked.price),
         id: idFor(game.eventId, info.market, picked.row.player.name, sideWord),
         extra: false,
+        book: picked.row.line.book,
         brief: await describe(picked.row.player, info, sideWord, picked.row.line.point, team.name, team.opponent, team.home, game.commence, profile),
       };
     }
@@ -521,6 +518,7 @@ async function coreRow(
     underId: idFor(game.eventId, info.market, best.player.name, 'under'),
     overBrief,
     underBrief,
+    book: best.line.book,
   };
 }
 
@@ -607,6 +605,7 @@ async function extraRow(
     implied: picked.implied,
     id: idFor(game.eventId, picked.market, picked.ref.name, sideWord),
     extra: true,
+    book: picked.posted.book,
     brief: await describe(picked.ref, picked.info, sideWord, picked.posted.point, team.name, team.opponent, team.home, game.commence, profile),
   };
 }
@@ -662,6 +661,6 @@ function comment(row: YardRow | SingleRow, side: SideName, point: number | null,
   const lead = extra ? 'Extra. ' : '';
   const opponent = shorts.get(row.opponent);
   const versus = opponent ?? `the ${nick(row.opponent)}`;
-  return `${lead}${row.player.name} (${row.player.pos || 'player'}) ${lineText(row.info.label, side, point, price)}, ${place} vs ${versus}. ${blurb} ${gateSentence(check, thingFor(row.info, side))}`;
+  return `${lead}${row.player.name} (${row.player.pos || 'player'}) ${lineText(row.info.label, side, point, price)}, ${place} vs ${versus}. ${blurb} ${gateSentence(check, thingFor(row.info, side))} Line is ${row.book}.`;
 }
 

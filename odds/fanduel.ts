@@ -475,8 +475,8 @@ export async function fanduelSlate(sportKey: string, from: string, to: string): 
       id: String(event.eventId),
       sport_key: sportKey,
       sport_title: event.name,
-      home_team: home,
-      away_team: away,
+      home_team: home || sidesFromName(String(event.name ?? '')).home,
+      away_team: away || sidesFromName(String(event.name ?? '')).away,
       commence_time: oddsStamp(event.openDate),
       bookmakers: [{
         key: 'fanduel',
@@ -492,16 +492,39 @@ export async function fanduelSlate(sportKey: string, from: string, to: string): 
   return built;
 }
 
-function emptyProps(eventId: string) {
+function sidesFromName(name: string) {
+  const at = name.split(' @ ');
+  if (at.length === 2) return { away: at[0]!.trim(), home: at[1]!.trim() };
+  const vs = name.split(' v ');
+  if (vs.length === 2) return { away: vs[0]!.trim(), home: vs[1]!.trim() };
+  return { away: 'Away', home: 'Home' };
+}
+
+function eventShell(eventId: string, event: any, markets: any[]) {
+  const sides = sidesFromName(String(event?.name ?? ''));
+  const open = event?.openDate ? oddsStamp(event.openDate) : oddsStamp(new Date().toISOString());
   return {
     id: String(eventId),
-    bookmakers: [{ key: 'fanduel', last_update: new Date().toISOString(), markets: [] as any[] }],
+    commence_time: open,
+    home_team: sides.home || 'Home',
+    away_team: sides.away || 'Away',
+    bookmakers: [{ key: 'fanduel', last_update: new Date().toISOString(), markets }],
   };
+}
+
+async function loadEvent(eventId: string) {
+  const found = await facetSearch(
+    { eventIds: [Number(eventId)], maxResults: 0, attachments: ['EVENT'] },
+    [{ type: 'EVENT' }],
+  );
+  const events = found.attachments?.events ?? {};
+  return events[eventId] ?? events[Number(eventId)] ?? Object.values(events)[0] ?? null;
 }
 
 /** One event's player props, in the shape `/events/{id}/odds` returns. */
 export async function fanduelProps(eventId: string, wanted: Set<string>) {
-  if (!wanted.size) return emptyProps(eventId);
+  const event = await loadEvent(eventId);
+  if (!wanted.size) return eventShell(eventId, event, []);
   const listed = await facetSearch(
     { eventIds: [Number(eventId)], maxResults: 0 },
     [{ type: 'MARKET_TYPE' }],
@@ -515,7 +538,7 @@ export async function fanduelProps(eventId: string, wanted: Set<string>) {
     const classified = classifyProp(type);
     return classified != null && wanted.has(classified.key);
   });
-  if (!selected.length) return emptyProps(eventId);
+  if (!selected.length) return eventShell(eventId, event, []);
 
   const found = await facetSearch(
     { eventIds: [Number(eventId)], marketTypeCodes: selected, attachments: ['MARKET'] },
@@ -549,14 +572,7 @@ export async function fanduelProps(eventId: string, wanted: Set<string>) {
     grouped.set(classified.key, list);
   }
   const now = new Date().toISOString();
-  return {
-    id: String(eventId),
-    bookmakers: [{
-      key: 'fanduel',
-      last_update: now,
-      markets: [...grouped.entries()].map(([key, outcomes]) => ({ key, last_update: now, outcomes })),
-    }],
-  };
+  return eventShell(eventId, event, [...grouped.entries()].map(([key, outcomes]) => ({ key, last_update: now, outcomes })));
 }
 
 /** Read either a slate URL or an events URL from The Odds API shape and answer from FanDuel. */

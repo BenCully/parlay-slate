@@ -1,5 +1,6 @@
 // Player names and recent stat lines from ESPN's public site API. No key.
 // A sport calls createPlayers with that competition's roster and gamelog bases.
+import { readEspnCache, writeEspnCache } from './cache.js';
 import { nameKey } from './evidence.js';
 
 export type PlayerRef = {
@@ -36,10 +37,14 @@ export function createPlayers(options: {
   const logs = new Map<string, Promise<Log | null>>();
 
   async function readJson(url: string): Promise<any | null> {
+    const cached = await readEspnCache(url, 'day');
+    if (cached !== undefined) return cached;
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
       if (!res.ok) return null;
-      return await res.json();
+      const body = await res.json();
+      await writeEspnCache(url, body);
+      return body;
     } catch {
       return null;
     }

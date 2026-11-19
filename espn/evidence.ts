@@ -1,3 +1,5 @@
+import { readEspnCache, writeEspnCache } from './cache.js';
+
 // Team form and injuries from ESPN's public site API. No key.
 // A sport calls createEvidence with its site API base and an EvidenceStyle.
 // NFL_EVIDENCE, NCAA_EVIDENCE, SOCCER_EVIDENCE, HOCKEY_EVIDENCE, BASKETBALL_EVIDENCE, and BASEBALL_EVIDENCE are the styles in use.
@@ -162,14 +164,20 @@ function buildClient(base: string, style: EvidenceStyle) {
   const seasons = new Map<string, Promise<Season | null>>();
 
   async function espn(path: string): Promise<any> {
+    const url = `${base}${path}`;
+    const kind = path.startsWith('/injuries') ? 'injury' : 'day';
+    const cached = await readEspnCache(url, kind);
+    if (cached !== undefined) return cached;
     let res: Response;
     try {
-      res = await fetch(`${base}${path}`, { signal: AbortSignal.timeout(ESPN_TIMEOUT_MS) });
+      res = await fetch(url, { signal: AbortSignal.timeout(ESPN_TIMEOUT_MS) });
     } catch (error) {
       throw new Error(espnFailure(error, path));
     }
     if (!res.ok) throw new Error(`ESPN ${path} returned ${res.status}`);
-    return res.json();
+    const body = await res.json();
+    await writeEspnCache(url, body);
+    return body;
   }
 
   function loadTeams() {
