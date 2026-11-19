@@ -2,6 +2,28 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-19T01:48:27Z
+
+### Replay commands follow the active odds source
+
+`npm run odds` prints `ODDS_SOURCE=` on a saved day when that source is not the active one. A value in `.env` no longer hides an older Odds API day, or a FanDuel day, when you copy the printed command. A replay miss names the source it searched. If that day was saved by the other source, the error names it and the override. A live save in the same process shows up in the saved-day list.
+
+## 2026-11-19T01:14:14Z
+
+### FanDuel team names and separate cache files
+
+College names from FanDuel match the ESPN location, short name, and abbreviation, with the spaces kept. Sam Houston matches Bearkats. Paris St-G matches when ESPN lists that club more than once under the same name. A moneyline that posts only one side takes the other side from the event name, so Ole Miss, Mississippi State, and Alabama still match. Soccer `v` is home first. Totals stay Over and Under. A suspended runner is skipped, and a fractional American price is rounded. Team choice is not prompted. ESPN team lists use the same-day ESPN cache. A failed list keeps the FanDuel names.
+
+FanDuel cache files are `fanduel-` plus the request hash. An Odds API file keeps the hash it already had. `npm run odds` prints `ODDS_SOURCE=fanduel` on a FanDuel day. A FanDuel cache hit does not say the run spent Odds API credits. The public sportsbook app id is no longer stored under a name the secret scan treats as a key.
+
+## 2026-11-19T00:22:30Z
+
+### FanDuel player props
+
+`ODDS_SOURCE=fanduel` now fills the Props tab from FanDuel's event search, then prices those markets the same way the slate prices moneylines. Full-game lines map onto the markets the boards already ask for: football passing, rushing, receiving, and anytime touchdowns, NBA points, rebounds, assists, threes, blocks, and steals, NHL anytime goals, shots, and saves, and soccer anytime goals, shots, shots on target, and assists. Alternate and period lines are left out, so each player keeps the main over/under. A price batch that comes back short is requested again in smaller pieces. Soccer spreads and totals are the posted goal line closest to even, because the layout page does not carry those markets. A cache file with no source is an Odds API save and is not reused for FanDuel.
+
+FanDuel does not post a two-way line for player kicking, hockey points, hockey assists, power-play points, or soccer cards, so those rows stay no line. MLB is still offseason and has no competition filter.
+
 ## 2026-11-18T19:30:35Z
 
 ### Pull request secret scan
@@ -41,6 +63,12 @@ Family lookup skips an empty Odds API body when another save for that sport and 
 `main().catch` scrubs `apiKey=` the same way a league or sport failure does, and prints that message instead of the raw error.
 
 Moneyline, spread, total, and prop comments name the book that posted the price. FanDuel, DraftKings, BetMGM, and Caesars use those names. Any other book uses its title, then its key. A missing spread or total says that no book posted it.
+
+## 2026-11-18T18:05:00Z
+
+### FanDuel odds source
+
+`ODDS_SOURCE=fanduel` replaces The Odds API with FanDuel's internal sportsbook API. `odds/fanduel.ts` reads the content-managed-page layout and FanDuel's fixed-odds prices, then normalizes moneyline, spread, and total into the shape the boards already read. Slate requests use the Eastern window; team names resolve to ESPN display names at runtime. The Odds API key is no longer required in that mode and no credits are spent. The disk cache records which source filled it, so Odds API and FanDuel saves do not mix. Games work for NFL, NCAAF, NBA, NHL, and the six soccer leagues. Player props are not fetched yet, so the Props tab shows no line; `handoff.md` lists what is left.
 
 ## 2026-11-18T17:31:28Z
 

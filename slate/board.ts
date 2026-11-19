@@ -2,7 +2,7 @@
 import { rerank, verify } from '../decisions/judge.js';
 import { postedMarket } from '../odds/books.js';
 import type { GameBrief } from '../espn/evidence.js';
-import { ageLabel, oddsGet, oddsReplayDay } from '../odds/cache.js';
+import { ageLabel, oddsGet, oddsReplayDay, oddsSource } from '../odds/cache.js';
 import { loadPropBoard, type SlateGame } from '../props/board.js';
 import type { SavedBoard, SavedProps } from '../ui/screen.js';
 import type { BoardSource } from '../sports/types.js';
@@ -52,6 +52,7 @@ function cacheSentence(cachedAt: string | null) {
   const when = `Game prices are from the odds cache, saved ${ageLabel(cachedAt)}.`;
   const replay = oddsReplayDay();
   if (replay) return `${when} Replay of odds saved on ${replay}. Games that have since kicked off stay in this slate. No Odds API request was made.`;
+  if (oddsSource() === 'fanduel') return `${when} npm start -- --fresh reads FanDuel again.`;
   return `${when} npm start -- --fresh spends credits on new lines.`;
 }
 

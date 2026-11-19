@@ -4,15 +4,16 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { test } from 'node:test';
 import { readStartArgs, requireRunKeys, selectDecisionModel, verify } from '../decisions/judge.js';
-import { aliasTarget, clubKey, createEvidence, nameKey, NFL_EVIDENCE, type GameBrief } from '../espn/evidence.js';
-import { absenceText, applyFotmob, matchClub, openAbsences, parseLeague, pickFixture, type FotmobLeague } from '../sports/soccer/fotmob.js';
 import { espnCacheFresh, ESPN_DAY_HOURS, ESPN_INJURY_HOURS, readEspnCache, writeEspnCache } from '../espn/cache.js';
+import { aliasTarget, clubKey, createEvidence, nameKey, NFL_EVIDENCE, type GameBrief } from '../espn/evidence.js';
 import { bookLabel, postedMarket } from '../odds/books.js';
-import { oddsCreditFloor, oddsGet, oddsRequestKey, oddsSlateFamily, parseOddsBody, preferFreshRecord, setOddsReplay } from '../odds/cache.js';
+import { listSavedOdds, oddsCacheName, oddsCreditFloor, oddsGet, oddsReplayCommand, oddsRequestKey, oddsSlateFamily, parseOddsBody, preferFreshRecord, setOddsReplay } from '../odds/cache.js';
+import { buildTeamIndex, classifyProp, eventSides, marketOutcomes, propOutcomes, resolveTeamName, sidesFromName } from '../odds/fanduel.js';
+import { easternClock, quotaEntry } from '../odds/quota.js';
 import { acquireRunLock } from '../scripts/lock.js';
 import { scrubError } from '../scripts/scrub.js';
 import { archiveStamp, saveDecisionSnapshot } from '../scripts/snapshot.js';
-import { easternClock, quotaEntry } from '../odds/quota.js';
+import { absenceText, applyFotmob, matchClub, openAbsences, parseLeague, pickFixture, type FotmobLeague } from '../sports/soccer/fotmob.js';
 
 process.env.QUOTA_LOG ??= '0';
 import {
@@ -24,7 +25,7 @@ import {
   totalSlip,
   type Judgment,
 } from '../slate/board.js';
-import { easternRange, oddsStamp, scoreboardEvents } from '../slate/window.js';
+import { easternDay, easternRange, oddsStamp, scoreboardEvents } from '../slate/window.js';
 
 function withEnv(values: Record<string, string | undefined>, run: () => void) {
   const previous = new Map<string, string | undefined>();
@@ -573,6 +574,333 @@ test('a credit-floor miss does not call the network', async () => {
     setOddsReplay(null);
     if (previous == null) delete process.env.ODDS_CACHE_DIR;
     else process.env.ODDS_CACHE_DIR = previous;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('FanDuel prop types map onto the markets the boards ask for', () => {
+  assert.deepEqual(classifyProp('ANY_TIME_TOUCHDOWN_SCORER'), { key: 'player_anytime_td', kind: 'yes' });
+  assert.deepEqual(classifyProp('PLAYER_X_PASSING_YARDS_HIGH'), { key: 'player_pass_yds', kind: 'ou' });
+  assert.deepEqual(classifyProp('PLAYER_LOW_RECEIVING_YARDS_CFB'), { key: 'player_reception_yds', kind: 'ou' });
+  assert.deepEqual(classifyProp('PLAYER_M_TOTAL_MADE_3_POINT_FIELD_GOALS'), { key: 'player_threes', kind: 'ou' });
+  assert.deepEqual(classifyProp('PLAYER_TOTAL_SHOTS'), { key: 'player_shots_on_goal', kind: 'ou' });
+  assert.deepEqual(classifyProp('TO_SCORE'), { key: 'player_goal_scorer_anytime', kind: 'yes' });
+  assert.deepEqual(classifyProp('PLAYER_TO_HAVE_2_OR_MORE_SHOTS'), { key: 'player_shots', kind: 'milestone', point: 1.5 });
+  assert.deepEqual(classifyProp('PLAYER_TO_HAVE_1_OR_MORE_SHOTS_ON_TARGET'), { key: 'player_shots_on_target', kind: 'milestone', point: 0.5 });
+  assert.equal(classifyProp('PLAYER_X_ALT_PASSING_YARDS_HIGH'), null);
+  assert.equal(classifyProp('PLAYER_X_1ST_QUARTER_PASSING_YARDS'), null);
+  assert.equal(classifyProp('PLAYER_X_PASSING_+_RUSHING_YARDS'), null);
+  assert.equal(classifyProp('TO_SCORE_2_OR_MORE_GOALS'), null);
+});
+
+test('FanDuel runners become over, under, and yes outcomes', () => {
+  assert.deepEqual(propOutcomes({ key: 'player_pass_yds', kind: 'ou' }, [
+    { runnerName: 'Daniel Jones Over', handicap: 180.5, resultType: 'OVER', odds: -114, runnerStatus: 'ACTIVE' },
+    { runnerName: 'Daniel Jones Under', handicap: 180.5, resultType: 'UNDER', odds: -106, runnerStatus: 'ACTIVE' },
+    { runnerName: 'Daniel Jones Over', handicap: 0, resultType: 'OVER', odds: -600, runnerStatus: 'ACTIVE' },
+  ]), [
+    { name: 'Over', description: 'Daniel Jones', price: -114, point: 180.5 },
+    { name: 'Under', description: 'Daniel Jones', price: -106, point: 180.5 },
+  ]);
+  assert.deepEqual(propOutcomes({ key: 'player_shots_on_goal', kind: 'ou' }, [
+    { runnerName: 'Alex DeBrincat - Over', handicap: 3.5, resultType: 'OVER', odds: -115.4, runnerStatus: 'ACTIVE' },
+  ]), [
+    { name: 'Over', description: 'Alex DeBrincat', price: -115, point: 3.5 },
+  ]);
+  assert.deepEqual(propOutcomes({ key: 'player_anytime_td', kind: 'yes' }, [
+    { runnerName: 'Jonathan Taylor', handicap: 0, odds: 125, runnerStatus: 'ACTIVE' },
+    { runnerName: 'No', handicap: 0, odds: -150, runnerStatus: 'ACTIVE' },
+  ]), [
+    { name: 'Yes', description: 'Jonathan Taylor', price: 125, point: null },
+  ]);
+  assert.deepEqual(propOutcomes({ key: 'player_shots', kind: 'milestone', point: 1.5 }, [
+    { runnerName: 'Erling Haaland', handicap: 0, odds: -140, runnerStatus: 'SUSPENDED' },
+    { runnerName: 'Phil Foden', handicap: 0, odds: 120, runnerStatus: 'ACTIVE' },
+  ]), [
+    { name: 'Over', description: 'Phil Foden', price: 120, point: 1.5 },
+  ]);
+});
+
+function collegeTeam(id: string, displayName: string, short: string, location: string, abbreviation: string, name: string) {
+  return { id, displayName, shortDisplayName: short, location, abbreviation, name };
+}
+
+test('FanDuel college names match ESPN location and short name', () => {
+  const index = buildTeamIndex([
+    collegeTeam('150', 'Duke Blue Devils', 'Duke', 'Duke', 'DUKE', 'Blue Devils'),
+    collegeTeam('228', 'Clemson Tigers', 'Clemson', 'Clemson', 'CLEM', 'Tigers'),
+    collegeTeam('130', 'Michigan Wolverines', 'Michigan', 'Michigan', 'MICH', 'Wolverines'),
+    collegeTeam('127', 'Michigan State Spartans', 'Michigan St', 'Michigan State', 'MSU', 'Spartans'),
+    collegeTeam('251', 'Texas Longhorns', 'Texas', 'Texas', 'TEX', 'Longhorns'),
+    collegeTeam('245', 'Texas A&M Aggies', 'Texas A&M', 'Texas A&M', 'TA&M', 'Aggies'),
+    collegeTeam('61', 'Georgia Bulldogs', 'Georgia', 'Georgia', 'UGA', 'Bulldogs'),
+    collegeTeam('2247', 'Georgia State Panthers', 'Georgia St', 'Georgia State', 'GAST', 'Panthers'),
+    collegeTeam('2294', 'Iowa Hawkeyes', 'Iowa', 'Iowa', 'IOWA', 'Hawkeyes'),
+    collegeTeam('66', 'Iowa State Cyclones', 'Iowa State', 'Iowa State', 'ISU', 'Cyclones'),
+    collegeTeam('99', 'LSU Tigers', 'LSU', 'LSU', 'LSU', 'Tigers'),
+    collegeTeam('30', 'USC Trojans', 'USC', 'USC', 'USC', 'Trojans'),
+    collegeTeam('252', 'BYU Cougars', 'BYU', 'BYU', 'BYU', 'Cougars'),
+    collegeTeam('145', 'Ole Miss Rebels', 'Ole Miss', 'Ole Miss', 'MISS', 'Rebels'),
+    collegeTeam('152', 'NC State Wolfpack', 'NC State', 'NC State', 'NCSU', 'Wolfpack'),
+    collegeTeam('2534', 'Sam Houston Bearkats', 'Sam Houston', 'Sam Houston', 'SHSU', 'Bearkats'),
+    collegeTeam('2026', 'App State Mountaineers', 'App State', 'App State', 'APP', 'Mountaineers'),
+    collegeTeam('41', 'UConn Huskies', 'UConn', 'UConn', 'CONN', 'Huskies'),
+    collegeTeam('62', "Hawai'i Rainbow Warriors", "Hawai'i", "Hawai'i", 'HAW', 'Rainbow Warriors'),
+    collegeTeam('2390', 'Miami Hurricanes', 'Miami', 'Miami', 'MIA', 'Hurricanes'),
+    collegeTeam('193', 'Miami (OH) RedHawks', 'Miami OH', 'Miami (OH)', 'M-OH', 'RedHawks'),
+    collegeTeam('2433', 'UL Monroe Warhawks', 'UL Monroe', 'UL Monroe', 'ULM', 'Warhawks'),
+    collegeTeam('194', 'Ohio State Buckeyes', 'Ohio State', 'Ohio State', 'OSU', 'Buckeyes'),
+    collegeTeam('3161', 'Ohio State Newark Titans', 'Osunewark', 'Ohio State Newark', 'OSU', 'Titans'),
+    collegeTeam('2429', 'Charlotte 49ers', 'Charlotte', 'Charlotte', 'CLT', '49ers'),
+    collegeTeam('3253', 'Charlotte Saints', 'Faith NC', 'Charlotte', 'COLLE', 'Saints'),
+    collegeTeam('2653', 'Troy Trojans', 'Troy', 'Troy', 'TROY', 'Trojans'),
+    collegeTeam('3237', 'Troy Vikings', 'Hudson', 'Troy', 'HVCC', 'Vikings'),
+    collegeTeam('12', 'LA Clippers', 'Clippers', 'LA', 'LAC', 'Clippers'),
+  ], 'football');
+  const name = (team: string) => resolveTeamName(team, index, 'football');
+  assert.equal(name('Duke'), 'Duke Blue Devils');
+  assert.equal(name('Clemson'), 'Clemson Tigers');
+  assert.equal(name('Ohio State'), 'Ohio State Buckeyes');
+  assert.equal(name('Michigan'), 'Michigan Wolverines');
+  assert.equal(name('Michigan State'), 'Michigan State Spartans');
+  assert.equal(name('Texas'), 'Texas Longhorns');
+  assert.equal(name('Texas A&M'), 'Texas A&M Aggies');
+  assert.equal(name('Georgia'), 'Georgia Bulldogs');
+  assert.equal(name('Georgia State'), 'Georgia State Panthers');
+  assert.equal(name('Iowa'), 'Iowa Hawkeyes');
+  assert.equal(name('Iowa State'), 'Iowa State Cyclones');
+  assert.equal(name('LSU'), 'LSU Tigers');
+  assert.equal(name('USC'), 'USC Trojans');
+  assert.equal(name('BYU'), 'BYU Cougars');
+  assert.equal(name('Ole Miss'), 'Ole Miss Rebels');
+  assert.equal(name('NC State'), 'NC State Wolfpack');
+  assert.equal(name('Sam Houston State'), 'Sam Houston Bearkats');
+  assert.equal(name('Appalachian State'), 'App State Mountaineers');
+  assert.equal(name('Connecticut'), 'UConn Huskies');
+  assert.equal(name('Hawaii'), "Hawai'i Rainbow Warriors");
+  assert.equal(name('Miami'), 'Miami Hurricanes');
+  assert.equal(name('Miami Florida'), 'Miami Hurricanes');
+  assert.equal(name('Miami (OH)'), 'Miami (OH) RedHawks');
+  assert.equal(name('UL Monroe'), 'UL Monroe Warhawks');
+  assert.equal(name('Charlotte'), 'Charlotte 49ers');
+  assert.equal(name('Troy'), 'Troy Trojans');
+  assert.equal(name('OSU'), 'OSU');
+  assert.equal(name('Los Angeles Clippers'), 'LA Clippers');
+});
+
+test('a repeated soccer club name still resolves an alias', () => {
+  const index = buildTeamIndex([
+    { id: '160', displayName: 'Paris Saint-Germain', shortDisplayName: 'PSG', name: 'Paris Saint-Germain' },
+    { id: '121', displayName: 'AS Roma', shortDisplayName: 'Roma', name: 'AS Roma' },
+    { id: '89', displayName: 'Sunderland', shortDisplayName: 'Sunderland', name: 'Sunderland' },
+  ], 'club');
+  assert.equal(resolveTeamName('Paris St-G', index, 'club'), 'Paris Saint-Germain');
+  assert.equal(resolveTeamName('AS Roma', index, 'club'), 'AS Roma');
+  assert.equal(index.get('paris saint germain')?.length, 1);
+});
+
+test('FanDuel totals keep Over and Under, and soccer v is home first', () => {
+  const totals = marketOutcomes({
+    runners: [
+      { selectionId: 1, runnerName: 'Over' },
+      { selectionId: 2, runnerName: 'Under' },
+      { selectionId: 3, runnerName: 'Over', runnerStatus: 'SUSPENDED' },
+    ],
+  }, {
+    runnerDetails: [
+      { selectionId: 1, runnerStatus: 'ACTIVE', handicap: 2.5, winRunnerOdds: { americanDisplayOdds: { americanOdds: -115.4 } } },
+      { selectionId: 2, runnerStatus: 'ACTIVE', handicap: 2.5, winRunnerOdds: { americanDisplayOdds: { americanOdds: -105 } } },
+      { selectionId: 3, runnerStatus: 'SUSPENDED', handicap: 2.5, winRunnerOdds: { americanDisplayOdds: { americanOdds: 100 } } },
+    ],
+  });
+  assert.deepEqual(totals.map((row) => ({ name: row.name, price: row.price, point: row.point })), [
+    { name: 'Over', price: -115, point: 2.5 },
+    { name: 'Under', price: -105, point: 2.5 },
+  ]);
+  assert.deepEqual(sidesFromName('Buffalo Bills @ Kansas City Chiefs'), { away: 'Buffalo Bills', home: 'Kansas City Chiefs' });
+  assert.deepEqual(sidesFromName('Liverpool v Manchester United'), { home: 'Liverpool', away: 'Manchester United' });
+  assert.deepEqual(sidesFromName('No separator'), { away: 'Away', home: 'Home' });
+  const index = buildTeamIndex([
+    collegeTeam('145', 'Ole Miss Rebels', 'Ole Miss', 'Ole Miss', 'MISS', 'Rebels'),
+    collegeTeam('2695', 'Wofford Terriers', 'Wofford', 'Wofford', 'WOF', 'Terriers'),
+  ], 'football');
+  const resolve = (name: string) => resolveTeamName(name, index, 'football');
+  assert.deepEqual(eventSides('Wofford @ Ole Miss', [{ name: 'Wofford Terriers', kind: 'AWAY' }], resolve), {
+    home: 'Ole Miss Rebels',
+    away: 'Wofford Terriers',
+  });
+});
+
+test('a FanDuel read ignores an Odds API cache record', async () => {
+  const dir = await mkdtemp(`${tmpdir()}/parlay-odds-`);
+  const previousDir = process.env.ODDS_CACHE_DIR;
+  const previousSource = process.env.ODDS_SOURCE;
+  const url = 'https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds?regions=us&markets=h2h';
+  process.env.ODDS_CACHE_DIR = dir;
+  process.env.ODDS_SOURCE = 'fanduel';
+  setOddsReplay(null);
+  try {
+    const { hash, request } = oddsRequestKey(url);
+    await writeFile(`${dir}/${hash}.json`, `${JSON.stringify({
+      savedAt: new Date().toISOString(),
+      remaining: 10,
+      body: [{ id: 'odds-api' }],
+      request,
+    })}\n`);
+    const result = await oddsGet(url, undefined, { cacheOnly: true });
+    assert.equal(result.skipped, true);
+    assert.equal(result.cached, false);
+  } finally {
+    setOddsReplay(null);
+    if (previousDir == null) delete process.env.ODDS_CACHE_DIR;
+    else process.env.ODDS_CACHE_DIR = previousDir;
+    if (previousSource == null) delete process.env.ODDS_SOURCE;
+    else process.env.ODDS_SOURCE = previousSource;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('FanDuel cache files do not replace Odds API files', async () => {
+  const dir = await mkdtemp(`${tmpdir()}/parlay-odds-`);
+  const previousDir = process.env.ODDS_CACHE_DIR;
+  const previousSource = process.env.ODDS_SOURCE;
+  const previousCache = process.env.ODDS_CACHE;
+  const url = 'https://api.the-odds-api.com/v4/sports/soccer_uefa_champs_league/odds?regions=us&markets=h2h,spreads,totals';
+  const savedAt = new Date().toISOString();
+  process.env.ODDS_CACHE_DIR = dir;
+  process.env.ODDS_CACHE = '1';
+  setOddsReplay(null);
+  try {
+    const { hash, request } = oddsRequestKey(url);
+    assert.equal(oddsCacheName(hash, 'the-odds-api'), `${hash}.json`);
+    assert.equal(oddsCacheName(hash, 'fanduel'), `fanduel-${hash}.json`);
+    assert.notEqual(oddsCacheName(hash, 'fanduel'), oddsCacheName(hash, 'the-odds-api'));
+    const event = (id: string) => ({
+      id,
+      commence_time: '2026-11-18T20:00:00Z',
+      home_team: 'Home',
+      away_team: 'Away',
+      bookmakers: [],
+    });
+    await writeFile(`${dir}/${hash}.json`, `${JSON.stringify({
+      savedAt,
+      remaining: 10,
+      body: [event('odds-api')],
+      request,
+    })}\n`);
+    await writeFile(`${dir}/fanduel-${hash}.json`, `${JSON.stringify({
+      savedAt,
+      remaining: null,
+      body: [event('fanduel-game')],
+      request,
+      source: 'fanduel',
+    })}\n`);
+    await writeFile(`${dir}/fanduel-prop.json`, `${JSON.stringify({
+      savedAt,
+      remaining: null,
+      body: event('prop'),
+      request: '/v4/sports/soccer_uefa_champs_league/events/99/odds?markets=player_goal_scorer_anytime',
+      source: 'fanduel',
+    })}\n`);
+    process.env.ODDS_SOURCE = 'fanduel';
+    const hit = await oddsGet(url);
+    assert.equal(hit.cached, true);
+    assert.ok(Array.isArray(hit.body));
+    assert.equal(hit.body[0]?.id, 'fanduel-game');
+    const legacy = JSON.parse(await readFile(`${dir}/${hash}.json`, 'utf8')) as { body: { id: string }[] };
+    assert.equal(legacy.body[0]?.id, 'odds-api');
+    delete process.env.ODDS_SOURCE;
+    const days = await listSavedOdds();
+    const champs = days.filter((day) => day.day === easternDay(savedAt));
+    assert.deepEqual(champs.map((day) => day.source), ['the-odds-api', 'fanduel']);
+    assert.equal(champs[0]?.props, 0);
+    assert.equal(champs[1]?.props, 1);
+    assert.equal(champs[0]?.slates[0]?.sport, 'soccer_uefa_champs_league');
+    assert.equal(champs[1]?.slates[0]?.games, 1);
+  } finally {
+    setOddsReplay(null);
+    if (previousDir == null) delete process.env.ODDS_CACHE_DIR;
+    else process.env.ODDS_CACHE_DIR = previousDir;
+    if (previousSource == null) delete process.env.ODDS_SOURCE;
+    else process.env.ODDS_SOURCE = previousSource;
+    if (previousCache == null) delete process.env.ODDS_CACHE;
+    else process.env.ODDS_CACHE = previousCache;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('replay commands override a different active source', () => {
+  withEnv({ ODDS_SOURCE: 'fanduel' }, () => {
+    assert.equal(
+      oddsReplayCommand('2026-11-17', 'the-odds-api', 'jev'),
+      'ODDS_SOURCE=the-odds-api npm start -- odds=2026-11-17 model=jev',
+    );
+    assert.equal(oddsReplayCommand('2026-11-17', 'fanduel', 'tail-jev'), 'npm start -- odds=2026-11-17 model=tail-jev');
+  });
+  withEnv({ ODDS_SOURCE: undefined }, () => {
+    assert.equal(oddsReplayCommand('2026-11-17', 'the-odds-api', 'jev'), 'npm start -- odds=2026-11-17 model=jev');
+    assert.equal(
+      oddsReplayCommand('2026-11-17', 'fanduel', 'jev'),
+      'ODDS_SOURCE=fanduel npm start -- odds=2026-11-17 model=jev',
+    );
+  });
+});
+
+test('a replay miss names the source, and a live save updates the day list', async () => {
+  const dir = await mkdtemp(`${tmpdir()}/parlay-odds-`);
+  const previousDir = process.env.ODDS_CACHE_DIR;
+  const previousSource = process.env.ODDS_SOURCE;
+  const previousCache = process.env.ODDS_CACHE;
+  const original = globalThis.fetch;
+  const savedUrl = 'https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds?regions=us&markets=h2h';
+  const missingUrl = 'https://api.the-odds-api.com/v4/sports/basketball_nba/odds?regions=us&markets=h2h';
+  const liveUrl = 'https://api.the-odds-api.com/v4/sports/icehockey_nhl/odds?regions=us&markets=h2h';
+  const savedAt = new Date().toISOString();
+  process.env.ODDS_CACHE_DIR = dir;
+  process.env.ODDS_CACHE = '1';
+  delete process.env.ODDS_SOURCE;
+  setOddsReplay(null);
+  globalThis.fetch = async () => new Response(JSON.stringify([oddsGame('fresh')]), {
+    status: 200,
+    headers: { 'x-requests-remaining': '10' },
+  });
+  try {
+    const { hash, request } = oddsRequestKey(savedUrl);
+    await writeFile(`${dir}/${hash}.json`, `${JSON.stringify({
+      savedAt,
+      remaining: 10,
+      body: [oddsGame('odds-api')],
+      request,
+    })}\n`);
+    process.env.ODDS_SOURCE = 'fanduel';
+    setOddsReplay(easternDay(savedAt));
+    await assert.rejects(oddsGet(savedUrl), /No FanDuel odds saved on .+ by The Odds API[\s\S]*ODDS_SOURCE=the-odds-api/);
+    await assert.rejects(oddsGet(missingUrl), (error: Error) => {
+      assert.match(error.message, /No FanDuel odds saved/);
+      assert.doesNotMatch(error.message, /ODDS_SOURCE=/);
+      return true;
+    });
+    delete process.env.ODDS_SOURCE;
+    const replay = await oddsGet(savedUrl);
+    assert.equal(replay.cached, true);
+    assert.ok(Array.isArray(replay.body));
+    assert.equal(replay.body[0]?.id, 'odds-api');
+    setOddsReplay(null);
+    await listSavedOdds();
+    const live = await oddsGet(liveUrl);
+    assert.equal(live.cached, false);
+    const days = await listSavedOdds();
+    const nhl = days.flatMap((day) => day.slates).find((slate) => slate.sport === 'icehockey_nhl');
+    assert.equal(nhl?.games, 1);
+  } finally {
+    globalThis.fetch = original;
+    setOddsReplay(null);
+    if (previousDir == null) delete process.env.ODDS_CACHE_DIR;
+    else process.env.ODDS_CACHE_DIR = previousDir;
+    if (previousSource == null) delete process.env.ODDS_SOURCE;
+    else process.env.ODDS_SOURCE = previousSource;
+    if (previousCache == null) delete process.env.ODDS_CACHE;
+    else process.env.ODDS_CACHE = previousCache;
     await rm(dir, { recursive: true, force: true });
   }
 });

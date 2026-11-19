@@ -1,4 +1,5 @@
-// Disk cache for The Odds API. The key is the request path with apiKey removed.
+// Disk cache for odds responses. The key is the request path with apiKey removed.
+// The Odds API keeps that hash as the file name. FanDuel adds a fanduel- prefix so it does not replace a paid save.
 // A hit does not call the network and does not spend a credit.
 // A slate whose kickoff window moved still counts as a hit until ODDS_CACHE_HOURS.
 // An empty slate loses that lookup while a non-empty sibling is still fresh.
@@ -10,14 +11,27 @@ import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { appendQuota, quotaEntry } from './quota.js';
 import { easternDay } from '../slate/window.js';
+import { fanduelFetch } from './fanduel.js';
 
 const DEFAULT_HOURS = 24 * 7;
+
+/** Which price source filled the record: the Odds API or FanDuel. */
+export function oddsSource() {
+  return process.env.ODDS_SOURCE === 'fanduel' ? 'fanduel' : 'the-odds-api';
+}
+
+/** Replay command for one saved day. A shell prefix overrides a different ODDS_SOURCE in .env. */
+export function oddsReplayCommand(day: string, savedSource: string, model: string) {
+  const prefix = savedSource === oddsSource() ? '' : `ODDS_SOURCE=${savedSource} `;
+  return `${prefix}npm start -- odds=${day} model=${model}`;
+}
 
 type CacheRecord = {
   savedAt: string;
   remaining: number | null;
   body: unknown;
   request: string;
+  source?: string;
 };
 
 export type OddsOutcome = {
@@ -125,12 +139,14 @@ export type SavedOddsSlate = {
 
 export type SavedOddsDay = {
   day: string;
+  source: string;
   slates: SavedOddsSlate[];
   props: number;
 };
 
 let replayDay: string | null = null;
 let catalog: Promise<CacheRecord[]> | null = null;
+let catalogDir: string | null = null;
 
 /** Use odds saved on this America/New_York day. A miss throws instead of calling the network. */
 export function setOddsReplay(day: string | null) {
@@ -186,6 +202,11 @@ export function oddsRequestKey(url: string) {
   return { request, hash };
 }
 
+/** Odds API files keep the legacy hash. Any other source is prefixed so the two do not share a file. */
+export function oddsCacheName(hash: string, source = oddsSource()) {
+  return source === 'the-odds-api' ? `${hash}.json` : `${source}-${hash}.json`;
+}
+
 /** Same sport and markets, ignoring the kickoff window. That window shifts every run. */
 export function oddsSlateFamily(request: string) {
   const parsed = new URL(request, 'https://api.the-odds-api.com');
@@ -195,7 +216,7 @@ export function oddsSlateFamily(request: string) {
   return `${parsed.pathname}?${parsed.searchParams.toString()}`;
 }
 
-async function readHit(file: string): Promise<CacheRecord | null> {
+async function readHit(file: string, source: string): Promise<CacheRecord | null> {
   let raw: string;
   try {
     raw = await readFile(file, 'utf8');
@@ -211,7 +232,13 @@ async function readHit(file: string): Promise<CacheRecord | null> {
   const saved = Date.parse(record?.savedAt ?? '');
   if (!Number.isFinite(saved) || Date.now() - saved > maxAgeMs()) return null;
   if (record.body == null) return null;
+  if (recordedSource(record) !== source) return null;
   return record;
+}
+
+/** Saves written before the source field are Odds API responses. */
+function recordedSource(record: CacheRecord) {
+  return record.source ?? 'the-odds-api';
 }
 
 function sportOf(request: string) {
@@ -228,7 +255,11 @@ function sameSavedRequest(saved: string, want: string) {
 }
 
 async function readCatalog() {
-  catalog ??= readAll();
+  const dir = cacheDir();
+  if (!catalog || catalogDir !== dir) {
+    catalogDir = dir;
+    catalog = readAll();
+  }
   return catalog;
 }
 
@@ -254,12 +285,13 @@ async function readAll(): Promise<CacheRecord[]> {
   return records;
 }
 
-async function readReplay(request: string): Promise<CacheRecord | null> {
+async function readReplay(request: string, source: string): Promise<CacheRecord | null> {
   if (!replayDay) return null;
   let best: CacheRecord | null = null;
   let bestSaved = -Infinity;
   for (const record of await readCatalog()) {
     if (easternDay(record.savedAt) !== replayDay) continue;
+    if (recordedSource(record) !== source) continue;
     if (!sameSavedRequest(record.request, request)) continue;
     const saved = Date.parse(record.savedAt);
     if (saved <= bestSaved) continue;
@@ -277,13 +309,15 @@ function windowOf(request: string) {
   };
 }
 
-/** Eastern days that have saved odds, newest day first. Does not call the network. */
+/** Eastern days that have saved odds, newest day first. One entry per source. Does not call the network. */
 export async function listSavedOdds(): Promise<SavedOddsDay[]> {
   const byDay = new Map<string, { slates: Map<string, SavedOddsSlate>; props: Set<string> }>();
   for (const record of await readCatalog()) {
     const day = easternDay(record.savedAt);
     if (!day) continue;
-    const bucket = byDay.get(day) ?? { slates: new Map(), props: new Set() };
+    const source = recordedSource(record);
+    const bucketKey = `${day}\n${source}`;
+    const bucket = byDay.get(bucketKey) ?? { slates: new Map(), props: new Set() };
     if (record.request.includes('/events/')) {
       bucket.props.add(record.request.split('?')[0] ?? record.request);
     } else {
@@ -300,15 +334,28 @@ export async function listSavedOdds(): Promise<SavedOddsDay[]> {
         });
       }
     }
-    byDay.set(day, bucket);
+    byDay.set(bucketKey, bucket);
   }
   return [...byDay.entries()]
-    .sort((a, b) => b[0].localeCompare(a[0]))
-    .map(([day, bucket]) => ({
-      day,
-      slates: [...bucket.slates.values()].sort((a, b) => a.sport.localeCompare(b.sport)),
-      props: bucket.props.size,
-    }));
+    .sort((a, b) => {
+      const [dayA, sourceA] = a[0].split('\n');
+      const [dayB, sourceB] = b[0].split('\n');
+      const byDayOrder = (dayB ?? '').localeCompare(dayA ?? '');
+      if (byDayOrder !== 0) return byDayOrder;
+      if (sourceA === sourceB) return 0;
+      if (sourceA === 'the-odds-api') return -1;
+      if (sourceB === 'the-odds-api') return 1;
+      return (sourceA ?? '').localeCompare(sourceB ?? '');
+    })
+    .map(([key, bucket]) => {
+      const [day, source] = key.split('\n');
+      return {
+        day: day ?? '',
+        source: source ?? 'the-odds-api',
+        slates: [...bucket.slates.values()].sort((a, b) => a.sport.localeCompare(b.sport)),
+        props: bucket.props.size,
+      };
+    });
 }
 
 function bodyHasGames(body: unknown) {
@@ -338,7 +385,7 @@ export function preferFreshRecord<T extends { savedAt: string; body: unknown }>(
   return best;
 }
 
-async function readFamily(request: string): Promise<CacheRecord | null> {
+async function readFamily(request: string, source: string): Promise<CacheRecord | null> {
   const want = oddsSlateFamily(request);
   let names: string[];
   try {
@@ -349,7 +396,7 @@ async function readFamily(request: string): Promise<CacheRecord | null> {
   const hits: CacheRecord[] = [];
   for (const name of names) {
     if (!name.endsWith('.json')) continue;
-    const hit = await readHit(`${cacheDir()}/${name}`);
+    const hit = await readHit(`${cacheDir()}/${name}`, source);
     if (!hit?.request || oddsSlateFamily(hit.request) !== want) continue;
     hits.push(hit);
   }
@@ -361,25 +408,52 @@ async function store(file: string, record: CacheRecord) {
   const temp = `${file}.${process.pid}.tmp`;
   await writeFile(temp, `${JSON.stringify(record)}\n`);
   await rename(temp, file);
+  catalog = null;
+}
+
+function sourceName(source: string) {
+  return source === 'fanduel' ? 'FanDuel' : 'The Odds API';
+}
+
+async function replayMissError(request: string, source: string) {
+  const other = source === 'fanduel' ? 'the-odds-api' : 'fanduel';
+  const alternate = await readReplay(request, other);
+  const missed = `No ${sourceName(source)} odds saved on ${replayDay} for ${requestLabel(request)}.`;
+  if (!alternate) return `${missed} Nothing was fetched.`;
+  return `${missed} That day was saved by ${sourceName(other)}. Replay with ODDS_SOURCE=${other}. Nothing was fetched.`;
 }
 
 export async function oddsGet(url: string, init?: RequestInit, options?: { cacheOnly?: boolean }): Promise<OddsResponse> {
+  const source = oddsSource();
   const identity = oddsRequestKey(url);
   if (replayDay) {
-    const hit = await readReplay(identity.request);
-    if (!hit) throw new Error(`No odds saved on ${replayDay} for ${requestLabel(identity.request)}. Nothing was fetched.`);
+    const hit = await readReplay(identity.request, source);
+    if (!hit) throw new Error(await replayMissError(identity.request, source));
     await appendQuota(quotaEntry(identity.request, 'cached', null));
     return { body: parseOddsBody(hit.body), remaining: null, cached: true, savedAt: hit.savedAt };
   }
-  const file = `${cacheDir()}/${identity.hash}.json`;
+  const file = `${cacheDir()}/${oddsCacheName(identity.hash, source)}`;
   if (!cacheBypass()) {
-    const hit = await readHit(file) ?? await readFamily(identity.request);
+    const hit = await readHit(file, source) ?? await readFamily(identity.request, source);
     if (hit) {
       await appendQuota(quotaEntry(identity.request, 'cached', null));
       return { body: parseOddsBody(hit.body), remaining: null, cached: true, savedAt: hit.savedAt };
     }
   }
   if (options?.cacheOnly) return { body: null, remaining: null, cached: false, savedAt: '', skipped: true };
+  if (source === 'fanduel') {
+    const raw = await fanduelFetch(url);
+    let body: OddsEvent[] | OddsEvent;
+    try {
+      body = parseOddsBody(raw);
+    } catch {
+      throw new Error('FanDuel returned an unexpected payload.');
+    }
+    const savedAt = new Date().toISOString();
+    await appendQuota(quotaEntry(identity.request, 'live', null));
+    await store(file, { savedAt, remaining: null, body: raw, request: identity.request, source });
+    return { body, remaining: null, cached: false, savedAt };
+  }
   let res: Response;
   try {
     res = await fetch(url, { ...init, signal: AbortSignal.timeout(30_000) });
@@ -405,6 +479,7 @@ export async function oddsGet(url: string, init?: RequestInit, options?: { cache
     remaining: credits,
     body: raw,
     request: identity.request,
+    source: 'the-odds-api',
   });
   return { body, remaining: credits, cached: false, savedAt };
 }
