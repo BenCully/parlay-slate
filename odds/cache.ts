@@ -1,4 +1,5 @@
-// Disk cache for The Odds API. The key is the request path with apiKey removed.
+// Disk cache for odds responses. The key is the request path with apiKey removed.
+// The Odds API keeps that hash as the file name. FanDuel adds a fanduel- prefix so it does not replace a paid save.
 // A hit does not call the network and does not spend a credit.
 // A slate whose kickoff window moved still counts as a hit until ODDS_CACHE_HOURS.
 // An empty slate loses that lookup while a non-empty sibling is still fresh.
@@ -132,12 +133,14 @@ export type SavedOddsSlate = {
 
 export type SavedOddsDay = {
   day: string;
+  source: string;
   slates: SavedOddsSlate[];
   props: number;
 };
 
 let replayDay: string | null = null;
 let catalog: Promise<CacheRecord[]> | null = null;
+let catalogDir: string | null = null;
 
 /** Use odds saved on this America/New_York day. A miss throws instead of calling the network. */
 export function setOddsReplay(day: string | null) {
@@ -193,6 +196,11 @@ export function oddsRequestKey(url: string) {
   return { request, hash };
 }
 
+/** Odds API files keep the legacy hash. Any other source is prefixed so the two do not share a file. */
+export function oddsCacheName(hash: string, source = oddsSource()) {
+  return source === 'the-odds-api' ? `${hash}.json` : `${source}-${hash}.json`;
+}
+
 /** Same sport and markets, ignoring the kickoff window. That window shifts every run. */
 export function oddsSlateFamily(request: string) {
   const parsed = new URL(request, 'https://api.the-odds-api.com');
@@ -241,7 +249,11 @@ function sameSavedRequest(saved: string, want: string) {
 }
 
 async function readCatalog() {
-  catalog ??= readAll();
+  const dir = cacheDir();
+  if (!catalog || catalogDir !== dir) {
+    catalogDir = dir;
+    catalog = readAll();
+  }
   return catalog;
 }
 
@@ -291,13 +303,15 @@ function windowOf(request: string) {
   };
 }
 
-/** Eastern days that have saved odds, newest day first. Does not call the network. */
+/** Eastern days that have saved odds, newest day first. One entry per source. Does not call the network. */
 export async function listSavedOdds(): Promise<SavedOddsDay[]> {
   const byDay = new Map<string, { slates: Map<string, SavedOddsSlate>; props: Set<string> }>();
   for (const record of await readCatalog()) {
     const day = easternDay(record.savedAt);
     if (!day) continue;
-    const bucket = byDay.get(day) ?? { slates: new Map(), props: new Set() };
+    const source = recordedSource(record);
+    const bucketKey = `${day}\n${source}`;
+    const bucket = byDay.get(bucketKey) ?? { slates: new Map(), props: new Set() };
     if (record.request.includes('/events/')) {
       bucket.props.add(record.request.split('?')[0] ?? record.request);
     } else {
@@ -314,15 +328,28 @@ export async function listSavedOdds(): Promise<SavedOddsDay[]> {
         });
       }
     }
-    byDay.set(day, bucket);
+    byDay.set(bucketKey, bucket);
   }
   return [...byDay.entries()]
-    .sort((a, b) => b[0].localeCompare(a[0]))
-    .map(([day, bucket]) => ({
-      day,
-      slates: [...bucket.slates.values()].sort((a, b) => a.sport.localeCompare(b.sport)),
-      props: bucket.props.size,
-    }));
+    .sort((a, b) => {
+      const [dayA, sourceA] = a[0].split('\n');
+      const [dayB, sourceB] = b[0].split('\n');
+      const byDayOrder = (dayB ?? '').localeCompare(dayA ?? '');
+      if (byDayOrder !== 0) return byDayOrder;
+      if (sourceA === sourceB) return 0;
+      if (sourceA === 'the-odds-api') return -1;
+      if (sourceB === 'the-odds-api') return 1;
+      return (sourceA ?? '').localeCompare(sourceB ?? '');
+    })
+    .map(([key, bucket]) => {
+      const [day, source] = key.split('\n');
+      return {
+        day: day ?? '',
+        source: source ?? 'the-odds-api',
+        slates: [...bucket.slates.values()].sort((a, b) => a.sport.localeCompare(b.sport)),
+        props: bucket.props.size,
+      };
+    });
 }
 
 function bodyHasGames(body: unknown) {
@@ -386,7 +413,7 @@ export async function oddsGet(url: string, init?: RequestInit, options?: { cache
     await appendQuota(quotaEntry(identity.request, 'cached', null));
     return { body: parseOddsBody(hit.body), remaining: null, cached: true, savedAt: hit.savedAt };
   }
-  const file = `${cacheDir()}/${identity.hash}.json`;
+  const file = `${cacheDir()}/${oddsCacheName(identity.hash, source)}`;
   if (!cacheBypass()) {
     const hit = await readHit(file, source) ?? await readFamily(identity.request, source);
     if (hit) {

@@ -1,12 +1,12 @@
 // FanDuel's internal sportsbook API, normalized into the shape the boards read from The Odds API.
 // Turn it on with ODDS_SOURCE=fanduel. It needs no Odds API key and spends no credits.
 // Games come from the content-managed page. Player props come from the facet search for that event.
-import { clubKey, nameKey, aliasTarget } from '../espn/evidence.js';
+// Team names resolve to ESPN display names with no prompt. A miss keeps the FanDuel name.
+import { readEspnCache, writeEspnCache } from '../espn/cache.js';
+import { aliasTarget, clubKey, matchKey } from '../espn/evidence.js';
 import { oddsStamp } from '../slate/window.js';
-import { createInterface } from 'node:readline';
-import { stdin as input, stdout as output } from 'node:process';
 
-const API_KEY = 'FhMFpcPWXMeyZxOx';
+const SPORTSBOOK_APP = 'FhMFpcPWXMeyZxOx';
 const REGION = 'IL';
 const TIMEOUT = 30_000;
 const LAYOUT = 'https://api.sportsbook.fanduel.com/sbapi/content-managed-page';
@@ -37,13 +37,13 @@ const SPORTS: Record<string, FanDuelSport> = {
   soccer_france_ligue_one: { page: 'SPORT', eventTypeId: 1, competitionId: 55, teams: 'soccer/fra.1', match: 'club' },
 };
 
-/** FanDuel names that ESPN spells differently. Keyed by the folded FanDuel name. */
+/** FanDuel names that ESPN spells differently. Football keys keep spaces. Club keys are clubKey. */
 const TEAM_ALIASES: Record<string, string> = {
-  samhoustonstate: 'sam houston bearakats',
-  appalachianstate: 'app state mountaineers',
-  connecticut: 'uconn huskies',
-  hawaii: "hawai'i rainbow warriors",
-  miamiflorida: 'miami hurricanes',
+  'sam houston state': 'sam houston bearkats',
+  'appalachian state': 'app state mountaineers',
+  'connecticut': 'uconn huskies',
+  'hawaii': "hawai'i rainbow warriors",
+  'miami florida': 'miami hurricanes',
   'paris st g': 'paris saint-germain',
 };
 
@@ -70,26 +70,55 @@ function layoutUrl(sport: FanDuelSport) {
     page: sport.customPageId ? 'CUSTOM' : sport.page,
     eventTypeId: String(sport.eventTypeId),
     pbHorizontal: 'false',
-    _ak: API_KEY,
+    _ak: SPORTSBOOK_APP,
     timezone: 'America/Chicago',
   });
   if (sport.customPageId) params.set('customPageId', sport.customPageId);
   return `${LAYOUT}?${params}`;
 }
 
+const ESPN_TIMEOUT_MS = 10_000;
+
+function teamsFrom(data: any) {
+  return (data?.sports?.[0]?.leagues ?? []).flatMap((league: any) => (league.teams ?? []).map((row: any) => row.team ?? row));
+}
+
 async function espnTeams(sport: FanDuelSport) {
-  const data = await getJson(`${TEAMS}/${sport.teams}/teams?limit=1000`);
-  return (data.sports?.[0]?.leagues ?? []).flatMap((league: any) => (league.teams ?? []).map((row: any) => row.team ?? row));
+  const url = `${TEAMS}/${sport.teams}/teams?limit=1000`;
+  const cached = await readEspnCache(url, 'day');
+  if (cached !== undefined) return teamsFrom(cached);
+  let res: Response;
+  try {
+    res = await fetch(url, { signal: AbortSignal.timeout(ESPN_TIMEOUT_MS) });
+  } catch (error) {
+    const name = error instanceof Error ? error.name : '';
+    console.error(name === 'TimeoutError' || name === 'AbortError'
+      ? `ESPN teams timed out for ${sport.teams}. FanDuel names will be used as posted.`
+      : `ESPN teams did not answer for ${sport.teams}. FanDuel names will be used as posted.`);
+    return [];
+  }
+  if (!res.ok) {
+    console.error(`ESPN teams returned ${res.status} for ${sport.teams}. FanDuel names will be used as posted.`);
+    return [];
+  }
+  const body = await res.json();
+  await writeEspnCache(url, body);
+  return teamsFrom(body);
 }
 
 function teamKeys(team: any, match: 'football' | 'club') {
-  const key = (value: unknown) => (match === 'football' ? nameKey(String(value ?? '')) : clubKey(String(value ?? '')));
+  const key = (value: unknown) => {
+    const text = String(value ?? '').trim();
+    if (!text) return '';
+    return match === 'football' ? matchKey(text) : clubKey(text);
+  };
   const keys = [key(team.displayName)];
+  if (match === 'football') keys.push(key(team.shortDisplayName), key(team.location), key(team.abbreviation));
   if (match === 'club') keys.push(key(team.shortDisplayName), key(team.name));
-  return keys.filter(Boolean);
+  return [...new Set(keys.filter(Boolean))];
 }
 
-function teamIndex(teams: any[], match: 'football' | 'club') {
+export function buildTeamIndex(teams: any[], match: 'football' | 'club') {
   const index = new Map<string, any[]>();
   for (const team of teams) {
     for (const key of teamKeys(team, match)) {
@@ -101,66 +130,74 @@ function teamIndex(teams: any[], match: 'football' | 'club') {
   return index;
 }
 
-function words(key: string) {
-  return key.split(/[^a-z0-9]+/).filter(Boolean);
+function teamId(team: any) {
+  return String(team?.id ?? team?.displayName ?? '');
 }
 
-function startsWithWords(candidate: string, prefix: string) {
-  const a = words(candidate);
-  const b = words(prefix);
-  return b.length > 0 && b.length <= a.length && a.slice(0, b.length).every((word, i) => word === b[i]);
+function pickIndexed(list: any[], key: string, match: 'football' | 'club') {
+  const unique: any[] = [];
+  for (const team of list) {
+    if (unique.some((item) => teamId(item) === teamId(team))) continue;
+    unique.push(team);
+  }
+  if (unique.length === 1) return unique[0];
+  if (unique.length > 1 && new Set(unique.map((team) => team.displayName)).size === 1) return unique[0];
+  // Two schools can share a city. Prefer the one whose short name is that key,
+  // so Charlotte is the 49ers and Troy is the Trojans. A shared abbreviation stays unresolved.
+  if (match !== 'football' || unique.length < 2) return null;
+  const named = unique.filter((team) => {
+    const short = matchKey(String(team.shortDisplayName ?? ''));
+    const display = matchKey(String(team.displayName ?? ''));
+    return short === key || display === key;
+  });
+  return named.length === 1 ? named[0] : null;
 }
 
-async function askPick(candidates: string[], label: string) {
-  if (!input.isTTY) return null;
-  const lines = candidates.map((name, i) => `  ${i + 1}. ${name}`).join('\n');
-  output.write(`FanDuel team is unclear. Pick the ESPN team for ${label}.\n${lines}\n> `);
-  const rl = createInterface({ input, output });
-  const answer = (await new Promise<string>((resolve) => rl.question('> ', (value) => resolve(value)))) as string;
-  rl.close();
-  const index = Number(answer) - 1;
-  return index >= 0 && index < candidates.length ? candidates[index] : null;
-}
-
-async function resolveTeam(name: string, index: Map<string, any[]>, sport: FanDuelSport) {
-  const match = sport.match;
-  const key = match === 'football' ? nameKey(name) : clubKey(name);
-  const direct = index.get(key);
-  if (direct?.length === 1) return direct[0].displayName;
+/** ESPN display name for a FanDuel team, or the FanDuel name when nothing matches. */
+export function resolveTeamName(name: string, index: Map<string, any[]>, match: 'football' | 'club') {
+  const key = match === 'football' ? matchKey(name) : clubKey(name);
+  const direct = pickIndexed(index.get(key) ?? [], key, match);
+  if (direct) return String(direct.displayName);
   const alias = TEAM_ALIASES[key] ?? aliasTarget(name);
   if (alias) {
-    const aliasKey = match === 'football' ? nameKey(alias) : clubKey(alias);
-    const via = index.get(aliasKey);
-    if (via?.length === 1) return via[0].displayName;
+    const aliasKey = match === 'football' ? matchKey(alias) : clubKey(alias);
+    const via = pickIndexed(index.get(aliasKey) ?? [], aliasKey, match);
+    if (via) return String(via.displayName);
   }
-  const candidates = [...index.entries()]
-    .filter(([candidateKey]) => candidateKey.length >= 4 && (match === 'football' ? startsWithWords(candidateKey, key) : candidateKey.includes(key) || key.includes(candidateKey)))
-    .flatMap(([, list]) => list.map((team) => team.displayName));
-  const unique = [...new Set(candidates)];
-  if (unique.length === 1) return unique[0];
-  if (unique.length > 1) {
-    const picked = await askPick(unique, name);
-    if (picked) return picked;
+  if (match === 'club' && key.length >= 4) {
+    const hits = new Map<string, any>();
+    for (const [candidateKey, list] of index) {
+      if (candidateKey.length < 4) continue;
+      if (!candidateKey.includes(key) && !key.includes(candidateKey)) continue;
+      for (const team of list) hits.set(teamId(team), team);
+    }
+    if (hits.size === 1) return String([...hits.values()][0].displayName);
   }
   return name;
 }
 
-async function marketOutcomes(market: any, price: any, resolve: (name: string) => Promise<string>) {
+export function marketOutcomes(market: any, price: any, resolve?: (name: string) => string) {
   const runners = new Map<string, any>();
-  for (const runner of market.runners ?? []) runners.set(String(runner.selectionId), runner);
-  const rows = await Promise.all((price?.runnerDetails ?? []).map(async (detail: any) => {
+  for (const runner of market?.runners ?? []) runners.set(String(runner.selectionId), runner);
+  const rows = [];
+  for (const detail of price?.runnerDetails ?? []) {
     const runner = runners.get(String(detail.selectionId));
-    if (!runner) return null;
-    const odds = detail.winRunnerOdds?.americanDisplayOdds?.americanOdds;
-    if (odds == null) return null;
-    return {
-      name: await resolve(runner.runnerName),
-      price: odds,
+    if (!runner) continue;
+    const status = detail.runnerStatus ?? runner.runnerStatus;
+    if (status && status !== 'ACTIVE') continue;
+    const rawOdds = detail.winRunnerOdds?.americanDisplayOdds?.americanOdds;
+    if (rawOdds == null || rawOdds === '') continue;
+    const odds = Number(rawOdds);
+    if (!Number.isFinite(odds)) continue;
+    const runnerName = String(runner.runnerName ?? '');
+    rows.push({
+      name: resolve ? resolve(runnerName) : runnerName,
+      price: Math.round(odds),
       point: detail.handicap ?? null,
       kind: runner.result?.type ?? runner.homeOrAway,
-    };
-  }));
-  return rows.filter(Boolean);
+    });
+  }
+  return rows;
 }
 
 const MARKET_KEY: Record<string, string> = {
@@ -208,7 +245,7 @@ async function fetchPrices(marketIds: string[]) {
 async function facetSearch(filter: Record<string, unknown>, facets: unknown[]) {
   return getJson(FACET, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-application': API_KEY },
+    headers: { 'content-type': 'application/json', 'x-application': SPORTSBOOK_APP },
     body: JSON.stringify({
       filter: {
         productTypes: ['SPORTSBOOK'],
@@ -443,29 +480,35 @@ export async function fanduelSlate(sportKey: string, from: string, to: string): 
 
   const prices = await fetchPrices([...wanted]);
   const teams = await espnTeams(sport);
-  const index = teamIndex(teams, sport.match);
-  const resolve = async (name: string) => resolveTeam(name, index, sport);
+  const index = buildTeamIndex(teams, sport.match);
+  const resolved = new Map<string, string>();
+  const resolve = (name: string) => {
+    const hit = resolved.get(name);
+    if (hit != null) return hit;
+    const value = resolveTeamName(name, index, sport.match);
+    resolved.set(name, value);
+    return value;
+  };
 
-  const built = await Promise.all(games.map(async (game) => {
+  return games.map((game) => {
     const event = game.event;
-    const raw = await marketOutcomes(game.h2h, prices.get(game.h2h.marketId), resolve);
-    const home = raw.find((outcome: any) => outcome.kind === 'HOME')?.name ?? null;
-    const away = raw.find((outcome: any) => outcome.kind === 'AWAY')?.name ?? null;
+    const raw = marketOutcomes(game.h2h, prices.get(game.h2h.marketId), resolve);
+    const { home, away } = eventSides(String(event.name ?? ''), raw, resolve);
     const h2h = raw
-      .filter((outcome: any) => outcome.kind !== 'DRAW' && outcome.kind !== 'TIE')
-      .map((outcome: any) => ({ name: outcome.name, price: outcome.price }));
+      .filter((outcome) => outcome.kind !== 'DRAW' && outcome.kind !== 'TIE')
+      .map((outcome) => ({ name: outcome.name, price: outcome.price }));
     const extra = soccerLines.get(String(event.eventId));
     const spreadQuotes = game.spreads
-      ? (await marketOutcomes(game.spreads, prices.get(game.spreads.marketId), resolve))
-          .map((outcome: any) => ({ name: outcome.name, price: outcome.price, point: outcome.point }))
-      : await Promise.all(pickBalanced(extra?.spreads ?? [], prices).map(async (quote) => ({
-          name: await resolve(quote.label),
+      ? marketOutcomes(game.spreads, prices.get(game.spreads.marketId), resolve)
+          .map((outcome) => ({ name: outcome.name, price: outcome.price, point: outcome.point }))
+      : pickBalanced(extra?.spreads ?? [], prices).map((quote) => ({
+          name: resolve(quote.label),
           price: quote.price,
           point: quote.point,
-        })));
+        }));
     const totals = game.totals
-      ? (await marketOutcomes(game.totals, prices.get(game.totals.marketId), resolve))
-          .map((outcome: any) => ({ name: outcome.name, price: outcome.price, point: outcome.point }))
+      ? marketOutcomes(game.totals, prices.get(game.totals.marketId))
+          .map((outcome) => ({ name: outcome.name, price: outcome.price, point: outcome.point }))
       : pickBalanced(extra?.totals ?? [], prices).map((quote) => ({
           name: quote.label,
           price: quote.price,
@@ -475,8 +518,8 @@ export async function fanduelSlate(sportKey: string, from: string, to: string): 
       id: String(event.eventId),
       sport_key: sportKey,
       sport_title: event.name,
-      home_team: home || sidesFromName(String(event.name ?? '')).home,
-      away_team: away || sidesFromName(String(event.name ?? '')).away,
+      home_team: home,
+      away_team: away,
       commence_time: oddsStamp(event.openDate),
       bookmakers: [{
         key: 'fanduel',
@@ -488,16 +531,27 @@ export async function fanduelSlate(sportKey: string, from: string, to: string): 
         ],
       }],
     };
-  }));
-  return built;
+  });
 }
 
-function sidesFromName(name: string) {
+export function sidesFromName(name: string) {
   const at = name.split(' @ ');
   if (at.length === 2) return { away: at[0]!.trim(), home: at[1]!.trim() };
   const vs = name.split(' v ');
-  if (vs.length === 2) return { away: vs[0]!.trim(), home: vs[1]!.trim() };
+  if (vs.length === 2) return { home: vs[0]!.trim(), away: vs[1]!.trim() };
   return { away: 'Away', home: 'Home' };
+}
+
+/** Home and away from the moneyline. A missing side is taken from the event name and resolved. */
+export function eventSides(eventName: string, outcomes: { name: string; kind?: string }[], resolve: (name: string) => string) {
+  const fallback = sidesFromName(eventName);
+  const named = (side: string, kind: string) => {
+    const posted = outcomes.find((outcome) => outcome.kind === kind)?.name;
+    if (posted) return posted;
+    if (side === 'Home' || side === 'Away') return side;
+    return resolve(side);
+  };
+  return { home: named(fallback.home, 'HOME'), away: named(fallback.away, 'AWAY') };
 }
 
 function eventShell(eventId: string, event: any, markets: any[]) {

@@ -135,8 +135,13 @@ export function nameKey(name: string) {
   return fold(name).toLowerCase().replace(/\b(jr|sr|ii|iii|iv|v)\b/g, '').replace(/[^a-z0-9]/g, '');
 }
 
-function norm(name: string) {
+/** Folded team name that keeps spaces. Apostrophes and punctuation become spaces. */
+export function matchKey(name: string) {
   return fold(name).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function norm(name: string) {
+  return matchKey(name);
 }
 
 function canon(name: string) {

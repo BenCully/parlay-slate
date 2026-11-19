@@ -2,6 +2,14 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-19T01:14:14Z
+
+### FanDuel team names and separate cache files
+
+College names from FanDuel match the ESPN location, short name, and abbreviation, with the spaces kept. Sam Houston matches Bearkats. Paris St-G matches when ESPN lists that club more than once under the same name. A moneyline that posts only one side takes the other side from the event name, so Ole Miss, Mississippi State, and Alabama still match. Soccer `v` is home first. Totals stay Over and Under. A suspended runner is skipped, and a fractional American price is rounded. Team choice is not prompted. ESPN team lists use the same-day ESPN cache. A failed list keeps the FanDuel names.
+
+FanDuel cache files are `fanduel-` plus the request hash. An Odds API file keeps the hash it already had. `npm run odds` prints `ODDS_SOURCE=fanduel` on a FanDuel day. A FanDuel cache hit does not say the run spent Odds API credits. The public sportsbook app id is no longer stored under a name the secret scan treats as a key.
+
 ## 2026-11-19T00:22:30Z
 
 ### FanDuel player props

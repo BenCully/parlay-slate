@@ -3,7 +3,7 @@
 // The brief is the player's ESPN game log. No extra account.
 import { postedMarket } from '../odds/books.js';
 import { nameKey } from '../espn/evidence.js';
-import { oddsCreditFloor, oddsGet, oddsReplayDay, type OddsBook, type OddsOutcome } from '../odds/cache.js';
+import { oddsCreditFloor, oddsGet, oddsReplayDay, oddsSource, type OddsBook, type OddsOutcome } from '../odds/cache.js';
 import type { PlayerRef } from '../espn/players.js';
 
 export type YesCopy = {
@@ -367,7 +367,9 @@ export async function loadPropBoard(games: SlateGame[], profile: PropProfile) {
       : `Odds cache hit for ${cachedGames} of ${games.length} ${requests}.`);
     notes.push(replay
       ? `${cachedGames} of ${games.length} prop boards used odds saved on ${replay}.`
-      : `${cachedGames} of ${games.length} prop boards used cached Odds API prices. npm start -- --fresh spends credits on new lines.`);
+      : oddsSource() === 'fanduel'
+        ? `${cachedGames} of ${games.length} prop boards used cached FanDuel prices. npm start -- --fresh reads FanDuel again.`
+        : `${cachedGames} of ${games.length} prop boards used cached Odds API prices. npm start -- --fresh spends credits on new lines.`);
   }
   return {
     claims,
