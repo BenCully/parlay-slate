@@ -48,25 +48,19 @@ export function textValue(value: unknown): string {
   return '';
 }
 
-export async function mapPool<T, R>(items: T[], size: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const out: R[] = new Array(items.length);
-  let next = 0;
-  const worker = async () => {
-    for (;;) {
-      const index = next;
-      next += 1;
-      if (index >= items.length) return;
-      out[index] = await fn(items[index] as T);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(size, items.length) }, () => worker()));
-  return out;
-}
+export { mapPool } from '../slate/pool.js';
 
-async function once(url: string, headers: Record<string, string>, book: string): Promise<unknown> {
+type JsonInit = { method?: string; body?: string };
+
+async function once(url: string, headers: Record<string, string>, book: string, init?: JsonInit): Promise<unknown> {
   let res: Response;
   try {
-    res = await fetch(url, { headers, signal: AbortSignal.timeout(DIRECT_TIMEOUT_MS) });
+    res = await fetch(url, {
+      method: init?.method,
+      body: init?.body,
+      headers,
+      signal: AbortSignal.timeout(DIRECT_TIMEOUT_MS),
+    });
   } catch {
     throw new BookError(book, null, false);
   }
@@ -78,12 +72,12 @@ async function once(url: string, headers: Record<string, string>, book: string):
   }
 }
 
-/** GET JSON. One retry when the network fails before a response. */
-export async function fetchJson(url: string, headers: Record<string, string>, book: string): Promise<unknown> {
+/** JSON request. One retry when the network fails before a response. The error is the book and the status. */
+export async function fetchJson(url: string, headers: Record<string, string>, book: string, init?: JsonInit): Promise<unknown> {
   try {
-    return await once(url, headers, book);
+    return await once(url, headers, book, init);
   } catch (error) {
     if (!(error instanceof BookError) || error.answered) throw error;
-    return once(url, headers, book);
+    return once(url, headers, book, init);
   }
 }

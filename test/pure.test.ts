@@ -7,16 +7,17 @@ import { readStartArgs, requireRunKeys, selectDecisionModel, verify } from '../d
 import { espnCacheFresh, ESPN_DAY_HOURS, ESPN_INJURY_HOURS, readEspnCache, writeEspnCache } from '../espn/cache.js';
 import { aliasTarget, clubKey, createEvidence, nameKey, NFL_EVIDENCE, type GameBrief } from '../espn/evidence.js';
 import { bookLabel, postedMarket } from '../odds/books.js';
-import { listSavedOdds, oddsCacheName, oddsCreditFloor, oddsGet, oddsReplayCommand, oddsRequestKey, oddsRequestSource, oddsSlateFamily, oddsSourceLabel, parseOddsBody, preferFreshRecord, recordMergedBook, resetMergedBooks, setOddsReplay } from '../odds/cache.js';
+import { listSavedOdds, oddsCacheName, oddsGet, oddsReplayCommand, oddsRequestKey, oddsRequestSource, oddsSlateFamily, oddsSourceLabel, parseOddsBody, preferFreshRecord, recordMergedBook, resetMergedBooks, setOddsReplay } from '../odds/cache.js';
 import { attachSpreads, betMgmCacheSize, betMgmSessionOpen, holdBetMgmSport, normalizeBetMgm } from '../odds/betmgm.js';
-import { normalizeCaesars } from '../odds/caesars.js';
-import { bookCacheSize, bookEventId, compositeId, mergeBookEvents, mergePropEvent, resetBookReads, splitBookId } from '../odds/direct.js';
+import { caesarsDataUrl, normalizeCaesars } from '../odds/caesars.js';
+import { bookCacheSize, bookEventId, compositeId, mergeBookEvents, mergePropEvent, placeholderEvent, resetBookReads, splitBookId } from '../odds/direct.js';
 import { draftKingsCacheSize, draftkingsFetch, normalizeDraftKings } from '../odds/draftkings.js';
 import { buildTeamIndex, chooseDriverBets, classifyProp, eventSides, fanduelFetch, marketOutcomes, pickBalanced, propOutcomes, resolveTeamName, sidesFromName } from '../odds/fanduel.js';
 import { balancedSpreads } from '../odds/lines.js';
-import { easternClock, quotaEntry } from '../odds/quota.js';
+import { easternClock, quotaEntry, quotaLogFile } from '../odds/quota.js';
 import { acquireRunLock } from '../scripts/lock.js';
-import { scrubError } from '../scripts/scrub.js';
+import { scrubError, scrubText } from '../scripts/scrub.js';
+import { mapPool } from '../slate/pool.js';
 import { archiveStamp, saveDecisionSnapshot } from '../scripts/snapshot.js';
 import { pickLayeredExtra } from '../props/board.js';
 import { realExtra as mlbRealExtra } from '../sports/baseball/index.js';
@@ -35,7 +36,7 @@ import {
   totalSlip,
   type Judgment,
 } from '../slate/board.js';
-import { easternDay, easternRange, oddsStamp, scoreboardEvents } from '../slate/window.js';
+import { easternDay, easternRange, oddsStamp, scoreboardEvents, upcomingWindow } from '../slate/window.js';
 import { savedOddsLabel, slateHeaders, type SavedSlate } from '../ui/screen.js';
 
 function withEnv(values: Record<string, string | undefined>, run: () => void) {
@@ -258,13 +259,6 @@ test('keys are required before a run, and the odds key is not one of them', () =
   }, () => {
     assert.throws(() => requireRunKeys('tail-jev'), /AUTOJEV_URL and AUTOJEV_API_KEY/);
   });
-});
-
-test('credit floor defaults to 30 and can be turned off', () => {
-  withEnv({ ODDS_CREDIT_FLOOR: undefined }, () => assert.equal(oddsCreditFloor(), 30));
-  withEnv({ ODDS_CREDIT_FLOOR: '0' }, () => assert.equal(oddsCreditFloor(), 0));
-  withEnv({ ODDS_CREDIT_FLOOR: '12.9' }, () => assert.equal(oddsCreditFloor(), 12));
-  withEnv({ ODDS_CREDIT_FLOOR: 'nope' }, () => assert.equal(oddsCreditFloor(), 30));
 });
 
 test('a failed ESPN read degrades the brief instead of throwing', async () => {
@@ -1028,12 +1022,14 @@ test('a same-day espn page is reused and a stale page is not', async () => {
 test('a live odds response writes a quota line without the url or the key', async () => {
   const dir = await mkdtemp(`${tmpdir()}/parlay-quota-`);
   const previousLog = process.env.QUOTA_LOG;
+  const previousPath = process.env.QUOTA_LOG_PATH;
   const previousDir = process.env.ODDS_CACHE_DIR;
   const previousCache = process.env.ODDS_CACHE;
   const previousSource = process.env.ODDS_SOURCE;
   const original = globalThis.fetch;
   const log = `${dir}/quota.jsonl`;
-  process.env.QUOTA_LOG = log;
+  process.env.QUOTA_LOG = '1';
+  process.env.QUOTA_LOG_PATH = log;
   process.env.ODDS_CACHE_DIR = dir;
   process.env.ODDS_CACHE = '1';
   process.env.ODDS_SOURCE = 'the-odds-api';
@@ -1084,6 +1080,8 @@ test('a live odds response writes a quota line without the url or the key', asyn
     setOddsReplay(null);
     if (previousLog == null) delete process.env.QUOTA_LOG;
     else process.env.QUOTA_LOG = previousLog;
+    if (previousPath == null) delete process.env.QUOTA_LOG_PATH;
+    else process.env.QUOTA_LOG_PATH = previousPath;
     process.env.QUOTA_LOG ??= '0';
     if (previousDir == null) delete process.env.ODDS_CACHE_DIR;
     else process.env.ODDS_CACHE_DIR = previousDir;
@@ -1742,4 +1740,187 @@ test('spread pairing keeps pickem and does not pair a team with itself', () => {
   ]);
   assert.equal(doubled.length, 2);
   assert.equal(new Set(doubled.map((side) => side.label)).size, 2);
+});
+
+test('scrubText replaces a key, a bearer token, and a tailnet address', () => {
+  const previousUrl = process.env.AUTOJEV_URL;
+  const previousKey = process.env.TYPESAFE_API_KEY;
+  process.env.AUTOJEV_URL = 'http://tailnet.example.test/v1';
+  process.env.TYPESAFE_API_KEY = 'typesafe-secret-value';
+  try {
+    const text = scrubText('failed http://tailnet.example.test/v1 key typesafe-secret-value Bearer other-token-value and apiKey=abcd1234');
+    assert.equal(text.includes('tailnet.example'), false);
+    assert.equal(text.includes('typesafe-secret'), false);
+    assert.equal(text.includes('other-token-value'), false);
+    assert.equal(text.includes('abcd1234'), false);
+    assert.match(text, /AUTOJEV_URL/);
+    assert.match(text, /TYPESAFE_API_KEY/);
+    assert.match(text, /Bearer \*\*\*/);
+    assert.match(text, /apiKey=\*\*\*/);
+  } finally {
+    if (previousUrl == null) delete process.env.AUTOJEV_URL;
+    else process.env.AUTOJEV_URL = previousUrl;
+    if (previousKey == null) delete process.env.TYPESAFE_API_KEY;
+    else process.env.TYPESAFE_API_KEY = previousKey;
+  }
+});
+
+test('QUOTA_LOG=1 uses the default file and a path is QUOTA_LOG_PATH', () => {
+  const previousLog = process.env.QUOTA_LOG;
+  const previousPath = process.env.QUOTA_LOG_PATH;
+  try {
+    process.env.QUOTA_LOG = '0';
+    delete process.env.QUOTA_LOG_PATH;
+    assert.equal(quotaLogFile(), '');
+    process.env.QUOTA_LOG = '1';
+    assert.equal(quotaLogFile(), '');
+    process.env.QUOTA_LOG_PATH = '/tmp/parlay-quota.jsonl';
+    assert.equal(quotaLogFile(), '/tmp/parlay-quota.jsonl');
+    process.env.QUOTA_LOG = '/tmp/not-a-file';
+    delete process.env.QUOTA_LOG_PATH;
+    assert.equal(quotaLogFile(), '');
+  } finally {
+    if (previousLog == null) delete process.env.QUOTA_LOG;
+    else process.env.QUOTA_LOG = previousLog;
+    if (previousPath == null) delete process.env.QUOTA_LOG_PATH;
+    else process.env.QUOTA_LOG_PATH = previousPath;
+    process.env.QUOTA_LOG ??= '0';
+  }
+});
+
+test('a unicode minus is an American price', () => {
+  const rows = marketOutcomes(
+    { runners: [{ selectionId: 1, runnerName: 'Chiefs', runnerStatus: 'ACTIVE' }] },
+    { runnerDetails: [{ selectionId: 1, runnerStatus: 'ACTIVE', winRunnerOdds: { americanDisplayOdds: { americanOdds: '\u2212110' } } }] },
+  );
+  assert.equal(rows[0]?.price, -110);
+  const props = propOutcomes(
+    { key: 'player_anytime_td', kind: 'yes' },
+    [{ runnerName: 'Player', odds: '\u2212110', runnerStatus: 'ACTIVE' }],
+  );
+  assert.equal(props[0]?.price, -110);
+});
+
+test('a FanDuel error names the status and leaves the body out', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async () => new Response('<html>blocked</html>', { status: 403 });
+  try {
+    await assert.rejects(
+      fanduelFetch('https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds?regions=us&markets=h2h'),
+      (error: Error) => {
+        assert.match(error.message, /403/);
+        assert.equal(error.message.includes('<html'), false);
+        return true;
+      },
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('a Caesars data path stays on the Illinois host', () => {
+  const url = caesarsDataUrl('/v4/events/abc-1');
+  assert.match(url, /americanwagering\.com/);
+  assert.match(url, /\/sb\/v4\/events\/abc-1$/);
+  assert.throws(() => caesarsDataUrl('https://evil.test/x'), /Caesars/);
+  assert.throws(() => caesarsDataUrl('/v4/../admin'), /Caesars/);
+});
+
+test('a placeholder event is Home at Away with no prices', () => {
+  const row = placeholderEvent('e1', 'draftkings', '2026-12-01T18:00:00Z');
+  assert.equal(row.home_team, 'Home');
+  assert.equal(row.away_team, 'Away');
+  assert.equal(row.id, 'e1');
+  assert.equal(row.bookmakers[0]?.key, 'draftkings');
+  assert.equal(row.bookmakers[0]?.markets.length, 0);
+});
+
+test('a doubleheader stays two games and each game keeps both books', () => {
+  const game = (id: string, time: string, book: string) => ({
+    id,
+    commence_time: time,
+    home_team: 'New York Yankees',
+    away_team: 'Boston Red Sox',
+    bookmakers: [{
+      key: book,
+      markets: [{
+        key: 'h2h',
+        outcomes: [
+          { name: 'Boston Red Sox', price: -150 },
+          { name: 'New York Yankees', price: 130 },
+        ],
+      }],
+    }],
+  });
+  const early = '2026-06-01T17:05:00Z';
+  const near = '2026-06-01T18:00:00Z';
+  const late = '2026-06-01T23:10:00Z';
+  const merged = mergeBookEvents([
+    { source: 'fanduel', events: [game('fd-early', early, 'fanduel'), game('fd-late', late, 'fanduel')] },
+    { source: 'draftkings', events: [game('dk-early', early, 'draftkings'), game('dk-near', near, 'draftkings'), game('dk-late', late, 'draftkings')] },
+  ]);
+  assert.equal(merged.length, 2);
+  assert.equal(merged.every((event) => event.bookmakers.map((book) => book.key).sort().join() === 'draftkings,fanduel'), true);
+  const ids = merged.map((event) => event.id).join(' ');
+  assert.match(ids, /fd-early/);
+  assert.match(ids, /dk-early/);
+  assert.match(ids, /fd-late/);
+  assert.match(ids, /dk-late/);
+  assert.equal(ids.includes('dk-near'), false);
+});
+
+test('mapPool keeps order and limits how many run at once', async () => {
+  let active = 0;
+  let max = 0;
+  const result = await mapPool([1, 2, 3, 4, 5], 2, async (item) => {
+    active += 1;
+    max = Math.max(max, active);
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    active -= 1;
+    return item * 10;
+  });
+  assert.deepEqual(result, [10, 20, 30, 40, 50]);
+  assert.equal(max, 2);
+});
+
+test('upcomingWindow starts at the first game still ahead', async () => {
+  const original = globalThis.fetch;
+  const now = Date.now();
+  const old = new Date(now - 2 * 24 * 60 * 60 * 1000).toISOString();
+  const soon = new Date(now + 2 * 60 * 60 * 1000).toISOString();
+  const later = new Date(now + 26 * 60 * 60 * 1000).toISOString();
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    week: { number: 12 },
+    events: [{ date: old }, { date: soon }, { date: later }],
+  }), { status: 200 });
+  try {
+    const window = await upcomingWindow(
+      'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard',
+      'NFL',
+      undefined,
+      (status) => `scoreboard ${status}`,
+      { tailMs: 4 * 60 * 60 * 1000, label: (board) => `NFL week ${board.week?.number}` },
+    );
+    assert.equal(window.label, 'NFL week 12');
+    assert.ok(Math.abs(Date.parse(window.from) - (Date.parse(soon) - 60 * 60 * 1000)) < 2000);
+    assert.ok(Math.abs(Date.parse(window.to) - (Date.parse(later) + 4 * 60 * 60 * 1000)) < 2000);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('a lock older than 12 hours is taken over', async () => {
+  const dir = await mkdtemp(`${tmpdir()}/parlay-lock-stale-`);
+  try {
+    const old = new Date(Date.now() - 13 * 60 * 60 * 1000).toISOString();
+    await writeFile(`${dir}/slate.lock`, `${process.pid}\n${old}\n`);
+    const release = await acquireRunLock(dir);
+    assert.match(await readFile(`${dir}/slate.lock`, 'utf8'), new RegExp(`^${process.pid}\\n`));
+    await release();
+    const fresh = new Date().toISOString();
+    await writeFile(`${dir}/slate.lock`, `${process.pid}\n${fresh}\n`);
+    await assert.rejects(acquireRunLock(dir), new RegExp(`pid ${process.pid}`));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

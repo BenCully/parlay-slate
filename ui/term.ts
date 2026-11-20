@@ -64,6 +64,12 @@ export function takeEvents(input: Buffer): { pending: Buffer; events: InputEvent
       pending = pending.subarray(1);
       continue;
     }
+    // Alt+key is escape plus one byte. It is not the start of a CSI or SS3 sequence.
+    if (pending.length >= 2 && pending[1] !== 0x5b && pending[1] !== 0x4f) {
+      events.push({ key: '\x1b' });
+      pending = pending.subarray(1);
+      continue;
+    }
     if (pending.length < 3) break;
     if (pending[1] === 0x5b && pending[2] === 0x3c) {
       const text = pending.toString('utf8');

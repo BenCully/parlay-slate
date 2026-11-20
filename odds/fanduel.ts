@@ -4,12 +4,12 @@
 // Team names resolve to ESPN display names with no prompt. A miss keeps the FanDuel name.
 import { readEspnCache, writeEspnCache } from '../espn/cache.js';
 import { aliasTarget, clubKey, matchKey, nameKey } from '../espn/evidence.js';
-import { bookEventId } from './direct.js';
+import { bookEventId, placeholderEvent } from './direct.js';
+import { americanPrice, fetchJson } from './http.js';
 import { oddsStamp } from '../slate/window.js';
 
 const SPORTSBOOK_APP = 'FhMFpcPWXMeyZxOx';
 const REGION = 'IL';
-const TIMEOUT = 30_000;
 const LAYOUT = 'https://api.sportsbook.fanduel.com/sbapi/content-managed-page';
 const PRICES = 'https://smp.il.sportsbook.fanduel.com/api/sports/fixedodds/readonly/v1/getMarketPrices?priceHistory=0';
 const FACET = 'https://scan.il.sportsbook.fanduel.com/api/sports/navigation/facet/v1.0/search';
@@ -63,18 +63,8 @@ function headers() {
   return { 'x-sportsbook-region': REGION, 'x-app-version': '1.0', 'User-Agent': 'Mozilla/5.0' };
 }
 
-async function getJson(url: string, init?: RequestInit): Promise<any> {
-  let res: Response;
-  try {
-    res = await fetch(url, { ...init, headers: { ...headers(), ...(init?.headers ?? {}) }, signal: AbortSignal.timeout(TIMEOUT) });
-  } catch (error) {
-    throw new Error('FanDuel did not answer.');
-  }
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`FanDuel ${res.status}: ${body.slice(0, 200)}`);
-  }
-  return res.json();
+async function getJson(url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }): Promise<any> {
+  return fetchJson(url, { ...headers(), ...init?.headers }, 'FanDuel', { method: init?.method, body: init?.body });
 }
 
 function layoutUrl(sport: FanDuelSport) {
@@ -91,8 +81,20 @@ function layoutUrl(sport: FanDuelSport) {
 
 const ESPN_TIMEOUT_MS = 10_000;
 
-function teamsFrom(data: any) {
-  return (data?.sports?.[0]?.leagues ?? []).flatMap((league: any) => (league.teams ?? []).map((row: any) => row.team ?? row));
+export type EspnTeam = {
+  id?: string | number;
+  displayName?: string;
+  shortDisplayName?: string;
+  location?: string;
+  abbreviation?: string;
+  name?: string;
+};
+
+function teamsFrom(data: unknown): EspnTeam[] {
+  const root = data as { sports?: { leagues?: { teams?: { team?: EspnTeam }[] }[] }[] };
+  return (root?.sports?.[0]?.leagues ?? []).flatMap((league) =>
+    (league.teams ?? []).map((row) => row.team ?? (row as EspnTeam)),
+  );
 }
 
 async function espnTeams(sport: FanDuelSport) {
@@ -113,12 +115,18 @@ async function espnTeams(sport: FanDuelSport) {
     console.error(`ESPN teams returned ${res.status} for ${sport.teams}. FanDuel names will be used as posted.`);
     return [];
   }
-  const body = await res.json();
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    console.error(`ESPN teams returned an unreadable body for ${sport.teams}. FanDuel names will be used as posted.`);
+    return [];
+  }
   await writeEspnCache(url, body);
   return teamsFrom(body);
 }
 
-function teamKeys(team: any, match: 'football' | 'club') {
+function teamKeys(team: EspnTeam, match: 'football' | 'club') {
   const key = (value: unknown) => {
     const text = String(value ?? '').trim();
     if (!text) return '';
@@ -130,8 +138,8 @@ function teamKeys(team: any, match: 'football' | 'club') {
   return [...new Set(keys.filter(Boolean))];
 }
 
-export function buildTeamIndex(teams: any[], match: 'football' | 'club') {
-  const index = new Map<string, any[]>();
+export function buildTeamIndex(teams: EspnTeam[], match: 'football' | 'club') {
+  const index = new Map<string, EspnTeam[]>();
   for (const team of teams) {
     for (const key of teamKeys(team, match)) {
       const list = index.get(key) ?? [];
@@ -142,12 +150,12 @@ export function buildTeamIndex(teams: any[], match: 'football' | 'club') {
   return index;
 }
 
-function teamId(team: any) {
+function teamId(team: EspnTeam) {
   return String(team?.id ?? team?.displayName ?? '');
 }
 
-function pickIndexed(list: any[], key: string, match: 'football' | 'club') {
-  const unique: any[] = [];
+function pickIndexed(list: EspnTeam[], key: string, match: 'football' | 'club') {
+  const unique: EspnTeam[] = [];
   for (const team of list) {
     if (unique.some((item) => teamId(item) === teamId(team))) continue;
     unique.push(team);
@@ -169,7 +177,7 @@ function pickIndexed(list: any[], key: string, match: 'football' | 'club') {
  * ESPN display name for a posted team, or the posted name when nothing matches.
  * A short form such as "IND Colts" tries the nickname and the abbreviation after the full name misses.
  */
-export function resolvePostedName(name: string, index: Map<string, any[]>, match: 'football' | 'club') {
+export function resolvePostedName(name: string, index: Map<string, EspnTeam[]>, match: 'football' | 'club') {
   const attempt = (value: string) => {
     const hit = resolveTeamName(value, index, match);
     return hit === value ? null : hit;
@@ -206,7 +214,7 @@ export async function teamResolver(sportKey: string): Promise<(name: string) => 
 }
 
 /** ESPN display name for a FanDuel team, or the FanDuel name when nothing matches. */
-export function resolveTeamName(name: string, index: Map<string, any[]>, match: 'football' | 'club') {
+export function resolveTeamName(name: string, index: Map<string, EspnTeam[]>, match: 'football' | 'club') {
   const key = match === 'football' ? matchKey(name) : clubKey(name);
   const direct = pickIndexed(index.get(key) ?? [], key, match);
   if (direct) return String(direct.displayName);
@@ -217,7 +225,7 @@ export function resolveTeamName(name: string, index: Map<string, any[]>, match: 
     if (via) return String(via.displayName);
   }
   if (match === 'club' && key.length >= 4) {
-    const hits = new Map<string, any>();
+    const hits = new Map<string, EspnTeam>();
     for (const [candidateKey, list] of index) {
       if (candidateKey.length < 4) continue;
       if (!candidateKey.includes(key) && !key.includes(candidateKey)) continue;
@@ -228,8 +236,27 @@ export function resolveTeamName(name: string, index: Map<string, any[]>, match: 
   return name;
 }
 
-export function marketOutcomes(market: any, price: any, resolve?: (name: string) => string) {
-  const runners = new Map<string, any>();
+type FdRunner = {
+  selectionId?: string | number;
+  runnerName?: string;
+  runnerStatus?: string;
+  result?: { type?: string };
+  homeOrAway?: string;
+};
+
+type FdDetail = {
+  selectionId?: string | number;
+  runnerStatus?: string;
+  handicap?: number | null;
+  winRunnerOdds?: { americanDisplayOdds?: { americanOdds?: unknown } };
+};
+
+export function marketOutcomes(
+  market: { runners?: FdRunner[] },
+  price: { runnerDetails?: FdDetail[] } | undefined,
+  resolve?: (name: string) => string,
+) {
+  const runners = new Map<string, FdRunner>();
   for (const runner of market?.runners ?? []) runners.set(String(runner.selectionId), runner);
   const rows = [];
   for (const detail of price?.runnerDetails ?? []) {
@@ -237,14 +264,12 @@ export function marketOutcomes(market: any, price: any, resolve?: (name: string)
     if (!runner) continue;
     const status = detail.runnerStatus ?? runner.runnerStatus;
     if (status && status !== 'ACTIVE') continue;
-    const rawOdds = detail.winRunnerOdds?.americanDisplayOdds?.americanOdds;
-    if (rawOdds == null || rawOdds === '') continue;
-    const odds = Number(rawOdds);
-    if (!Number.isFinite(odds)) continue;
+    const odds = americanPrice(detail.winRunnerOdds?.americanDisplayOdds?.americanOdds);
+    if (odds == null) continue;
     const runnerName = String(runner.runnerName ?? '');
     rows.push({
       name: resolve ? resolve(runnerName) : runnerName,
-      price: Math.round(odds),
+      price: odds,
       point: detail.handicap ?? null,
       kind: runner.result?.type ?? runner.homeOrAway,
     });
@@ -372,7 +397,7 @@ export type PropRunner = {
   runnerName: string;
   handicap?: number | null;
   resultType?: string | null;
-  odds?: number | null;
+  odds?: unknown;
   runnerStatus?: string | null;
 };
 
@@ -401,9 +426,8 @@ export function propOutcomes(classified: PropClass, runners: PropRunner[]): Prop
   const rows: PropOutcome[] = [];
   for (const runner of runners) {
     if (runner.runnerStatus && runner.runnerStatus !== 'ACTIVE') continue;
-    const odds = Number(runner.odds);
-    if (!Number.isFinite(odds)) continue;
-    const price = Math.round(odds);
+    const price = americanPrice(runner.odds);
+    if (price == null) continue;
     const name = runner.runnerName.trim();
     if (!name || name.toLowerCase() === 'no') continue;
     if (classified.kind === 'yes') {
@@ -444,13 +468,13 @@ function soccerQuotes(market: any, price: any) {
   const rows: { label: string; price: number; point: number }[] = [];
   for (const runner of market.runners ?? []) {
     const detail = byId.get(String(runner.selectionId));
-    const odds = Number(detail?.winRunnerOdds?.americanDisplayOdds?.americanOdds);
+    const odds = americanPrice(detail?.winRunnerOdds?.americanDisplayOdds?.americanOdds);
     const status = detail?.runnerStatus ?? runner.runnerStatus;
     if (status && status !== 'ACTIVE') continue;
-    if (!Number.isFinite(odds)) continue;
+    if (odds == null) continue;
     const parsed = parseSoccerRunner(String(runner.runnerName ?? ''));
     if (!parsed || !Number.isFinite(parsed.point)) continue;
-    rows.push({ label: parsed.label, price: Math.round(odds), point: parsed.point });
+    rows.push({ label: parsed.label, price: odds, point: parsed.point });
   }
   return rows;
 }
@@ -558,11 +582,9 @@ function runnerQuotes(market: any, price: any): DriverQuote[] {
     const runner = runners.get(String(detail.selectionId)) ?? detail;
     const status = detail.runnerStatus ?? runner.runnerStatus;
     if (status && status !== 'ACTIVE') continue;
-    const raw = detail.winRunnerOdds?.americanDisplayOdds?.americanOdds
-      ?? runner.winRunnerOdds?.americanDisplayOdds?.americanOdds;
-    if (raw == null || raw === '') continue;
-    const odds = Math.round(Number(raw));
-    if (!Number.isFinite(odds)) continue;
+    const odds = americanPrice(detail.winRunnerOdds?.americanDisplayOdds?.americanOdds
+      ?? runner.winRunnerOdds?.americanDisplayOdds?.americanOdds);
+    if (odds == null) continue;
     const name = String(runner.runnerName ?? '').trim();
     if (!name) continue;
     rows.push({
@@ -745,6 +767,12 @@ export function eventSides(eventName: string, outcomes: { name: string; kind?: s
   return { home: named(fallback.home, 'HOME'), away: named(fallback.away, 'AWAY') };
 }
 
+function emptyEvent(eventId: string, event: any) {
+  const name = String(event?.name ?? '');
+  if (!name.includes(' @ ') && !name.includes(' v ')) return placeholderEvent(String(eventId), 'fanduel', event?.openDate);
+  return eventShell(eventId, event, []);
+}
+
 function eventShell(eventId: string, event: any, markets: any[]) {
   const sides = sidesFromName(String(event?.name ?? ''));
   const open = event?.openDate ? oddsStamp(event.openDate) : oddsStamp(new Date().toISOString());
@@ -769,7 +797,7 @@ async function loadEvent(eventId: string) {
 /** One event's player props, in the shape `/events/{id}/odds` returns. */
 export async function fanduelProps(eventId: string, wanted: Set<string>) {
   const event = await loadEvent(eventId);
-  if (!wanted.size) return eventShell(eventId, event, []);
+  if (!wanted.size) return emptyEvent(eventId, event);
   const listed = await facetSearch(
     { eventIds: [Number(eventId)], maxResults: 0 },
     [{ type: 'MARKET_TYPE' }],
@@ -783,7 +811,7 @@ export async function fanduelProps(eventId: string, wanted: Set<string>) {
     const classified = classifyProp(type);
     return classified != null && wanted.has(classified.key);
   });
-  if (!selected.length) return eventShell(eventId, event, []);
+  if (!selected.length) return emptyEvent(eventId, event);
 
   const found = await facetSearch(
     { eventIds: [Number(eventId)], marketTypeCodes: selected, attachments: ['MARKET'] },
@@ -821,7 +849,7 @@ export async function fanduelProps(eventId: string, wanted: Set<string>) {
 }
 
 /** Read either a slate URL or an events URL from The Odds API shape and answer from FanDuel. */
-export async function fanduelFetch(url: string): Promise<any> {
+export async function fanduelFetch(url: string): Promise<unknown> {
   const parsed = new URL(url);
   const sportKey = /\/sports\/([^/]+)/.exec(parsed.pathname)?.[1];
   if (!sportKey) throw new Error(`FanDuel could not read the sport from ${parsed.pathname}.`);

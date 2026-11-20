@@ -31,7 +31,8 @@ export function showOptions(state: UiState, ctx: FormContext): Promise<OptionsRe
   return withAltScreen((session) => {
     const finish = (next: OptionsResult['effect']) => {
       effect = next;
-      session.restore();
+      const view = current.action === 'view-last' || current.action === 'view-snapshot' || current.action === 'compare';
+      session.restore(next === 'run' && view ? { leaveAlt: false } : undefined);
     };
     const draw = () => {
       if (session.closed) return;

@@ -2,12 +2,29 @@
 // No login. The device id is generated for this process and is not a secret.
 // A 403 stops. Do not scrape a WAF token.
 import { randomUUID } from 'node:crypto';
-import { bookEventId, decodedEventId } from './direct.js';
+import { bookEventId, decodedEventId, placeholderEvent } from './direct.js';
 import { pickBalanced, teamResolver, type LineQuote } from './fanduel.js';
 import { americanPrice, BookError, fetchJson, inWindow, BROWSER } from './http.js';
 import { bookEvent, outcome, type Market, type Outcome } from './shape.js';
 
 const BASE = 'https://api.americanwagering.com/regions/us/locations/il/brands/czr/sb';
+const DATA_PATH = /^\/[\w\-/.]+$/;
+
+/** A Caesars tab path stays on this host and under the Illinois prefix. */
+export function caesarsDataUrl(dataPath: string): string {
+  if (!DATA_PATH.test(dataPath) || dataPath.includes('..')) throw new BookError('Caesars', null, false);
+  const base = new URL(BASE.endsWith('/') ? BASE : `${BASE}/`);
+  const url = new URL(dataPath.replace(/^\//, ''), base);
+  if (url.host !== base.host || !url.pathname.startsWith(base.pathname)) throw new BookError('Caesars', null, false);
+  return url.toString();
+}
+
+const competitionReads = new Map<Competition, Promise<unknown>>();
+
+/** Drop the per-run competition pages. `resetBookReads` calls this. */
+export function resetCaesars() {
+  competitionReads.clear();
+}
 
 type Competition = {
   sportId: string;
@@ -264,7 +281,7 @@ function propMarkets(event: CaesarsEvent, wanted?: Set<string>): Market[] {
 }
 
 async function get(path: string) {
-  return fetchJson(`${BASE}${path}`, headers(), 'Caesars');
+  return fetchJson(caesarsDataUrl(path), headers(), 'Caesars');
 }
 
 function eventsOf(body: unknown): CaesarsEvent[] {
@@ -290,9 +307,10 @@ function secondaryTabs(body: unknown) {
 }
 
 async function menuId(competition: Competition) {
-  const menu = await get('/v3/sports-menu') as { sportId?: string; competitions?: { id?: string; name?: string }[] }[];
+  const menu = await get('/v3/sports-menu');
+  if (!Array.isArray(menu)) return '';
   const names = new Set(competition.names.map((name) => name.toLowerCase()));
-  for (const sport of menu) {
+  for (const sport of menu as { sportId?: string; competitions?: { id?: string; name?: string }[] }[]) {
     if (sport.sportId !== competition.sportId) continue;
     for (const row of sport.competitions ?? []) {
       if (row.id && names.has(String(row.name ?? '').toLowerCase())) return row.id;
@@ -301,7 +319,7 @@ async function menuId(competition: Competition) {
   return '';
 }
 
-async function loadCompetition(competition: Competition) {
+async function readCompetition(competition: Competition) {
   const path = `/v4/sports/${competition.sportId}/competitions/${competition.id}/tabs`;
   try {
     return await get(path);
@@ -312,6 +330,17 @@ async function loadCompetition(competition: Competition) {
     competition.id = id;
     return get(`/v4/sports/${competition.sportId}/competitions/${id}/tabs`);
   }
+}
+
+async function loadCompetition(competition: Competition) {
+  const cached = competitionReads.get(competition);
+  if (cached) return cached;
+  const pending = readCompetition(competition).catch((error: unknown) => {
+    competitionReads.delete(competition);
+    throw error;
+  });
+  competitionReads.set(competition, pending);
+  return pending;
 }
 
 function mergeEvents(groups: CaesarsEvent[][]) {
@@ -337,7 +366,10 @@ async function slate(sportKey: string, from: string, to: string) {
   const body = await loadCompetition(competition);
   const groups = [eventsOf(body)];
   const extra = secondaryTabs(body).filter((tab) => competition.soccer && /^(spread|total goals)$/i.test(tab.displayName ?? ''));
-  for (const tab of extra) groups.push(eventsOf(await get(tab.dataPath ?? '')));
+  for (const tab of extra) {
+    if (!tab.dataPath) continue;
+    groups.push(eventsOf(await get(tab.dataPath)));
+  }
   const resolve = await teamResolver(sportKey);
   return normalizeCaesars(mergeEvents(groups), { from, to, resolve, mode: 'slate' });
 }
@@ -350,7 +382,7 @@ function propTab(name: string) {
 async function props(sportKey: string, eventId: string, wanted: Set<string>) {
   const competition = COMPETITIONS[sportKey];
   if (!competition || competition.empty || !wanted.size) {
-    return bookEvent(eventId, new Date().toISOString(), 'Home', 'Away', 'williamhill_us', []);
+    return placeholderEvent(eventId, 'williamhill_us');
   }
   const eventBody = await get(`/v4/events/${eventId}`);
   const event = eventsOf(eventBody)[0] ?? (eventBody as CaesarsEvent);
@@ -358,7 +390,8 @@ async function props(sportKey: string, eventId: string, wanted: Set<string>) {
   const groups = [event];
   for (const tab of tabs) {
     try {
-      groups.push(...eventsOf(await get(tab.dataPath ?? '')));
+      if (!tab.dataPath) continue;
+      groups.push(...eventsOf(await get(tab.dataPath)));
     } catch (error) {
       if (error instanceof BookError && error.status === 404) continue;
       throw error;
@@ -368,13 +401,14 @@ async function props(sportKey: string, eventId: string, wanted: Set<string>) {
     const board = await loadCompetition(competition);
     const goalTabs = secondaryTabs(board).filter((tab) => /goalscorer|player shots$|player shots on target|assist|card/i.test(tab.displayName ?? ''));
     for (const tab of goalTabs) {
-      const found = eventsOf(await get(tab.dataPath ?? '')).filter((row) => row.id === eventId);
+      if (!tab.dataPath) continue;
+      const found = eventsOf(await get(tab.dataPath)).filter((row) => row.id === eventId);
       groups.push(...found);
     }
   }
   const resolve = await teamResolver(sportKey);
   const normalized = normalizeCaesars(mergeEvents([groups]), { from: '', to: '', resolve, mode: 'props', wanted });
-  return normalized[0] ?? bookEvent(eventId, event.startTime ?? new Date().toISOString(), 'Home', 'Away', 'williamhill_us', []);
+  return normalized[0] ?? placeholderEvent(eventId, 'williamhill_us', event.startTime);
 }
 
 /** Read a slate URL or an events URL and answer from Caesars. */
@@ -387,7 +421,7 @@ export async function caesarsFetch(url: string): Promise<unknown> {
     if (!raw) throw new Error('Caesars could not read the event.');
     const eventId = decodedEventId(raw);
     const segment = bookEventId(raw, 'czr');
-    if (!segment) return bookEvent(eventId, new Date().toISOString(), 'Home', 'Away', 'williamhill_us', []);
+    if (!segment) return placeholderEvent(eventId, 'williamhill_us');
     const wanted = new Set((parsed.searchParams.get('markets') ?? '').split(',').filter(Boolean));
     return props(sportKey, segment, wanted);
   }

@@ -4,6 +4,8 @@ import { postedMarket } from '../odds/books.js';
 import type { GameBrief } from '../espn/evidence.js';
 import { ageLabel, isDirectOddsSource, oddsGet, oddsReplayDay, oddsRequestSource, oddsSource, oddsSourceLabel } from '../odds/cache.js';
 import { loadPropBoard, type SlateGame } from '../props/board.js';
+import { scrubText } from '../scripts/scrub.js';
+import { mapPool } from './pool.js';
 import type { SavedBoard, SavedProps } from '../ui/screen.js';
 import type { BoardSource } from '../sports/types.js';
 
@@ -123,11 +125,11 @@ async function getLegs(oddsKey: string, from: string, to: string, threeWay: bool
   return { legs, cachedAt: result.cached ? result.savedAt : null, omitted: result.omitted ?? [] };
 }
 
-let teamShorts: Map<string, string> | undefined;
-
-function nick(name: string) {
-  return teamShorts?.get(name) ?? name.split(' ').at(-1) ?? name;
+function lastWord(name: string) {
+  return name.split(' ').at(-1) ?? name;
 }
+
+type Nick = (name: string) => string;
 
 function listNames(names: string[]) {
   if (names.length <= 1) return names[0] ?? '';
@@ -242,7 +244,11 @@ function slipVerb(status: 'ready' | 'review') {
   return status === 'ready' ? 'Take' : 'Lean';
 }
 
-export function moneylineSlip(leg: { team: string; price: number; phrase?: string }, judgment: Judgment) {
+export function moneylineSlip(
+  leg: { team: string; price: number; phrase?: string },
+  judgment: Judgment,
+  nick: Nick = lastWord,
+) {
   if (judgment.kind === 'checked' && judgment.verdict === 'supported') {
     const who = nick(leg.team);
     const bet = leg.phrase ? `${who} ${leg.phrase}` : who;
@@ -251,7 +257,11 @@ export function moneylineSlip(leg: { team: string; price: number; phrase?: strin
   return 'Pass';
 }
 
-export function spreadSlip(leg: { team: string; opponent: string; spread: { point: number } | null }, check: Check) {
+export function spreadSlip(
+  leg: { team: string; opponent: string; spread: { point: number } | null },
+  check: Check,
+  nick: Nick = lastWord,
+) {
   const point = leg.spread!.point;
   const verb = slipVerb(check.status);
   if (check.verdict === 'supported') return `${verb} ${nick(leg.team)} ${signed(point)}`;
@@ -279,9 +289,9 @@ function callSentence(judgment: Judgment, thing: string) {
   return `Verify says the brief does not establish the ${thing} at ${judgment.confidence.toFixed(2)}. Left out.`;
 }
 
-function decisionComment(leg: Leg, brief: GameBrief, judgment: Judgment) {
+function decisionComment(leg: Leg, brief: GameBrief, judgment: Judgment, nick: Nick, shortNames: boolean) {
   const opp = nick(brief.opponent.name);
-  const article = teamShorts ? '' : 'the ';
+  const article = shortNames ? '' : 'the ';
   const site = leg.home ? `hosting ${article}${opp}` : `at ${article}${opp}`;
   const facts = `${brief.pick.record}, ${restPhrase(brief.pick.rest)}, ${site} (${brief.opponent.record}, ${restPhrase(brief.opponent.rest)}).`;
   const notes = [brief.pick, brief.opponent]
@@ -298,7 +308,7 @@ function outrightComment(leg: Leg, brief: GameBrief, judgment: Judgment) {
   return [price, brief.text, callSentence(judgment, 'bet')].filter(Boolean).join(' ');
 }
 
-function spreadComment(leg: Leg, brief: GameBrief, check: Check) {
+function spreadComment(leg: Leg, brief: GameBrief, check: Check, nick: Nick) {
   const quote = leg.spread!;
   return [
     atBook(`${nick(leg.team)} ${signed(quote.point)} (${priceText(quote.price)})`, leg.spreadBook),
@@ -312,7 +322,7 @@ function supportChance(check: Check) {
   return check.probabilities?.supported ?? check.confidence;
 }
 
-function totalComment(leg: Leg, brief: GameBrief, side: 'Over' | 'Under', check: Check, otherSide: 'Over' | 'Under', other: Check) {
+function totalComment(leg: Leg, brief: GameBrief, side: 'Over' | 'Under', check: Check, otherSide: 'Over' | 'Under', other: Check, nick: Nick) {
   const quote = leg.total!;
   const price = side === 'Over' ? quote.overPrice : quote.underPrice;
   return [
@@ -365,11 +375,11 @@ async function verifyAll(claims: { id: string; claim: string; evidence: string }
     try {
       const result = await verify({ claims: slice, minConfidence: 0.8 });
       checks.push(...result.checks);
-      if (result.problem) problems.push(result.problem);
+      if (result.problem) problems.push(scrubText(result.problem));
       if (result.stopped) break;
       consecutive = result.problem && result.checks.length === 0 ? consecutive + 1 : 0;
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'The decision check failed.';
+      const message = scrubText(error instanceof Error ? error.message : 'The decision check failed.');
       problems.push(message);
       console.error(message);
       consecutive += 1;
@@ -390,7 +400,7 @@ async function propTab(pending: ReturnType<typeof loadPropBoard>): Promise<Saved
     if (board.remaining != null) console.log(`Odds API credits remaining: ${board.remaining}.`);
     return board.finish(verified.checks, verified.problem);
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Player props failed.';
+    const message = scrubText(error instanceof Error ? error.message : 'Player props failed.');
     return { title: 'Player props', groups: [], note: message };
   }
 }
@@ -398,11 +408,7 @@ async function propTab(pending: ReturnType<typeof loadPropBoard>): Promise<Saved
 export type BuiltBoard = SavedBoard & { props: SavedProps };
 
 export async function buildBoard(source: BoardSource, day: string | undefined): Promise<BuiltBoard> {
-  try {
-    return await buildBoardInner(source, day);
-  } finally {
-    teamShorts = undefined;
-  }
+  return buildBoardInner(source, day);
 }
 
 async function buildBoardInner(source: BoardSource, day: string | undefined): Promise<BuiltBoard> {
@@ -433,16 +439,17 @@ async function buildBoardInner(source: BoardSource, day: string | undefined): Pr
     return { title, groups: [], note: noteFor('No qualifying legs.'), props };
   }
 
-  const briefs = await Promise.all(legs.map(async (leg) => ({ leg, brief: await source.getBrief(leg) })));
+  const briefs = await mapPool(legs, 6, async (leg) => ({ leg, brief: await source.getBrief(leg) }));
+  const shorts = new Map<string, string>();
   if (source.shortNames) {
-    teamShorts = new Map();
     for (const { leg, brief } of briefs) {
-      teamShorts.set(leg.team, brief.pick.short);
-      teamShorts.set(leg.opponent, brief.opponent.short);
-      teamShorts.set(brief.pick.name, brief.pick.short);
-      teamShorts.set(brief.opponent.name, brief.opponent.short);
+      shorts.set(leg.team, brief.pick.short);
+      shorts.set(leg.opponent, brief.opponent.short);
+      shorts.set(brief.pick.name, brief.pick.short);
+      shorts.set(brief.opponent.name, brief.opponent.short);
     }
   }
+  const nick = (name: string) => shorts.get(name) ?? lastWord(name);
   let rankProblem = '';
   let ranked: Awaited<ReturnType<typeof rerank>>;
   try {
@@ -452,9 +459,9 @@ async function buildBoardInner(source: BoardSource, day: string | undefined): Pr
       topK: RERANK_TOP_K,
       minRelevance: RERANK_MIN,
     });
-    rankProblem = ranked.problem ?? '';
+    rankProblem = scrubText(ranked.problem ?? '');
   } catch (error) {
-    rankProblem = error instanceof Error ? error.message : 'The decision check failed.';
+    rankProblem = scrubText(error instanceof Error ? error.message : 'The decision check failed.');
     console.error(rankProblem);
     ranked = { items: [], scored: [] };
   }
@@ -519,8 +526,8 @@ async function buildBoardInner(source: BoardSource, day: string | undefined): Pr
         priceText(leg.price),
         `${(leg.implied * 100).toFixed(1)}%`,
         decisionLabel(judgment),
-        moneylineSlip(leg, judgment),
-        outright ? outrightComment(leg, brief, judgment) : decisionComment(leg, brief, judgment),
+        moneylineSlip(leg, judgment, nick),
+        outright ? outrightComment(leg, brief, judgment) : decisionComment(leg, brief, judgment, nick, source.shortNames),
       ];
       const spreadCheck = verdict.get(`${leg.id}:spread`);
       const spread = !leg.spread
@@ -532,13 +539,13 @@ async function buildBoardInner(source: BoardSource, day: string | undefined): Pr
               signed(leg.spread.point),
               priceText(leg.spread.price),
               sideLabel(spreadCheck),
-              spreadSlip(leg, spreadCheck),
-              spreadComment(leg, brief, spreadCheck),
+              spreadSlip(leg, spreadCheck, nick),
+              spreadComment(leg, brief, spreadCheck, nick),
             ];
       if (outright) return [moneyline];
       const overCheck = verdict.get(`${leg.id}:over`);
       const underCheck = verdict.get(`${leg.id}:under`);
-      const total = totalRow(leg, brief, overCheck, underCheck);
+      const total = totalRow(leg, brief, overCheck, underCheck, nick);
       return [moneyline, spread, total];
     });
 
@@ -549,7 +556,7 @@ async function buildBoardInner(source: BoardSource, day: string | undefined): Pr
   const props = propBoard ? await propTab(propBoard) : skippedProps;
   if (keep.length < 2) {
     const names = keep.map((leg) => nick(leg.team));
-    const onlyName = names.length === 1 ? (teamShorts ? names[0] : `the ${names[0]}`) : '';
+    const onlyName = names.length === 1 ? (source.shortNames ? names[0] : `the ${names[0]}`) : '';
     const only = onlyName ? ` Only ${onlyName} cleared 0.80.` : '';
     const note = [`No parlay. A ticket needs two legs the brief supports at 0.80 or better.${only}`, problem].filter(Boolean).join(' ');
     return { title, groups, note: noteFor(note), props };
@@ -581,7 +588,7 @@ async function buildBoardInner(source: BoardSource, day: string | undefined): Pr
   return { title, groups, ticketGroups, note: noteFor(problem || undefined), props };
 }
 
-function totalRow(leg: Leg, brief: GameBrief, overCheck: Check | undefined, underCheck: Check | undefined) {
+function totalRow(leg: Leg, brief: GameBrief, overCheck: Check | undefined, underCheck: Check | undefined, nick: Nick) {
   if (!leg.total) return ['  Over/Under', 'n/a', 'n/a', 'No line', 'Pass', 'No book posted a total.'];
   if (!overCheck || !underCheck) {
     const quote = atBook(`Total ${points(leg.total.point)}`, leg.totalBook);
@@ -599,6 +606,6 @@ function totalRow(leg: Leg, brief: GameBrief, overCheck: Check | undefined, unde
     priceText(price),
     sideLabel(check),
     totalSlip(side, leg.total.point, check),
-    totalComment(leg, brief, side, check, otherSide, other),
+    totalComment(leg, brief, side, check, otherSide, other, nick),
   ];
 }

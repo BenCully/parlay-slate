@@ -2,6 +2,20 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-20T18:26:31Z
+
+### The rest of the review
+
+A saved Eastern day before today opens on Current slate. Alt+key is delivered instead of waiting for another key. Ctrl-C during a launcher run removes `runs/slate.lock` and exits 130. That handler is off once the slate screen opens. View, View snapshot, and Compare stay on the alternate screen. A lock older than 12 hours is taken over.
+
+Briefs run six at a time. NFL, NCAA, and soccer use the same upcoming window as the other sports, so a finished game does not set it. Soccer still looks four days past the last game still ahead. An empty soccer board is four Eastern days. NFL and NCAA still label the week.
+
+Board notes pass through `scrubText` before they are saved. That replaces a key, a bearer token, and `AUTOJEV_URL`. Team short names belong to the board being built.
+
+A same-day doubleheader stays two games. FanDuel errors name the status and leave the body out. BetMGM sends the curl URL on stdin, and that host must be https. A Caesars tab path must stay on the Illinois host. Competition pages are reused until the next run. Placeholder events share one helper. A unicode minus is a price. Each book's body is checked before a merged read keeps it. `QUOTA_LOG=1` writes the default file. `QUOTA_LOG_PATH` chooses another file. `ODDS_CREDIT_FLOOR` is gone, because live reads no longer return a credit header. The 0.60 gate still reads the posted price, vig included.
+
+CI reads Node from `.nvmrc`, which is 24. An offline test pins the favorite gate, the top 8, verify at 0.80, and the tickets.
+
 ## 2026-11-20T18:03:52Z
 
 ### Lean under 0.80

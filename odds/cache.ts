@@ -251,15 +251,6 @@ function recordFresh(record: CacheRecord, saved: number) {
   return age <= maxAgeMs();
 }
 
-/** Live prop requests stop once the last Odds API header is under this. Cached reads still run. 0 disables the stop. */
-export function oddsCreditFloor() {
-  const raw = process.env.ODDS_CREDIT_FLOOR;
-  if (raw == null || raw.trim() === '') return 30;
-  const value = Number(raw);
-  if (!Number.isFinite(value) || value < 0) return 30;
-  return Math.floor(value);
-}
-
 export function ageLabel(iso: string) {
   const ms = Date.now() - Date.parse(iso);
   const minutes = Math.max(1, Math.round(ms / 60_000));

@@ -66,10 +66,12 @@ export function defaultForm(today: string, source: OddsSourceId): SlateForm {
 }
 
 export function formFromSettings(settings: TuiSettings, today: string): SlateForm {
+  const saved = settings.day ?? '';
+  const dayOk = DAY.test(saved) && saved >= today;
   return {
     action: settings.action,
-    dateMode: settings.dateMode,
-    day: settings.day ?? today,
+    dateMode: dayOk ? settings.dateMode : 'current',
+    day: dayOk ? saved : today,
     model: settings.model,
     oddsSource: settings.oddsSource,
     fresh: settings.fresh,

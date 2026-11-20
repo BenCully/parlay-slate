@@ -52,16 +52,21 @@ export function quotaEntry(request: string, source: QuotaSource, remaining: numb
   };
 }
 
-function quotaFile() {
-  if (process.env.QUOTA_LOG === '0') return '';
-  if (process.env.QUOTA_LOG) return process.env.QUOTA_LOG;
+/** `0` is off. `1` or `true` uses the default file, or `QUOTA_LOG_PATH` when that is set. */
+export function quotaLogFile() {
+  const flag = process.env.QUOTA_LOG?.trim();
+  if (flag === '0') return '';
+  const custom = process.env.QUOTA_LOG_PATH?.trim();
+  const on = flag === '1' || flag === 'true' || flag == null || flag === '';
+  if (!on && flag) return custom || (process.env.NODE_TEST_CONTEXT ? '' : defaultFile);
+  if (custom) return custom;
   if (process.env.NODE_TEST_CONTEXT) return '';
   return defaultFile;
 }
 
-/** Append one line. QUOTA_LOG=0 turns it off. Tests stay quiet unless they set QUOTA_LOG. */
+/** Append one line. QUOTA_LOG=0 turns it off. QUOTA_LOG=1 uses the default file. QUOTA_LOG_PATH picks another file. */
 export async function appendQuota(entry: QuotaEntry) {
-  const file = quotaFile();
+  const file = quotaLogFile();
   if (!file) return;
   const line = `${JSON.stringify(entry)}\n`;
   const run = chain.then(async () => {

@@ -10,7 +10,7 @@ The pictures below are the saved Eastern day 2026-11-15. `npm run view -- 2026-1
 
 ## How it works
 
-A slate run loads US moneylines, spreads, and totals. Bare `npm start` in a terminal opens the launcher first. `npm run slate` runs the slate directly. A moneyline stays on the board when its implied win probability is at least 0.60, about -150. Closer prices, such as -148, stay off. The script writes a brief for each favorite, then asks the decision model two questions.
+A slate run loads US moneylines, spreads, and totals. Bare `npm start` in a terminal opens the launcher first. `npm run slate` runs the slate directly. A moneyline stays on the board when its implied win probability is at least 0.60, about -150. That 0.60 gate reads the posted price, vig included. Closer prices, such as -148, stay off. The script writes a brief for each favorite, then asks the decision model two questions.
 
 1. `rerank` keeps up to 8 legs with relevance at least 0.60. The NFL asks which NFL team is very likely to win. NCAA asks the same about a college team. Soccer asks which team is very likely to win the match. The NHL, NBA, and MLB ask which team in that league is very likely to win the game. Formula 1 asks which driver is very likely to win the race, finish top 2, or finish on the podium. A favorite under that cutoff is `Dropped`.
 2. `verify` reads the brief. The leg is ready for a ticket when the verdict supports the win and the confidence is at least 0.80. On Autojev that confidence is the probability of the chosen verdict. A choice response can also carry a separate confidence field. The gate uses the chosen option's probability.

@@ -3,7 +3,8 @@
 // The brief is the player's ESPN game log. No extra account.
 import { postedMarket } from '../odds/books.js';
 import { nameKey } from '../espn/evidence.js';
-import { isDirectOddsSource, oddsCreditFloor, oddsGet, oddsReplayDay, oddsSource, oddsSourceLabel, type OddsBook, type OddsOutcome } from '../odds/cache.js';
+import { isDirectOddsSource, oddsGet, oddsReplayDay, oddsSource, oddsSourceLabel, type OddsBook, type OddsOutcome } from '../odds/cache.js';
+import { mapPool } from '../slate/pool.js';
 import type { PlayerRef } from '../espn/players.js';
 
 export type YesCopy = {
@@ -193,20 +194,6 @@ export function pickLayeredExtra<T extends { implied: number; market: string; pl
   return null;
 }
 
-async function mapPool<T, R>(items: T[], size: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const out: R[] = new Array(items.length);
-  let next = 0;
-  const worker = async () => {
-    for (;;) {
-      const index = next++;
-      if (index >= items.length) return;
-      out[index] = await fn(items[index]);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(size, items.length) }, () => worker()));
-  return out;
-}
-
 export type PropProfile = {
   sport: string;
   markets: string[];
@@ -292,7 +279,6 @@ export async function loadPropBoard(games: SlateGame[], profile: PropProfile) {
   let remaining: number | null = null;
   let cachedGames = 0;
   let skipped = 0;
-  const floor = oddsCreditFloor();
   if (!games.length) {
     return {
       claims: [] as Claim[],
@@ -306,9 +292,8 @@ export async function loadPropBoard(games: SlateGame[], profile: PropProfile) {
   const what = profile.logLabel ? `${profile.logLabel} player props` : 'player props';
   console.log(`Pulling ${what} for ${games.length} game${games.length === 1 ? '' : 's'}...`);
   const events = await mapPool(games, 3, async (game) => {
-    const cacheOnly = remaining != null && remaining < floor;
     try {
-      const result = await fetchEvent(game.eventId, profile, cacheOnly);
+      const result = await fetchEvent(game.eventId, profile, false);
       if (result.skipped) {
         skipped += 1;
         return { game, books: [] as OddsBook[], error: '', skipped: true };
@@ -337,7 +322,7 @@ export async function loadPropBoard(games: SlateGame[], profile: PropProfile) {
 
   if (skipped) {
     const left = remaining == null ? '' : ` ${remaining} credits remaining.`;
-    const line = `Skipped ${skipped} prop board${skipped === 1 ? '' : 's'}.${left} Under the floor of ${floor} Odds API credits.`;
+    const line = `Skipped ${skipped} prop board${skipped === 1 ? '' : 's'}.${left}`;
     console.log(line);
     notes.push(line);
   }
