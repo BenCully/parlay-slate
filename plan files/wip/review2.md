@@ -30,23 +30,23 @@ Status values: `Open`, `In progress`, `Done`, `Partial`, `Blocked`, `Needs decis
 
 | ID | Sev | Finding | Reopens | Status | Change | Check | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| R2-1 | High | Formula 1 board is always empty | O-8 | Open | | | |
-| R2-2 | Medium | NHL extra prop is always empty; the 0.60 choice wasn't a decision | P-1 | Open | | | Decided: a featured extra may be under 0.60. See Decisions. |
-| R2-3 | Medium | A family cache hit with a narrower window drops games | O-3 | Open | | | |
-| R2-4 | Medium | `test/board.test.ts` fails after 2027-01-15 | B-1 | Open | | | |
-| R2-5 | Medium | Caesars path check may reject real tab paths | O-L2 | Open | | | Speculative; no saved Caesars file |
-| R2-6 | Low | `npm run slate -- 11/20` prints a stack trace | B-3 | Open | | | |
-| R2-7 | Low | Alt plus a key quits the launcher | PR-6 | Open | | | Decided: option 1, one ignored event |
-| R2-8 | Low | Book error notes skip `scrubText` | S-1 | Open | | | |
-| R2-9 | Low | README sentence contradicts its screenshot | B-2 | Open | | | Decided: reword, no rerun |
-| R2-10 | Low | A stale kickoff time can split one game in two | O-7 | Open | | | Speculative |
-| R2-11 | Low | Several fixes are tested only at the helper | P-1, P-3, P-4, O-4, O-10, O-11 | Open | | | |
-| R2-12 | Low | `mapPool` keeps starting reads after a failure | P-3 | Open | | | |
-| R2-13 | Low | Football extras still allow tiny unders | P-2 | Open | | | Existed before the fixes |
-| R2-14 | Low | Leftover `ODDS_CREDIT_FLOOR` comment | O-L6 | Open | | | |
-| R2-15 | Low | An old `QUOTA_LOG=/path` is silently ignored | O-L5 | Open | | | |
-| R2-16 | Low | `AGENTS.md` rule edits weren't marked for sign-off | P-4 | Open | | | Decided: keep the sentences, change "listed" to "still ahead" |
-| R2-17 | Low | `review.md` tracker housekeeping | PR-3 | Open | | | Decided: edit the merged PR #5 description |
+| R2-1 | High | Formula 1 board is always empty | O-8 | Done | `odds/books.ts`, `slate/board.ts`, `test/pure.test.ts`, `test/board.test.ts` | `postedMarket` outright returns FanDuel. An F1 board with one driver at -150 has one leg. | |
+| R2-2 | Medium | NHL extra prop is always empty; the 0.60 choice wasn't a decision | P-1 | Done | `props/board.ts`, `AGENTS.md`, `test/pure.test.ts` | `loadPropBoard` picks saves at +105 and skips the power-play Under. The empty team uses the new missing text. | `requireLikely` is gone. A featured extra may be under 0.60. |
+| R2-3 | Medium | A family cache hit with a narrower window drops games | O-3 | Done | `odds/cache.ts`, `AGENTS.md`, `test/pure.test.ts` | An 11-21 save misses an 11-21 through 11-25 `cacheOnly` read. A wide save hit for 11-22 keeps that day. A newer narrow save does not hide the wide one. | |
+| R2-4 | Medium | `test/board.test.ts` fails after 2027-01-15 | B-1 | Done | `test/board.test.ts` | Kickoff is one day ahead. Ten tickets, sorted by hit rate. A -160/-155 game is not on one ticket. Briefs peak at 6. | |
+| R2-5 | Medium | Caesars path check may reject real tab paths | O-L2 | Done | `odds/caesars.ts`, `test/pure.test.ts` | `Total%20Goals` and a query succeed. `..`, `%2e%2e`, and `//evil.example` throw. | No saved Caesars file yet, so no fixture was added. |
+| R2-6 | Low | `npm run slate -- 11/20` prints a stack trace | B-3 | Done | `scripts/parlays.ts`, `test/pure.test.ts` | Spawned `scripts/parlays.ts 11/20`. Exit 1, `Date must be YYYY-MM-DD.` on stderr, no `at readStartArgs`. | |
+| R2-7 | Low | Alt plus a key quits the launcher | PR-6 | Done | `ui/term.ts`, `test/tui.test.ts` | `\x1bq` is one event. `reduceForm` returns `effect: none`. | A lone Esc still quits. The splash still treats it as any key. |
+| R2-8 | Low | Book error notes skip `scrubText` | S-1 | Done | `odds/direct.ts`, `props/board.ts`, `test/pure.test.ts` | `booksFetch` for an unknown sport puts `TYPESAFE_API_KEY` in the omitted note and not the value. | The per-game props error is scrubbed at the same point. |
+| R2-9 | Low | README sentence contradicts its screenshot | B-2 | Done | `README.md` | Docs only. The sentence says this save predates Lean. | No changelog entry of its own. No rerun. |
+| R2-10 | Low | A stale kickoff time can split one game in two | O-7 | Done | `odds/direct.ts`, `test/pure.test.ts` | FanDuel at 13:05 and DraftKings at 16:30 merge. The doubleheader test still returns two events. | |
+| R2-11 | Low | Several fixes are tested only at the helper | P-1, P-3, P-4, O-4, O-10, O-11 | Done | `test/board.test.ts`, `test/pure.test.ts` | Call sites: prop board, brief pool of 6, the three windows, a partial store, a one-team spread, an HTML team list, and a Lean prop slip. | P-1 is the R2-2 test. |
+| R2-12 | Low | `mapPool` keeps starting reads after a failure | P-3 | Done | `slate/pool.ts`, `test/pure.test.ts` | Six items, size 2, item 1 throws. At most 3 calls start. | |
+| R2-13 | Low | Football extras still allow tiny unders | P-2 | Done | `sports/football/props.ts`, `test/pure.test.ts` | Passing touchdowns Under 0.5 is false. Over 1.5 is true. Field goals Under 1.5 is false. | |
+| R2-14 | Low | Leftover `ODDS_CREDIT_FLOOR` comment | O-L6 | Done | `odds/cache.ts` | Comment only. `skipped` means a `cacheOnly` read missed. | |
+| R2-15 | Low | An old `QUOTA_LOG=/path` is silently ignored | O-L5 | Done | `odds/quota.ts`, `AGENTS.md`, `test/pure.test.ts` | `QUOTA_LOG=/tmp/x.jsonl` warns once and writes that file. | |
+| R2-16 | Low | `AGENTS.md` rule edits weren't marked for sign-off | P-4 | Done | `AGENTS.md` | NHL, NBA, MLB, and Formula 1 now say the first game or race still ahead. A finished game does not set the window. | README does not say "first listed game". |
+| R2-17 | Low | `review.md` tracker housekeeping | PR-3 | Done | `plan files/wip/review.md` | Each former "Not committed" cell now says `455ec7e`. PR-3 is Done. | The current PR #5 body does not contain the alt-screen sentence, so it was not edited. |
 
 ### Decisions
 
@@ -73,6 +73,23 @@ YYYY-MM-DDTHH:MM:SSZ  ID  Status  What changed, or why it stopped
 2026-11-20T18:40:00Z  R2-9  Open  Ben chose to reword, without a rerun.
 2026-11-20T18:40:00Z  R2-17  Open  Ben OK'd editing the merged PR #5 description.
 2026-11-20T18:40:00Z  O-L7  Not a bug  Caesars spread signs match the other books in the saved books- files. Recorded in review.md.
+2026-11-20T19:06:54Z  R2-1  Done  An outright moneyline may have one outcome. An F1 board test drives getLegs.
+2026-11-20T19:06:54Z  R2-2  Done  A featured extra may be under 0.60. The missing row names a featured player.
+2026-11-20T19:06:54Z  R2-3  Done  A family hit must cover the requested window.
+2026-11-20T19:06:54Z  R2-4  Done  The board test kickoff is one day ahead, with 10 sorted tickets.
+2026-11-20T19:06:54Z  R2-5  Done  Caesars paths allow percent-encoding and a query, and still reject traversal.
+2026-11-20T19:06:54Z  R2-6  Done  A bad slate date prints one line and exits 1.
+2026-11-20T19:06:54Z  R2-7  Done  Alt plus a key is one ignored event.
+2026-11-20T19:06:54Z  R2-8  Done  Book error notes go through scrubText.
+2026-11-20T19:06:54Z  R2-9  Done  The README says this save predates Lean.
+2026-11-20T19:06:54Z  R2-10  Done  One listing stays one game unless a book lists the matchup twice.
+2026-11-20T19:06:54Z  R2-11  Done  The earlier fixes now have call-site tests.
+2026-11-20T19:06:54Z  R2-12  Done  mapPool stops taking new items after a failure.
+2026-11-20T19:06:54Z  R2-13  Done  Football extras skip tiny passing-touchdown and field-goal unders.
+2026-11-20T19:06:54Z  R2-14  Done  The skipped comment no longer names the credit floor.
+2026-11-20T19:06:54Z  R2-15  Done  A path in QUOTA_LOG warns once and is still used.
+2026-11-20T19:06:54Z  R2-16  Done  NHL, NBA, MLB, and Formula 1 say the first game still ahead.
+2026-11-20T19:06:54Z  R2-17  Done  review.md names 455ec7e. PR #5 has no alt-screen sentence to replace.
 
 ---
 

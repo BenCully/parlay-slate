@@ -2,6 +2,22 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-20T19:06:54Z
+
+### Review 2
+
+A Formula 1 driver with one moneyline is a leg again. `postedMarket` accepts a single moneyline when the sport is outright.
+
+A featured extra can be priced under 0.60. A price of 0.60 or better still wins when one is posted. The missing row says no featured player had a usable extra. Football passing touchdowns and field goals skip the tiny unders.
+
+A family cache hit is used only when the saved window covers the request. A newer save that does not cover it no longer hides an older one that does.
+
+Alt plus a key is one ignored event. A bad `npm run slate` date prints one line and exits 1. `mapPool` stops taking new work after a failure. One listing of a game stays one game when the kickoff times disagree. A book has to list the matchup twice before those times split it. A Caesars tab path may be percent-encoded and may include a query. Book error notes go through `scrubText`.
+
+`QUOTA_LOG` set to a file path warns once and still writes there. Use `QUOTA_LOG_PATH` for that file, and set `QUOTA_LOG=1`.
+
+The NHL, NBA, MLB, and Formula 1 windows start one hour before the first game still ahead. A finished game does not set them. The board test builds its kickoff from the clock, so it does not expire in 2027.
+
 ## 2026-11-20T18:26:31Z
 
 ### The rest of the review

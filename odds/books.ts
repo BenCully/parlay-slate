@@ -19,8 +19,11 @@ export function bookLabel(book: { key?: string; title?: string }) {
   return key || 'the book';
 }
 
-function marketReady(market: string, outcomes: OddsOutcome[], threeWay: boolean) {
-  if (market === 'h2h') return outcomes.length >= (threeWay ? 3 : 2);
+function marketReady(market: string, outcomes: OddsOutcome[], threeWay: boolean, outright: boolean) {
+  if (market === 'h2h') {
+    if (outright) return outcomes.length >= 1;
+    return outcomes.length >= (threeWay ? 3 : 2);
+  }
   if (market === 'spreads') return outcomes.length >= 2;
   if (market === 'totals') {
     const names = new Set(outcomes.map((outcome) => outcome.name));
@@ -33,16 +36,17 @@ function marketReady(market: string, outcomes: OddsOutcome[], threeWay: boolean)
 export function postedMarket(
   books: OddsBook[],
   market: string,
-  options?: { threeWay?: boolean },
+  options?: { threeWay?: boolean; outright?: boolean },
 ): { book: string; outcomes: OddsOutcome[] } | null {
   const preferred: OddsBook[] = [];
   for (const key of BOOKS) {
     const book = books.find((item) => item.key === key);
     if (book) preferred.push(book);
   }
+  const outright = Boolean(options?.outright);
   for (const book of [...preferred, ...books]) {
     const outcomes = book.markets.find((item) => item.key === market)?.outcomes;
-    if (outcomes?.length && marketReady(market, outcomes, Boolean(options?.threeWay))) {
+    if (outcomes?.length && marketReady(market, outcomes, Boolean(options?.threeWay), outright)) {
       return { book: bookLabel(book), outcomes };
     }
   }

@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { readStartArgs, requireRunKeys, selectDecisionModel, verify } from '../decisions/judge.js';
 import { espnCacheFresh, ESPN_DAY_HOURS, ESPN_INJURY_HOURS, readEspnCache, writeEspnCache } from '../espn/cache.js';
 import { aliasTarget, clubKey, createEvidence, nameKey, NFL_EVIDENCE, type GameBrief } from '../espn/evidence.js';
@@ -10,18 +11,22 @@ import { bookLabel, postedMarket } from '../odds/books.js';
 import { listSavedOdds, oddsCacheName, oddsGet, oddsReplayCommand, oddsRequestKey, oddsRequestSource, oddsSlateFamily, oddsSourceLabel, parseOddsBody, preferFreshRecord, recordMergedBook, resetMergedBooks, setOddsReplay } from '../odds/cache.js';
 import { attachSpreads, betMgmCacheSize, betMgmSessionOpen, holdBetMgmSport, normalizeBetMgm } from '../odds/betmgm.js';
 import { caesarsDataUrl, normalizeCaesars } from '../odds/caesars.js';
-import { bookCacheSize, bookEventId, compositeId, mergeBookEvents, mergePropEvent, placeholderEvent, resetBookReads, splitBookId } from '../odds/direct.js';
+import { bookCacheSize, bookEventId, booksFetch, compositeId, mergeBookEvents, mergePropEvent, placeholderEvent, resetBookReads, splitBookId } from '../odds/direct.js';
 import { draftKingsCacheSize, draftkingsFetch, normalizeDraftKings } from '../odds/draftkings.js';
-import { buildTeamIndex, chooseDriverBets, classifyProp, eventSides, fanduelFetch, marketOutcomes, pickBalanced, propOutcomes, resolveTeamName, sidesFromName } from '../odds/fanduel.js';
+import { buildTeamIndex, chooseDriverBets, classifyProp, eventSides, fanduelFetch, marketOutcomes, pickBalanced, propOutcomes, resolveTeamName, sidesFromName, teamResolver } from '../odds/fanduel.js';
 import { balancedSpreads } from '../odds/lines.js';
-import { easternClock, quotaEntry, quotaLogFile } from '../odds/quota.js';
+import { appendQuota, easternClock, quotaEntry, quotaLogFile } from '../odds/quota.js';
 import { acquireRunLock } from '../scripts/lock.js';
 import { scrubError, scrubText } from '../scripts/scrub.js';
 import { mapPool } from '../slate/pool.js';
 import { archiveStamp, saveDecisionSnapshot } from '../scripts/snapshot.js';
-import { pickLayeredExtra } from '../props/board.js';
+import { loadPropBoard, pickLayeredExtra, type PropProfile } from '../props/board.js';
 import { realExtra as mlbRealExtra } from '../sports/baseball/index.js';
 import { realExtra as nbaRealExtra } from '../sports/basketball/index.js';
+import { realExtra as footballRealExtra } from '../sports/football/props.js';
+import { nflLeague } from '../sports/football/nfl.js';
+import { ncaaLeague } from '../sports/football/ncaa.js';
+import { soccer } from '../sports/soccer/index.js';
 import { describeDriver, driverLine, driverLines, matchDriver } from '../sports/formula1/brief.js';
 import { realExtra as nhlRealExtra } from '../sports/hockey/index.js';
 import { absenceText, applyFotmob, matchClub, openAbsences, parseLeague, pickFixture, type FotmobLeague } from '../sports/soccer/fotmob.js';
@@ -434,7 +439,9 @@ test('the first book that posted the market is named on the row', () => {
     { key: 'draftkings', markets: [{ key: 'h2h', outcomes: [{ name: 'Chiefs', price: -170 }, { name: 'Raiders', price: 150 }] }] },
   ];
   assert.equal(postedMarket(oneSided, 'h2h')?.book, 'DraftKings');
-  assert.equal(postedMarket([{ key: 'fanduel', markets: [{ key: 'h2h', outcomes: [{ name: 'A', price: -150 }] }] }], 'h2h'), null);
+  const driver = [{ key: 'fanduel', markets: [{ key: 'h2h', outcomes: [{ name: 'Verstappen', price: -150 }] }] }];
+  assert.equal(postedMarket(driver, 'h2h'), null);
+  assert.equal(postedMarket(driver, 'h2h', { outright: true })?.book, 'FanDuel');
 });
 
 test('an empty odds body loses to a sibling that still has games', () => {
@@ -468,11 +475,11 @@ test('family lookup skips an empty slate when a fresh sibling has games', async 
   globalThis.fetch = async () => {
     throw new Error('odds fetch should not run');
   };
-  const gamesUrl = 'https://api.the-odds-api.com/v4/sports/icehockey_nhl/odds?apiKey=secret&regions=us&markets=h2h,spreads,totals&oddsFormat=american&commenceTimeFrom=2026-11-15T05:00:00Z&commenceTimeTo=2026-11-16T05:00:00Z';
-  const emptyUrl = 'https://api.the-odds-api.com/v4/sports/icehockey_nhl/odds?apiKey=secret&regions=us&markets=h2h,spreads,totals&oddsFormat=american&commenceTimeFrom=2026-11-18T05:00:00Z&commenceTimeTo=2026-11-19T05:00:00Z';
+  const gamesUrl = 'https://api.the-odds-api.com/v4/sports/icehockey_nhl/odds?apiKey=secret&regions=us&markets=h2h,spreads,totals&oddsFormat=american&commenceTimeFrom=2026-11-19T05:00:00Z&commenceTimeTo=2026-11-22T05:00:00Z';
+  const emptyUrl = 'https://api.the-odds-api.com/v4/sports/icehockey_nhl/odds?apiKey=secret&regions=us&markets=h2h,spreads,totals&oddsFormat=american&commenceTimeFrom=2026-11-20T05:00:00Z&commenceTimeTo=2026-11-23T05:00:00Z';
   const askUrl = 'https://api.the-odds-api.com/v4/sports/icehockey_nhl/odds?apiKey=secret&regions=us&markets=h2h,spreads,totals&oddsFormat=american&commenceTimeFrom=2026-11-20T05:00:00Z&commenceTimeTo=2026-11-21T05:00:00Z';
-  const staleGamesUrl = 'https://api.the-odds-api.com/v4/sports/basketball_nba/odds?apiKey=secret&regions=us&markets=h2h,spreads,totals&oddsFormat=american&commenceTimeFrom=2026-11-15T05:00:00Z&commenceTimeTo=2026-11-16T05:00:00Z';
-  const freshEmptyUrl = 'https://api.the-odds-api.com/v4/sports/basketball_nba/odds?apiKey=secret&regions=us&markets=h2h,spreads,totals&oddsFormat=american&commenceTimeFrom=2026-11-18T05:00:00Z&commenceTimeTo=2026-11-19T05:00:00Z';
+  const staleGamesUrl = 'https://api.the-odds-api.com/v4/sports/basketball_nba/odds?apiKey=secret&regions=us&markets=h2h,spreads,totals&oddsFormat=american&commenceTimeFrom=2026-11-19T05:00:00Z&commenceTimeTo=2026-11-22T05:00:00Z';
+  const freshEmptyUrl = 'https://api.the-odds-api.com/v4/sports/basketball_nba/odds?apiKey=secret&regions=us&markets=h2h,spreads,totals&oddsFormat=american&commenceTimeFrom=2026-11-20T05:00:00Z&commenceTimeTo=2026-11-23T05:00:00Z';
   const askNba = 'https://api.the-odds-api.com/v4/sports/basketball_nba/odds?apiKey=secret&regions=us&markets=h2h,spreads,totals&oddsFormat=american&commenceTimeFrom=2026-11-20T05:00:00Z&commenceTimeTo=2026-11-21T05:00:00Z';
   try {
     const now = Date.now();
@@ -1690,10 +1697,11 @@ test('BetMGM baseball keeps MLB and drops the other league', () => {
   assert.deepEqual(events.map((event) => event.id), ['mlb']);
 });
 
-test('an extra prop stays on a featured player at 0.60 or better', () => {
+test('an extra prop prefers 0.60 and can use a lower featured price', () => {
   const row = (player: string, impliedPrice: number) => ({ implied: impliedPrice, market: 'player_steals', player });
-  assert.equal(pickLayeredExtra('Lakers', [[], [row('Backup', 0.55)]], { requireLikely: true }), null);
+  assert.equal(pickLayeredExtra('Lakers', [[row('Star', 0.55)]])?.player, 'Star');
   assert.equal(pickLayeredExtra('Lakers', [[row('Star', 0.65)], [row('Other', 0.8)]])?.player, 'Star');
+  assert.equal(pickLayeredExtra('Lakers', [[], [row('Backup', 0.55)]])?.player, 'Backup');
 });
 
 test('rare stat unders are not extra props', () => {
@@ -1712,6 +1720,10 @@ test('rare stat unders are not extra props', () => {
   assert.equal(nhlRealExtra(option('player_power_play_points', 'Under', 1.5)), false);
   assert.equal(nhlRealExtra(option('player_power_play_points', 'Over', 0.5)), true);
   assert.equal(nhlRealExtra(option('player_total_saves', 'Over', 18.5)), true);
+  assert.equal(footballRealExtra(option('player_pass_tds', 'Under', 0.5)), false);
+  assert.equal(footballRealExtra(option('player_pass_tds', 'Over', 1.5)), true);
+  assert.equal(footballRealExtra(option('player_field_goals', 'Under', 1.5)), false);
+  assert.equal(footballRealExtra(option('player_field_goals', 'Over', 1.5)), true);
 });
 
 test('the main line beats an alternate that is closer on one side', () => {
@@ -1740,6 +1752,11 @@ test('spread pairing keeps pickem and does not pair a team with itself', () => {
   ]);
   assert.equal(doubled.length, 2);
   assert.equal(new Set(doubled.map((side) => side.label)).size, 2);
+  const alone = balancedSpreads([
+    { name: 'Bills', price: -110, point: -3.5 },
+    { name: 'Bills', price: -105, point: 3.5 },
+  ]);
+  assert.equal(alone.length, 0);
 });
 
 test('scrubText replaces a key, a bearer token, and a tailnet address', () => {
@@ -1776,9 +1793,6 @@ test('QUOTA_LOG=1 uses the default file and a path is QUOTA_LOG_PATH', () => {
     assert.equal(quotaLogFile(), '');
     process.env.QUOTA_LOG_PATH = '/tmp/parlay-quota.jsonl';
     assert.equal(quotaLogFile(), '/tmp/parlay-quota.jsonl');
-    process.env.QUOTA_LOG = '/tmp/not-a-file';
-    delete process.env.QUOTA_LOG_PATH;
-    assert.equal(quotaLogFile(), '');
   } finally {
     if (previousLog == null) delete process.env.QUOTA_LOG;
     else process.env.QUOTA_LOG = previousLog;
@@ -1822,8 +1836,16 @@ test('a Caesars data path stays on the Illinois host', () => {
   const url = caesarsDataUrl('/v4/events/abc-1');
   assert.match(url, /americanwagering\.com/);
   assert.match(url, /\/sb\/v4\/events\/abc-1$/);
+  const encoded = caesarsDataUrl('/v4/events/x/tabs/Total%20Goals');
+  assert.match(encoded, /americanwagering\.com/);
+  assert.match(encoded, /Total%20Goals/);
+  const queried = caesarsDataUrl('/v4/events/x?tab=1');
+  assert.match(queried, /\/sb\/v4\/events\/x\?tab=1$/);
   assert.throws(() => caesarsDataUrl('https://evil.test/x'), /Caesars/);
   assert.throws(() => caesarsDataUrl('/v4/../admin'), /Caesars/);
+  assert.throws(() => caesarsDataUrl('/../x'), /Caesars/);
+  assert.throws(() => caesarsDataUrl('%2e%2e/x'), /Caesars/);
+  assert.throws(() => caesarsDataUrl('//evil.example/x'), /Caesars/);
 });
 
 test('a placeholder event is Home at Away with no prices', () => {
@@ -1921,6 +1943,437 @@ test('a lock older than 12 hours is taken over', async () => {
     await writeFile(`${dir}/slate.lock`, `${process.pid}\n${fresh}\n`);
     await assert.rejects(acquireRunLock(dir), new RegExp(`pid ${process.pid}`));
   } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a family cache hit has to cover the requested window', async () => {
+  const dir = await mkdtemp(`${tmpdir()}/parlay-window-`);
+  const previousDir = process.env.ODDS_CACHE_DIR;
+  const previousSource = process.env.ODDS_SOURCE;
+  const previousCache = process.env.ODDS_CACHE;
+  const sport = 'https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds?regions=us&markets=h2h&oddsFormat=american';
+  const narrow = `${sport}&commenceTimeFrom=2026-11-21T05:00:00Z&commenceTimeTo=2026-11-22T05:00:00Z`;
+  const wide = `${sport}&commenceTimeFrom=2026-11-21T05:00:00Z&commenceTimeTo=2026-11-26T05:00:00Z`;
+  const day = `${sport}&commenceTimeFrom=2026-11-22T05:00:00Z&commenceTimeTo=2026-11-23T05:00:00Z`;
+  const event = (id: string, time: string) => ({
+    id,
+    commence_time: time,
+    home_team: 'Home',
+    away_team: 'Away',
+    bookmakers: [{ key: 'fanduel', markets: [{ key: 'h2h', outcomes: [{ name: 'Home', price: -150 }, { name: 'Away', price: 130 }] }] }],
+  });
+  const save = async (url: string, savedAt: string, body: unknown) => {
+    const { hash, request } = oddsRequestKey(url);
+    await writeFile(`${dir}/${oddsCacheName(hash, 'books')}`, `${JSON.stringify({
+      savedAt,
+      remaining: null,
+      body,
+      request,
+      source: 'books',
+    })}\n`);
+  };
+  process.env.ODDS_CACHE_DIR = dir;
+  process.env.ODDS_CACHE = '1';
+  process.env.ODDS_SOURCE = 'books';
+  setOddsReplay(null);
+  try {
+    await save(narrow, '2026-11-21T12:00:00Z', [event('nov-21', '2026-11-21T18:00:00Z')]);
+    const missed = await oddsGet(wide, undefined, { cacheOnly: true });
+    assert.equal(missed.skipped, true);
+    await save(wide, '2026-11-21T08:00:00Z', [
+      event('nov-21', '2026-11-21T18:00:00Z'),
+      event('nov-22', '2026-11-22T18:00:00Z'),
+      event('nov-25', '2026-11-25T18:00:00Z'),
+    ]);
+    const covered = await oddsGet(wide, undefined, { cacheOnly: true });
+    assert.equal(covered.cached, true);
+    assert.deepEqual((covered.body as { id: string }[]).map((row) => row.id).sort(), ['nov-21', 'nov-22', 'nov-25']);
+    const sliced = await oddsGet(day, undefined, { cacheOnly: true });
+    assert.equal(sliced.cached, true);
+    assert.deepEqual((sliced.body as { id: string }[]).map((row) => row.id), ['nov-22']);
+  } finally {
+    setOddsReplay(null);
+    if (previousDir == null) delete process.env.ODDS_CACHE_DIR;
+    else process.env.ODDS_CACHE_DIR = previousDir;
+    if (previousSource == null) delete process.env.ODDS_SOURCE;
+    else process.env.ODDS_SOURCE = previousSource;
+    if (previousCache == null) delete process.env.ODDS_CACHE;
+    else process.env.ODDS_CACHE = previousCache;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a partial merged read is stored and an empty partial slate is not', async () => {
+  const dir = await mkdtemp(`${tmpdir()}/parlay-partial-`);
+  const previousDir = process.env.ODDS_CACHE_DIR;
+  const previousSource = process.env.ODDS_SOURCE;
+  const previousCache = process.env.ODDS_CACHE;
+  const previousEspn = process.env.ESPN_CACHE_DIR;
+  const original = globalThis.fetch;
+  const game = {
+    id: 'mlb-1',
+    startDate: '2026-11-21T18:00:00Z',
+    fixtureType: 'PairGame',
+    stage: 'PreMatch',
+    isOpenForBetting: true,
+    competition: { name: { value: 'MLB' } },
+    participants: [
+      { name: { value: 'New York Yankees' }, properties: { type: 'HomeTeam' } },
+      { name: { value: 'Boston Red Sox' }, properties: { type: 'AwayTeam' } },
+    ],
+    optionMarkets: [{
+      name: { value: 'Moneyline' },
+      parameters: [
+        { key: 'MarketType', value: '2way' },
+        { key: 'Period', value: 'FullTime' },
+      ],
+      options: [
+        { name: { value: 'New York Yankees' }, price: { americanOdds: -150 }, status: 'Visible' },
+        { name: { value: 'Boston Red Sox' }, price: { americanOdds: 130 }, status: 'Visible' },
+      ],
+    }],
+  };
+  const filled = 'https://api.the-odds-api.com/v4/sports/baseball_mlb/odds?regions=us&markets=h2h&oddsFormat=american';
+  const empty = 'https://api.the-odds-api.com/v4/sports/baseball_mlb/odds?regions=us&markets=h2h,spreads&oddsFormat=american';
+  process.env.ODDS_CACHE_DIR = dir;
+  process.env.ODDS_CACHE = '1';
+  delete process.env.ODDS_SOURCE;
+  process.env.ESPN_CACHE_DIR = dir;
+  setOddsReplay(null);
+  globalThis.fetch = async () => {
+    throw new Error('stubbed book read');
+  };
+  try {
+    holdBetMgmSport('23', [game]);
+    const saved = await oddsGet(filled);
+    assert.equal(saved.cached, false);
+    const { hash } = oddsRequestKey(filled);
+    const raw = await readFile(`${dir}/${oddsCacheName(hash, 'books')}`, 'utf8');
+    const record = JSON.parse(raw) as { partial?: boolean; body?: { id?: string }[] };
+    assert.equal(record.partial, true);
+    assert.match(record.body?.[0]?.id ?? '', /mlb-1/);
+    holdBetMgmSport('23', []);
+    const blank = await oddsGet(empty);
+    assert.equal(blank.cached, false);
+    const missed = oddsCacheName(oddsRequestKey(empty).hash, 'books');
+    const names = await readdir(dir);
+    assert.equal(names.includes(missed), false);
+  } finally {
+    resetBookReads();
+    setOddsReplay(null);
+    globalThis.fetch = original;
+    if (previousDir == null) delete process.env.ODDS_CACHE_DIR;
+    else process.env.ODDS_CACHE_DIR = previousDir;
+    if (previousSource == null) delete process.env.ODDS_SOURCE;
+    else process.env.ODDS_SOURCE = previousSource;
+    if (previousCache == null) delete process.env.ODDS_CACHE;
+    else process.env.ODDS_CACHE = previousCache;
+    if (previousEspn == null) delete process.env.ESPN_CACHE_DIR;
+    else process.env.ESPN_CACHE_DIR = previousEspn;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a book error note hides a key', async () => {
+  const previous = process.env.TYPESAFE_API_KEY;
+  process.env.TYPESAFE_API_KEY = 'typesafe-secret-value';
+  try {
+    const result = await booksFetch('https://api.the-odds-api.com/v4/sports/typesafe-secret-value/odds?regions=us&markets=h2h');
+    const text = result.omitted.join(' ');
+    assert.equal(text.includes('typesafe-secret-value'), false);
+    assert.match(text, /TYPESAFE_API_KEY/);
+    assert.equal(result.failed.length, 4);
+  } finally {
+    if (previous == null) delete process.env.TYPESAFE_API_KEY;
+    else process.env.TYPESAFE_API_KEY = previous;
+  }
+});
+
+test('one listing on a different kickoff stays one game', () => {
+  const game = (id: string, time: string, book: string) => ({
+    id,
+    commence_time: time,
+    home_team: 'New York Yankees',
+    away_team: 'Boston Red Sox',
+    bookmakers: [{
+      key: book,
+      markets: [{ key: 'h2h', outcomes: [{ name: 'Boston Red Sox', price: -150 }, { name: 'New York Yankees', price: 130 }] }],
+    }],
+  });
+  const merged = mergeBookEvents([
+    { source: 'fanduel', events: [game('fd', '2026-06-01T17:05:00Z', 'fanduel')] },
+    { source: 'draftkings', events: [game('dk', '2026-06-01T20:30:00Z', 'draftkings')] },
+  ]);
+  assert.equal(merged.length, 1);
+  assert.deepEqual(merged[0]?.bookmakers.map((book) => book.key).sort(), ['draftkings', 'fanduel']);
+});
+
+test('mapPool stops starting work after a failure', async () => {
+  let started = 0;
+  const run = mapPool([0, 1, 2, 3, 4, 5], 2, async (item) => {
+    started += 1;
+    if (item === 1) throw new Error('fail');
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    return item;
+  });
+  await assert.rejects(run, /fail/);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.ok(started <= 3);
+});
+
+test('nfl, ncaa, and soccer windows start at the first game still ahead', async () => {
+  const original = globalThis.fetch;
+  const now = Date.now();
+  const old = new Date(now - 2 * 24 * 60 * 60 * 1000).toISOString();
+  const soon = new Date(now + 2 * 60 * 60 * 1000).toISOString();
+  const later = new Date(now + 26 * 60 * 60 * 1000).toISOString();
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    events: [{ date: old }, { date: soon }, { date: later }],
+  }), { status: 200 });
+  try {
+    const premier = soccer.kind === 'leagues' ? soccer.leagues[0]?.source : undefined;
+    const sources = [nflLeague.source, ncaaLeague.source, premier];
+    for (const source of sources) {
+      assert.ok(source);
+      const window = await source.window(undefined);
+      assert.ok(Math.abs(Date.parse(window.from) - (Date.parse(soon) - 60 * 60 * 1000)) < 2000);
+    }
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('an unreadable ESPN team list stays empty', async () => {
+  const dir = await mkdtemp(`${tmpdir()}/parlay-teams-`);
+  const previous = process.env.ESPN_CACHE_DIR;
+  const original = globalThis.fetch;
+  process.env.ESPN_CACHE_DIR = dir;
+  globalThis.fetch = async () => new Response('<html>', { status: 200, headers: { 'content-type': 'text/html' } });
+  try {
+    const resolve = await teamResolver('americanfootball_nfl');
+    assert.equal(resolve('Kansas City Chiefs'), 'Kansas City Chiefs');
+  } finally {
+    globalThis.fetch = original;
+    if (previous == null) delete process.env.ESPN_CACHE_DIR;
+    else process.env.ESPN_CACHE_DIR = previous;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('QUOTA_LOG set to a path warns and writes there', async () => {
+  const dir = await mkdtemp(`${tmpdir()}/parlay-quota-`);
+  const log = `${dir}/x.jsonl`;
+  const previousLog = process.env.QUOTA_LOG;
+  const previousPath = process.env.QUOTA_LOG_PATH;
+  const errors: string[] = [];
+  const write = console.error;
+  console.error = (message?: unknown) => {
+    errors.push(String(message ?? ''));
+  };
+  process.env.QUOTA_LOG = log;
+  delete process.env.QUOTA_LOG_PATH;
+  try {
+    assert.equal(quotaLogFile(), log);
+    assert.equal(quotaLogFile(), log);
+    assert.equal(errors.length, 1);
+    assert.match(errors[0] ?? '', /QUOTA_LOG_PATH/);
+    await appendQuota(quotaEntry('/v4/sports/americanfootball_nfl/odds', 'cached', null, new Date('2026-11-20T18:00:00Z')));
+    const text = await readFile(log, 'utf8');
+    assert.match(text, /americanfootball_nfl/);
+    assert.equal(text.includes('apiKey'), false);
+  } finally {
+    console.error = write;
+    if (previousLog == null) delete process.env.QUOTA_LOG;
+    else process.env.QUOTA_LOG = previousLog;
+    if (previousPath == null) delete process.env.QUOTA_LOG_PATH;
+    else process.env.QUOTA_LOG_PATH = previousPath;
+    process.env.QUOTA_LOG ??= '0';
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a bad slate date prints one line', async () => {
+  const root = fileURLToPath(new URL('..', import.meta.url));
+  const child = spawn(process.execPath, ['--import', 'tsx', 'scripts/parlays.ts', '11/20'], {
+    cwd: root,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let err = '';
+  child.stderr.on('data', (chunk: Buffer) => {
+    err += chunk.toString('utf8');
+  });
+  const code = await new Promise<number | null>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error('slate date check hung'));
+    }, 10_000);
+    child.once('error', (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once('close', (status) => {
+      clearTimeout(timer);
+      resolve(status);
+    });
+  });
+  assert.equal(code, 1);
+  assert.match(err, /Date must be YYYY-MM-DD\./);
+  assert.equal(err.includes('at readStartArgs'), false);
+});
+
+test('a featured hockey extra can be priced under 0.60', async () => {
+  const dir = await mkdtemp(`${tmpdir()}/parlay-extra-`);
+  const previousDir = process.env.ODDS_CACHE_DIR;
+  const previousSource = process.env.ODDS_SOURCE;
+  const previousCache = process.env.ODDS_CACHE;
+  const markets = ['player_goal_scorer_anytime', 'player_total_saves', 'player_power_play_points'];
+  const yes = {
+    slip: (who: string, price: string) => `Take ${who} anytime goal ${price}`,
+    thing: 'anytime goal',
+    claim: (player: string, opponent: string, when: string) => `${player} scores against ${opponent} on ${when}.`,
+  };
+  const profile: PropProfile = {
+    sport: 'icehockey_nhl',
+    markets,
+    core: [{ market: 'player_goal_scorer_anytime', label: 'Anytime goal', phrase: 'goals', stat: 'goals', yes }],
+    extra: [
+      { market: 'player_total_saves', label: 'Saves', phrase: 'saves', stat: 'saves' },
+      { market: 'player_power_play_points', label: 'PP points', phrase: 'power-play points', stat: 'powerPlayPoints' },
+    ],
+    title: 'NHL props',
+    note: 'NHL props.',
+    loadRosters: async () => ({
+      match: (team, player) => ({ id: player, name: player, pos: player.includes('Swayman') ? 'G' : 'C', team }),
+      failed: [],
+    }),
+    injuryFor: async () => null,
+    recentStat: async () => () => 'no recent games',
+    realExtra: nhlRealExtra,
+    featureExtra: (option, featured) => featured.has(nameKey(option.ref.name)) || (option.ref.pos === 'G' && option.market === 'player_total_saves'),
+  };
+  const event = (id: string, home: string, away: string, bookmakers: unknown[]) => ({
+    id,
+    commence_time: '2026-11-21T23:00:00Z',
+    home_team: home,
+    away_team: away,
+    bookmakers,
+  });
+  const save = async (id: string, body: unknown) => {
+    const url = `https://api.the-odds-api.com/v4/sports/icehockey_nhl/events/${id}/odds?regions=us&oddsFormat=american&markets=${markets.join(',')}`;
+    const { hash, request } = oddsRequestKey(url);
+    await writeFile(`${dir}/${hash}.json`, `${JSON.stringify({ savedAt: new Date().toISOString(), remaining: null, body, request })}\n`);
+  };
+  process.env.ODDS_CACHE_DIR = dir;
+  process.env.ODDS_CACHE = '1';
+  process.env.ODDS_SOURCE = 'the-odds-api';
+  setOddsReplay(null);
+  try {
+    await save('bos', event('bos', 'Bruins', 'Rangers', [{
+      key: 'fanduel',
+      markets: [
+        { key: 'player_goal_scorer_anytime', outcomes: [{ name: 'Yes', description: 'David Pastrnak', price: -120 }] },
+        { key: 'player_total_saves', outcomes: [{ name: 'Over', description: 'Jeremy Swayman', price: 105, point: 24.5 }] },
+        { key: 'player_power_play_points', outcomes: [{ name: 'Under', description: 'David Pastrnak', price: -300, point: 0.5 }] },
+      ],
+    }]));
+    await save('nyi', event('nyi', 'Islanders', 'Rangers', [{
+      key: 'fanduel',
+      markets: [
+        { key: 'player_power_play_points', outcomes: [{ name: 'Under', description: 'Chris Kreider', price: -300, point: 0.5 }] },
+      ],
+    }]));
+    const loaded = await loadPropBoard([
+      { eventId: 'bos', home: 'Bruins', away: 'Rangers', commence: '2026-11-21T23:00:00Z', homeImplied: 0.6, awayImplied: 0.4 },
+      { eventId: 'nyi', home: 'Islanders', away: 'Rangers', commence: '2026-11-21T23:00:00Z', homeImplied: 0.55, awayImplied: 0.45 },
+    ], profile);
+    const board = loaded.finish([]);
+    const rows = board.groups.flat();
+    const saves = rows.find((row) => row[2]?.includes('Saves'));
+    assert.equal(saves?.[1], 'Jeremy Swayman');
+    assert.match(saves?.[2] ?? '', /over 24\.5/);
+    assert.ok(rows.some((row) => row[5]?.includes('No featured player had a usable extra for the Rangers.')));
+  } finally {
+    setOddsReplay(null);
+    if (previousDir == null) delete process.env.ODDS_CACHE_DIR;
+    else process.env.ODDS_CACHE_DIR = previousDir;
+    if (previousSource == null) delete process.env.ODDS_SOURCE;
+    else process.env.ODDS_SOURCE = previousSource;
+    if (previousCache == null) delete process.env.ODDS_CACHE;
+    else process.env.ODDS_CACHE = previousCache;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a supported prop under 0.80 says Lean', async () => {
+  const dir = await mkdtemp(`${tmpdir()}/parlay-lean-`);
+  const previousDir = process.env.ODDS_CACHE_DIR;
+  const previousSource = process.env.ODDS_SOURCE;
+  const previousCache = process.env.ODDS_CACHE;
+  const markets = ['player_anytime_td'];
+  const profile: PropProfile = {
+    sport: 'americanfootball_nfl',
+    markets,
+    core: [{
+      market: 'player_anytime_td',
+      label: 'Anytime TD',
+      phrase: 'rushing or receiving touchdowns',
+      stat: 'touchdowns',
+      yes: {
+        slip: (who, price) => `Take ${who} anytime TD ${price}`,
+        thing: 'anytime touchdown',
+        claim: (player, opponent, when) => `${player} scores a touchdown against ${opponent} on ${when}.`,
+      },
+    }],
+    extra: [],
+    title: 'Props',
+    note: 'Props.',
+    loadRosters: async () => ({
+      match: (team, player) => ({ id: player, name: player, pos: 'QB', team }),
+      failed: [],
+    }),
+    injuryFor: async () => null,
+    recentStat: async () => () => 'no recent games',
+    realExtra: () => false,
+    featureExtra: () => false,
+  };
+  process.env.ODDS_CACHE_DIR = dir;
+  process.env.ODDS_CACHE = '1';
+  process.env.ODDS_SOURCE = 'the-odds-api';
+  setOddsReplay(null);
+  try {
+    const url = `https://api.the-odds-api.com/v4/sports/americanfootball_nfl/events/kc/odds?regions=us&oddsFormat=american&markets=${markets.join(',')}`;
+    const { hash, request } = oddsRequestKey(url);
+    await writeFile(`${dir}/${hash}.json`, `${JSON.stringify({
+      savedAt: new Date().toISOString(),
+      remaining: null,
+      request,
+      body: {
+        id: 'kc',
+        commence_time: '2026-11-21T23:00:00Z',
+        home_team: 'Chiefs',
+        away_team: 'Bills',
+        bookmakers: [{
+          key: 'fanduel',
+          markets: [{ key: 'player_anytime_td', outcomes: [{ name: 'Yes', description: 'Patrick Mahomes', price: -150 }] }],
+        }],
+      },
+    })}\n`);
+    const loaded = await loadPropBoard([
+      { eventId: 'kc', home: 'Chiefs', away: 'Bills', commence: '2026-11-21T23:00:00Z', homeImplied: 0.7, awayImplied: 0.3 },
+    ], profile);
+    const id = loaded.claims[0]?.id ?? '';
+    const board = loaded.finish([{ id, verdict: 'supported', confidence: 0.7, status: 'review' }]);
+    const slip = board.groups.flat().find((row) => row[1] === 'Patrick Mahomes')?.[4] ?? '';
+    assert.match(slip, /^Lean /);
+  } finally {
+    setOddsReplay(null);
+    if (previousDir == null) delete process.env.ODDS_CACHE_DIR;
+    else process.env.ODDS_CACHE_DIR = previousDir;
+    if (previousSource == null) delete process.env.ODDS_SOURCE;
+    else process.env.ODDS_SOURCE = previousSource;
+    if (previousCache == null) delete process.env.ODDS_CACHE;
+    else process.env.ODDS_CACHE = previousCache;
     await rm(dir, { recursive: true, force: true });
   }
 });

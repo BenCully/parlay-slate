@@ -83,7 +83,7 @@ async function getLegs(oddsKey: string, from: string, to: string, threeWay: bool
   const legs = body.flatMap((game) => {
     if (!oddsReplayDay() && Date.parse(game.commence_time) <= Date.now()) return [];
     const books = game.bookmakers;
-    const moneyMarket = postedMarket(books, 'h2h', { threeWay });
+    const moneyMarket = postedMarket(books, 'h2h', { threeWay, outright });
     const spreadMarket = postedMarket(books, 'spreads');
     const totalMarket = postedMarket(books, 'totals');
     const moneylines = moneyMarket?.outcomes ?? [];

@@ -4,6 +4,7 @@
 import { postedMarket } from '../odds/books.js';
 import { nameKey } from '../espn/evidence.js';
 import { isDirectOddsSource, oddsGet, oddsReplayDay, oddsSource, oddsSourceLabel, type OddsBook, type OddsOutcome } from '../odds/cache.js';
+import { scrubText } from '../scripts/scrub.js';
 import { mapPool } from '../slate/pool.js';
 import type { PlayerRef } from '../espn/players.js';
 
@@ -182,14 +183,13 @@ export function pickExtra<T extends { implied: number; market: string; player: s
 export function pickLayeredExtra<T extends { implied: number; market: string; player: string }>(
   team: string,
   tiers: T[][],
-  options?: { requireLikely?: boolean },
 ): T | null {
   for (let index = 0; index < tiers.length; index++) {
     const tier = tiers[index];
     if (!tier?.length) continue;
     const likely = tier.filter((option) => option.implied >= 0.6);
     if (likely.length) return pickExtra(team, likely);
-    if (index === tiers.length - 1 && !options?.requireLikely) return pickExtra(team, tier);
+    if (index === tiers.length - 1) return pickExtra(team, tier);
   }
   return null;
 }
@@ -303,7 +303,7 @@ export async function loadPropBoard(games: SlateGame[], profile: PropProfile) {
       if (result.omitted?.length) notes.push(result.omitted.join(' '));
       return { game, books: result.body.bookmakers, error: '', skipped: false };
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'props request failed';
+      const message = scrubText(error instanceof Error ? error.message : 'props request failed');
       return { game, books: [] as OddsBook[], error: message, skipped: false };
     }
   });
@@ -580,9 +580,9 @@ async function extraRow(
   const real = options.filter((option) => profile.realExtra(option));
   const featuredReal = real.filter((option) => profile.featureExtra(option, featured));
   const tiers = profile.extraFallback ? [featuredReal, real, options] : [featuredReal];
-  const picked = pickLayeredExtra(team.name, tiers, { requireLikely: !profile.extraFallback });
+  const picked = pickLayeredExtra(team.name, tiers);
   if (!picked) {
-    return { kind: 'missing', team: team.name, label: 'Extra', reason: `No other short-priced prop was posted for ${namedTeam(team.name, label, profile)}.` };
+    return { kind: 'missing', team: team.name, label: 'Extra', reason: `No featured player had a usable extra for ${namedTeam(team.name, label, profile)}.` };
   }
   const sideWord = picked.side === 'Over' ? 'over' : picked.side === 'Under' ? 'under' : 'yes';
   return {

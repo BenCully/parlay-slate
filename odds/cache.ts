@@ -1,7 +1,7 @@
 // Disk cache for odds responses. The key is the request path with apiKey removed.
 // Old Odds API files keep that hash as the file name. Any other source adds its id as a prefix.
 // A hit does not call the network. The live Odds API is not called.
-// A slate whose kickoff window moved still counts, for the games inside the new window.
+// A slate whose kickoff window moved still counts when that save covers the new window, for the games inside it.
 // An empty slate loses that lookup while a non-empty sibling is still fresh.
 // The empty file is used when it is the only fresh one. An exact request hash still wins.
 // odds=YYYY-MM-DD reads that Eastern day's saves even after the lifetime, and does not fetch.
@@ -128,7 +128,7 @@ export type OddsResponse = {
   remaining: number | null;
   cached: boolean;
   savedAt: string;
-  /** True when a live fetch was skipped to stay above ODDS_CREDIT_FLOOR. */
+  /** True when a cacheOnly read found no saved file. */
   skipped?: boolean;
   /** Books left off a merged read. Each sentence names the book. */
   omitted?: string[];
@@ -467,6 +467,7 @@ async function readFamily(request: string, source: string): Promise<CacheRecord 
     if (!name.endsWith('.json')) continue;
     const hit = await readHit(`${cacheDir()}/${name}`, source);
     if (!hit?.request || oddsSlateFamily(hit.request) !== want) continue;
+    if (!windowCovers(hit.request, request)) continue;
     hits.push(hit);
   }
   return preferFreshRecord(hits);
@@ -526,6 +527,21 @@ function requestWindow(request: string) {
     from: parsed.searchParams.get('commenceTimeFrom') ?? '',
     to: parsed.searchParams.get('commenceTimeTo') ?? '',
   };
+}
+
+/** A missing bound is unbounded. The saved window has to contain the whole request. */
+function windowCovers(savedRequest: string, wantRequest: string) {
+  const saved = requestWindow(savedRequest);
+  const want = requestWindow(wantRequest);
+  const covers = (savedBound: string, wantBound: string, end: boolean) => {
+    if (!wantBound) return !savedBound;
+    if (!savedBound) return true;
+    const savedMs = Date.parse(savedBound);
+    const wantMs = Date.parse(wantBound);
+    if (!Number.isFinite(savedMs) || !Number.isFinite(wantMs)) return false;
+    return end ? savedMs >= wantMs : savedMs <= wantMs;
+  };
+  return covers(saved.from, want.from, false) && covers(saved.to, want.to, true);
 }
 
 function eventInRequest(event: unknown, from: string, to: string) {

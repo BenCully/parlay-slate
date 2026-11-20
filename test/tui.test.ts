@@ -369,8 +369,9 @@ test('mouse reports stay mouse reports when a click is split', () => {
   assert.deepEqual(typed.events.map((event) => event.key), ['q', '1']);
 
   const alt = takeEvents(Buffer.from('\x1bq'));
-  assert.deepEqual(alt.events.map((event) => event.key), ['\x1b', 'q']);
+  assert.deepEqual(alt.events.map((event) => event.key), ['\x1bq']);
   assert.equal(alt.pending.length, 0);
+  assert.equal(reduceForm(createUi(form()), { type: 'key', key: '\x1bq' }, ctx()).effect.type, 'none');
 });
 
 test('a saved Eastern day in the past returns to today', () => {

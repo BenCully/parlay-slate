@@ -6,6 +6,7 @@ import { caesarsFetch, resetCaesars } from './caesars.js';
 import { bookEvent } from './shape.js';
 import { draftKingsCacheSize, draftkingsFetch, resetDraftKings } from './draftkings.js';
 import { fanduelFetch } from './fanduel.js';
+import { scrubText } from '../scripts/scrub.js';
 import { easternDay } from '../slate/window.js';
 
 export type BookId = 'fd' | 'dk' | 'mgm' | 'czr';
@@ -130,8 +131,12 @@ export function mergePropEvent(requestId: string, rows: { source: string; events
 
 const CLUSTER_MS = 2 * 60 * 60 * 1000;
 
-/** Split a same-day matchup when the kickoffs are more than two hours apart. A doubleheader stays two games. */
+/** Split a same-day matchup when one book lists it twice and the kickoffs are more than two hours apart. */
 function clustersOf(list: { source: string; event: OddsEvent }[]) {
+  const counts = new Map<string, number>();
+  for (const row of list) counts.set(row.source, (counts.get(row.source) ?? 0) + 1);
+  const doubled = [...counts.values()].some((count) => count >= 2);
+  if (!doubled) return [list];
   const sorted = [...list].sort((a, b) => Date.parse(a.event.commence_time) - Date.parse(b.event.commence_time));
   const clusters: { source: string; event: OddsEvent }[][] = [];
   for (const row of sorted) {
@@ -237,7 +242,7 @@ export async function booksFetch(url: string): Promise<MergedRead> {
         };
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : `${reader.label} did not answer.`;
+      const message = scrubText(error instanceof Error ? error.message : `${reader.label} did not answer.`);
       return { source: BOOK_KEY[reader.id], label: reader.label, events: [] as OddsEvent[], error: message };
     }
   }));

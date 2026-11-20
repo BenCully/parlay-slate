@@ -8,13 +8,25 @@ import { americanPrice, BookError, fetchJson, inWindow, BROWSER } from './http.j
 import { bookEvent, outcome, type Market, type Outcome } from './shape.js';
 
 const BASE = 'https://api.americanwagering.com/regions/us/locations/il/brands/czr/sb';
-const DATA_PATH = /^\/[\w\-/.]+$/;
 
-/** A Caesars tab path stays on this host and under the Illinois prefix. */
+/** A Caesars tab path stays on this host and under the Illinois prefix. Percent-encoding and a query are allowed. */
 export function caesarsDataUrl(dataPath: string): string {
-  if (!DATA_PATH.test(dataPath) || dataPath.includes('..')) throw new BookError('Caesars', null, false);
+  let decoded = dataPath;
+  try {
+    decoded = decodeURIComponent(dataPath);
+  } catch {
+    throw new BookError('Caesars', null, false);
+  }
+  if (decoded.includes('..') || dataPath.startsWith('//') || /^[a-z][a-z0-9+.-]*:/i.test(dataPath)) {
+    throw new BookError('Caesars', null, false);
+  }
   const base = new URL(BASE.endsWith('/') ? BASE : `${BASE}/`);
-  const url = new URL(dataPath.replace(/^\//, ''), base);
+  let url: URL;
+  try {
+    url = new URL(dataPath.replace(/^\//, ''), base);
+  } catch {
+    throw new BookError('Caesars', null, false);
+  }
   if (url.host !== base.host || !url.pathname.startsWith(base.pathname)) throw new BookError('Caesars', null, false);
   return url.toString();
 }

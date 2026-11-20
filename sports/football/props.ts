@@ -40,15 +40,15 @@ const extra: MarketInfo[] = [
   { market: 'player_field_goals', label: 'Field goals', phrase: 'field goals made', stat: 'fieldGoalsMade-fieldGoalAttempts' },
 ];
 
-function realExtra(option: { market: string; side: 'Over' | 'Under' | 'Yes'; posted: { point: number | null }; ref: { pos: string } }) {
+export function realExtra(option: { market: string; side: 'Over' | 'Under' | 'Yes'; posted: { point: number | null }; ref: { pos: string } }) {
   const point = option.posted.point ?? 0;
   const over = option.side === 'Over';
   if (option.market === 'player_receptions') return over ? point >= 3.5 : point >= 4.5;
   if (option.market === 'player_pass_completions') return point >= 14.5;
   if (option.market === 'player_rush_attempts') return option.ref.pos === 'QB' ? point >= 3.5 : point >= 8.5;
   if (option.market === 'player_kicking_points') return point >= 4.5;
-  if (option.market === 'player_field_goals') return point >= 1.5;
-  if (option.market === 'player_pass_tds') return true;
+  if (option.market === 'player_field_goals') return over ? point >= 1.5 : point >= 2.5;
+  if (option.market === 'player_pass_tds') return over ? point >= 0.5 : point >= 1.5;
   return false;
 }
 

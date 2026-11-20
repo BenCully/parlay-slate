@@ -191,7 +191,13 @@ async function saveSnapshot(saved: SavedSlate, label: string) {
 }
 
 if (isDirectRun(import.meta.url)) {
-  const args = readStartArgs(process.argv.slice(2));
+  let args: ReturnType<typeof readStartArgs>;
+  try {
+    args = readStartArgs(process.argv.slice(2));
+  } catch (error) {
+    console.error(scrubError(error, 'Bad arguments.'));
+    process.exit(1);
+  }
   runSlate({ day: args.day, model: args.model, odds: args.odds, fresh: args.fresh }).catch((error) => {
     console.error(scrubError(error, 'The slate failed.'));
     process.exit(1);
