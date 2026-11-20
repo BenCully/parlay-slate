@@ -1,0 +1,75 @@
+{
+  "events": [
+    {
+      "id": "faa98a96-ed6b-e0a9-94c7-71f707d9e752",
+      "name": "Indianapolis Colts at Houston Texans",
+      "startTime": "2026-11-20T01:15:00Z",
+      "active": true,
+      "keyMarketGroups": [
+        {
+          "markets": [
+            {
+              "name": "|Money Line|",
+              "gtpMarketClass": "HEAD_TO_HEAD",
+              "metadata": { "period": "MATCH_INC_OT" },
+              "selections": [
+                { "name": "|Indianapolis Colts|", "type": "away", "active": true, "price": { "a": 500 } },
+                { "name": "|Houston Texans|", "type": "home", "active": true, "price": { "a": -750 } }
+              ]
+            },
+            {
+              "name": "|Spread|",
+              "gtpMarketClass": "HANDICAP",
+              "line": -12.5,
+              "metadata": { "period": "MATCH_INC_OT" },
+              "selections": [
+                { "name": "|Indianapolis Colts|", "type": "away", "active": true, "price": { "a": -110 } },
+                { "name": "|Houston Texans|", "type": "home", "active": true, "price": { "a": -110 } }
+              ]
+            },
+            {
+              "name": "|C.J. Stroud Total Passing Yards|",
+              "gtpMarketClass": "OVER_UNDER",
+              "line": 253.5,
+              "metadata": { "period": "MATCH_INC_OT" },
+              "selections": [
+                { "name": "|Over|", "type": "over", "active": true, "price": { "a": -115 } },
+                { "name": "|Under|", "type": "under", "active": true, "price": { "a": -105 } }
+              ]
+            },
+            {
+              "name": "|Daniel Jones - Passing Yards|",
+              "gtpMarketClass": "OVER_UNDER",
+              "metadata": { "period": "MATCH_INC_OT" },
+              "selections": [
+                { "name": "|150+|", "type": "over", "active": true, "price": { "a": -140 } }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "bodo",
+      "name": "Bodo/Glimt vs Fulham",
+      "startTime": "2026-11-22T17:30:00Z",
+      "active": true,
+      "keyMarketGroups": [
+        {
+          "markets": [
+            {
+              "name": "|Match Betting|",
+              "gtpMarketClass": "WIN_DRAW_WIN",
+              "metadata": { "period": null },
+              "selections": [
+                { "name": "|Bodo|/|Glimt|", "type": "home", "active": true, "price": { "a": 260 } },
+                { "name": "|Draw|", "type": "draw", "active": true, "price": { "a": 240 } },
+                { "name": "|Fulham|", "type": "away", "active": true, "price": { "a": 110 } }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

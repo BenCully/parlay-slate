@@ -71,6 +71,7 @@ docs:
     - 'README.md'
     - 'AGENTS.md'
     - 'FUTURE-IDEAS.md'
+    - 'DIRECT-BOOKS.md'
     - 'changelog.md'
 
 dependencies:

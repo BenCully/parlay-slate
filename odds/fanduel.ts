@@ -49,6 +49,13 @@ const TEAM_ALIASES: Record<string, string> = {
   'hawaii': "hawai'i rainbow warriors",
   'miami florida': 'miami hurricanes',
   'paris st g': 'paris saint-germain',
+  'man city': 'manchester city',
+  'man utd': 'manchester united',
+  'man united': 'manchester united',
+  'nottm forest': 'nottingham forest',
+  'spurs': 'tottenham hotspur',
+  'wolves': 'wolverhampton wanderers',
+  'psg': 'paris saint-germain',
 };
 
 function headers() {
@@ -155,6 +162,46 @@ function pickIndexed(list: any[], key: string, match: 'football' | 'club') {
     return short === key || display === key;
   });
   return named.length === 1 ? named[0] : null;
+}
+
+/**
+ * ESPN display name for a posted team, or the posted name when nothing matches.
+ * A short form such as "IND Colts" tries the nickname and the abbreviation after the full name misses.
+ */
+export function resolvePostedName(name: string, index: Map<string, any[]>, match: 'football' | 'club') {
+  const attempt = (value: string) => {
+    const hit = resolveTeamName(value, index, match);
+    return hit === value ? null : hit;
+  };
+  const posted = name.trim();
+  const direct = attempt(posted);
+  if (direct) return direct;
+  const key = match === 'football' ? matchKey(posted) : clubKey(posted);
+  if ((index.get(key) ?? []).length) return resolveTeamName(posted, index, match);
+  const abbr = /^([A-Z]{2,4})\s+(.+)$/.exec(posted);
+  if (abbr) {
+    const nick = attempt(abbr[2] ?? '');
+    if (nick) return nick;
+    const code = attempt(abbr[1] ?? '');
+    if (code) return code;
+  }
+  return posted;
+}
+
+/** Resolver for one Odds API sport key. A miss keeps the posted name. An unknown sport returns the name unchanged. */
+export async function teamResolver(sportKey: string): Promise<(name: string) => string> {
+  const sport = SPORTS[sportKey];
+  if (!sport) return (name: string) => name;
+  const teams = await espnTeams(sport);
+  const index = buildTeamIndex(teams, sport.match);
+  const cache = new Map<string, string>();
+  return (name: string) => {
+    const hit = cache.get(name);
+    if (hit != null) return hit;
+    const value = resolvePostedName(name, index, sport.match);
+    cache.set(name, value);
+    return value;
+  };
 }
 
 /** ESPN display name for a FanDuel team, or the FanDuel name when nothing matches. */
@@ -407,11 +454,13 @@ function soccerQuotes(market: any, price: any) {
   return rows;
 }
 
-function pickBalanced(markets: any[], prices: Map<string, any>) {
-  let best: { label: string; price: number; point: number }[] | null = null;
+export type LineQuote = { label: string; price: number; point: number };
+
+/** The line closest to even. The score is the quote whose implied probability is nearest 0.50. A tie keeps the earlier group. */
+export function pickBalanced(groups: LineQuote[][]): LineQuote[] {
+  let best: LineQuote[] | null = null;
   let bestScore = Infinity;
-  for (const market of markets) {
-    const quotes = soccerQuotes(market, prices.get(market.marketId));
+  for (const quotes of groups) {
     if (quotes.length < 2) continue;
     const score = Math.min(...quotes.map((quote) => Math.abs(americanImplied(quote.price) - 0.5)));
     if (score >= bestScore) continue;
@@ -635,7 +684,7 @@ export async function fanduelSlate(sportKey: string, from: string, to: string): 
     const spreadQuotes = game.spreads
       ? marketOutcomes(game.spreads, prices.get(game.spreads.marketId), resolve)
           .map((outcome) => ({ name: outcome.name, price: outcome.price, point: outcome.point }))
-      : pickBalanced(extra?.spreads ?? [], prices).map((quote) => ({
+      : pickBalanced((extra?.spreads ?? []).map((market) => soccerQuotes(market, prices.get(market.marketId)))).map((quote) => ({
           name: resolve(quote.label),
           price: quote.price,
           point: quote.point,
@@ -643,7 +692,7 @@ export async function fanduelSlate(sportKey: string, from: string, to: string): 
     const totals = game.totals
       ? marketOutcomes(game.totals, prices.get(game.totals.marketId))
           .map((outcome) => ({ name: outcome.name, price: outcome.price, point: outcome.point }))
-      : pickBalanced(extra?.totals ?? [], prices).map((quote) => ({
+      : pickBalanced((extra?.totals ?? []).map((market) => soccerQuotes(market, prices.get(market.marketId)))).map((quote) => ({
           name: quote.label,
           price: quote.price,
           point: quote.point,

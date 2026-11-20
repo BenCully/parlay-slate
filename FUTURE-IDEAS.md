@@ -85,40 +85,7 @@ Before a long `model=tail-jev` walk, call Autojev `/health` once. It is unauthen
 
 ## Direct book sources
 
-Written 2026-11-19. DraftKings, BetMGM, and Caesars are books inside a The Odds API response today. The app does not call them. `postedMarket` in `odds/books.ts` keeps the first of FanDuel, DraftKings, BetMGM, and Caesars (`williamhill_us`) that posted the market. `ODDS_SOURCE=fanduel` already skips that response and reads FanDuel's own sportsbook JSON. Formula 1 (`motorsport_f1`) always takes that FanDuel path.
-
-The goal is the same read for the other three books, then one merged slate, then no live call to The Odds API. Each book is a file that returns the event shape `oddsGet` already parses: `id`, `commence_time`, `home_team`, `away_team`, and `bookmakers`. One bookmaker on that event, with that book's key, so the row comment still names it. Illinois, same as FanDuel. Timeout 30 seconds. No new account, no new key, and no paid aggregator. SockOdds, TheRundown, OddsPapi, PropLine, and SportsGameOdds are paid sources. Leave them out.
-
-Do this in order. A book is done when `npm test` covers its normalizer with a saved fixture and a manual live read of one league returns moneylines, spreads, and totals. `npm test` stays offline.
-
-**1. DraftKings.** `odds/draftkings.ts`. `ODDS_SOURCE=draftkings`. The sportsbook site reads `sportsbook-nash.draftkings.com` for site `US-IL-SB`. The league page is the slate. A second request per event is the props, the same split FanDuel uses for layout then facet. American prices are already on the selection. Confirm the league ids on a live Illinois page before writing them down. The set is NFL, NCAAF, NBA, NHL, MLB, and the six soccer leagues. Skip alternates, quarters, and halves. The normalized book key is `draftkings`.
-
-**2. BetMGM.** `odds/betmgm.ts`. `ODDS_SOURCE=betmgm`. The Illinois site reads `sports.il.betmgm.com/cds-api/bettingoffer/fixtures` for the slate and `fixture-view` for one event. The host returns 403 without the public access id that page already sends and without a browser `User-Agent`. Store that id as a constant whose name does not look like a secret, the same way the FanDuel sportsbook app id is stored. Do not put the id in a URL in the repo, the changelog, a log line, or this file. Prices are `americanOdds` on each result. Skip a runner whose visibility is not open. Their sport and competition ids are not Odds API keys. Keep that map in the client and confirm it on the fixtures call. The normalized book key is `betmgm`.
-
-**3. Caesars.** `odds/caesars.ts`. `ODDS_SOURCE=caesars`. The Illinois site reads `api.americanwagering.com` under region `us`, location `il`, brand `czr`, sportsbook `v3`. Highlights for one competition are the slate. One GET per event is the markets. Pin the competition ids from a live highlights response. They are UUIDs and they go stale. Space the event calls. Do not fan out one request per game with no cap. The normalized book key stays `williamhill_us`, so `bookLabel` still prints Caesars. The source id is `caesars`, so the cache file and the header do not say William Hill.
-
-Shared rules for all three:
-
-- Cache files are `{source}-` plus the request hash. A FanDuel file stays `fanduel-`. A file with no `source` stays a The Odds API save. None of these replace each other.
-- `oddsSourceLabel` prints DraftKings, BetMGM, and Caesars. The header already shows that label.
-- `requireRunKeys` skips `ODDS_API_KEY` for a direct source, as it already does for FanDuel.
-- Team names go through the ESPN index in `odds/fanduel.ts` (`buildTeamIndex`, `resolveTeamName`). A miss keeps the posted name. Do not copy that matcher into each file.
-- Soccer spreads and totals, when the league page omits them, are the posted line closest to even. That is the FanDuel soccer rule.
-- Props map onto the market keys the boards already ask for. A market the book does not post stays no line. Ask before adding a market.
-- Formula 1 stays on FanDuel until one of these books posts the race. `oddsRequestSource` keeps forcing `motorsport_f1` to FanDuel.
-- `replayMissError` only knows `fanduel` and `the-odds-api`. Change it to name every other source that saved that day before the second direct book lands. A copied `npm run odds` command sets `ODDS_SOURCE=` when the saved source is not the active one. That already works for two sources. Keep it for the new ones.
-- Failures report status and the response message. No request URL in the message. Do not retry a priced response. A network failure before any response may be retried once.
-
-**4. Merge, then drop the live Odds API call.** After the three clients exist, add a source that asks FanDuel, DraftKings, BetMGM, and Caesars and puts all four on `bookmakers`. `postedMarket` then keeps today's order without The Odds API. One book failing leaves the other three and names the miss in the board note. Cache that merged body under its own source, so it does not satisfy a single-book replay.
-
-The live `fetch` to `api.the-odds-api.com` comes out only after all of these are true:
-
-- The merged read returns moneylines, spreads, and totals for every league the slate walks, or the board note says that book does not post the league.
-- Props FanDuel already maps are mapped for each book, or left as no line on purpose.
-- `odds=` for an old `the-odds-api` day still opens, and `npm run odds` still lists it.
-- The parser in `odds/cache.ts` stays. Old cache files stay. The screen still reads rendered cells.
-
-Until that list is true, `ODDS_SOURCE` selects one book, and The Odds API remains the default.
+The build spec is `DIRECT-BOOKS.md`. DraftKings, Caesars, and BetMGM have clients in the FanDuel shape, and an unset `ODDS_SOURCE` merges all four onto `bookmakers`. The live Odds API call is gone. Old Odds API cache files stay readable with `ODDS_SOURCE=the-odds-api`.
 
 ## Later
 

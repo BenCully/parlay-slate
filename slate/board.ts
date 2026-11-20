@@ -2,7 +2,7 @@
 import { rerank, verify } from '../decisions/judge.js';
 import { postedMarket } from '../odds/books.js';
 import type { GameBrief } from '../espn/evidence.js';
-import { ageLabel, oddsGet, oddsReplayDay, oddsSource } from '../odds/cache.js';
+import { ageLabel, isDirectOddsSource, oddsGet, oddsReplayDay, oddsRequestSource, oddsSource, oddsSourceLabel } from '../odds/cache.js';
 import { loadPropBoard, type SlateGame } from '../props/board.js';
 import type { SavedBoard, SavedProps } from '../ui/screen.js';
 import type { BoardSource } from '../sports/types.js';
@@ -53,8 +53,12 @@ function cacheSentence(cachedAt: string | null, fanduelBoard: boolean) {
   const when = `Game prices are from the odds cache, saved ${ageLabel(cachedAt)}.`;
   const replay = oddsReplayDay();
   if (replay) return `${when} Replay of odds saved on ${replay}. Games that have since kicked off stay in this slate. No Odds API request was made.`;
-  if (fanduelBoard || oddsSource() === 'fanduel') return `${when} npm start -- --fresh reads FanDuel again.`;
-  return `${when} npm start -- --fresh spends credits on new lines.`;
+  if (isDirectOddsSource()) {
+    const label = oddsSourceLabel(oddsSource()) || 'the sportsbook';
+    return `${when} npm start -- --fresh reads ${label} again.`;
+  }
+  if (fanduelBoard) return `${when} npm start -- --fresh reads FanDuel again.`;
+  return `${when} These lines were saved from The Odds API. A run without that source reads the books.`;
 }
 
 function withCache(note: string | undefined, cachedAt: string | null, fanduelNote?: string) {
@@ -65,15 +69,15 @@ function withCache(note: string | undefined, cachedAt: string | null, fanduelNot
   return text || undefined;
 }
 
-async function getLegs(oddsKey: string, from: string, to: string, threeWay: boolean, outright: boolean): Promise<{ legs: Leg[]; cachedAt: string | null }> {
-  const url = `https://api.the-odds-api.com/v4/sports/${oddsKey}/odds?apiKey=${process.env.ODDS_API_KEY}` +
-    `&regions=us&markets=h2h,spreads,totals&oddsFormat=american&commenceTimeFrom=${from}&commenceTimeTo=${to}`;
+async function getLegs(oddsKey: string, from: string, to: string, threeWay: boolean, outright: boolean): Promise<{ legs: Leg[]; cachedAt: string | null; omitted: string[] }> {
+  const url = `https://api.the-odds-api.com/v4/sports/${oddsKey}/odds` +
+    `?regions=us&markets=h2h,spreads,totals&oddsFormat=american&commenceTimeFrom=${from}&commenceTimeTo=${to}`;
   const result = await oddsGet(url);
   const body = result.body;
   if (!Array.isArray(body)) throw new Error('Odds API returned an unexpected payload.');
+  const label = oddsSourceLabel(oddsRequestSource(url));
   if (result.cached) console.log(`Odds cache hit for ${oddsKey} (${ageLabel(result.savedAt)}).`);
-  else if (oddsKey === 'motorsport_f1') console.log(`Fetched ${oddsKey} odds from FanDuel.`);
-  else console.log(`Fetched ${oddsKey} odds.${result.remaining == null ? '' : ` Credits remaining: ${result.remaining}.`}`);
+  else console.log(`Fetched ${oddsKey} odds from ${label}.`);
   const legs = body.flatMap((game) => {
     if (!oddsReplayDay() && Date.parse(game.commence_time) <= Date.now()) return [];
     const books = game.bookmakers;
@@ -116,7 +120,7 @@ async function getLegs(oddsKey: string, from: string, to: string, threeWay: bool
       }];
     });
   });
-  return { legs, cachedAt: result.cached ? result.savedAt : null };
+  return { legs, cachedAt: result.cached ? result.savedAt : null, omitted: result.omitted ?? [] };
 }
 
 let teamShorts: Map<string, string> | undefined;
@@ -416,7 +420,7 @@ async function buildBoardInner(source: BoardSource, day: string | undefined): Pr
       ? `${slate.label}. Odds saved on ${replay}: ${games} game${games === 1 ? '' : 's'} with a favorite at 60% or better.`
       : `${slate.label}: ${games} upcoming game${games === 1 ? '' : 's'} with a favorite at 60% or better.`;
   const skippedProps = { title: outright ? 'Props' : 'Player props', groups: [] as string[][][], note: source.propsNote };
-  const noteFor = (note?: string) => withCache(note, cachedAt, source.fanduelNote);
+  const noteFor = (note?: string) => withCache([note, ...pulled.omitted].filter(Boolean).join(' '), cachedAt, source.fanduelNote);
   console.log(title);
   if (!legs.length) {
     const props = propBoard ? await propTab(propBoard) : skippedProps;

@@ -3,7 +3,7 @@
 // The brief is the player's ESPN game log. No extra account.
 import { postedMarket } from '../odds/books.js';
 import { nameKey } from '../espn/evidence.js';
-import { oddsCreditFloor, oddsGet, oddsReplayDay, oddsSource, type OddsBook, type OddsOutcome } from '../odds/cache.js';
+import { isDirectOddsSource, oddsCreditFloor, oddsGet, oddsReplayDay, oddsSource, oddsSourceLabel, type OddsBook, type OddsOutcome } from '../odds/cache.js';
 import type { PlayerRef } from '../espn/players.js';
 
 export type YesCopy = {
@@ -227,10 +227,10 @@ export type PropProfile = {
   featureExtra: (option: { market: string; ref: PlayerRef }, featured: Set<string>) => boolean;
 };
 
-async function fetchEvent(eventId: string, apiKey: string, profile: PropProfile, cacheOnly: boolean) {
+async function fetchEvent(eventId: string, profile: PropProfile, cacheOnly: boolean) {
   const url = `https://api.the-odds-api.com/v4/sports/${profile.sport}/events/${eventId}/odds` +
     `?regions=us&oddsFormat=american&markets=${profile.markets.join(',')}`;
-  const result = await oddsGet(url, { headers: { 'x-api-key': apiKey } }, { cacheOnly });
+  const result = await oddsGet(url, undefined, { cacheOnly });
   if (result.skipped) return { skipped: true as const };
   if (!result.body || Array.isArray(result.body)) throw new Error('Odds API returned an unexpected payload.');
   return {
@@ -238,6 +238,7 @@ async function fetchEvent(eventId: string, apiKey: string, profile: PropProfile,
     body: result.body,
     remaining: result.cached ? null : result.remaining,
     cached: result.cached,
+    omitted: result.omitted ?? [],
   };
 }
 
@@ -280,8 +281,6 @@ function thingFor(info: MarketInfo, side: SideName) {
 }
 
 export async function loadPropBoard(games: SlateGame[], profile: PropProfile) {
-  const apiKey = process.env.ODDS_API_KEY;
-  if (!apiKey && process.env.ODDS_SOURCE !== 'fanduel') throw new Error('ODDS_API_KEY is not set.');
   const notes: string[] = [];
   let remaining: number | null = null;
   let cachedGames = 0;
@@ -302,13 +301,14 @@ export async function loadPropBoard(games: SlateGame[], profile: PropProfile) {
   const events = await mapPool(games, 3, async (game) => {
     const cacheOnly = remaining != null && remaining < floor;
     try {
-      const result = await fetchEvent(game.eventId, apiKey ?? '', profile, cacheOnly);
+      const result = await fetchEvent(game.eventId, profile, cacheOnly);
       if (result.skipped) {
         skipped += 1;
         return { game, books: [] as OddsBook[], error: '', skipped: true };
       }
       if (result.cached) cachedGames += 1;
       else if (result.remaining != null) remaining = result.remaining;
+      if (result.omitted?.length) notes.push(result.omitted.join(' '));
       return { game, books: result.body.bookmakers, error: '', skipped: false };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'props request failed';
@@ -365,11 +365,13 @@ export async function loadPropBoard(games: SlateGame[], profile: PropProfile) {
     console.log(replay
       ? `Odds cache hit for ${cachedGames} of ${games.length} ${requests} saved on ${replay}. Nothing was fetched.`
       : `Odds cache hit for ${cachedGames} of ${games.length} ${requests}.`);
+    const source = oddsSource();
+    const label = oddsSourceLabel(source);
     notes.push(replay
       ? `${cachedGames} of ${games.length} prop boards used odds saved on ${replay}.`
-      : oddsSource() === 'fanduel'
-        ? `${cachedGames} of ${games.length} prop boards used cached FanDuel prices. npm start -- --fresh reads FanDuel again.`
-        : `${cachedGames} of ${games.length} prop boards used cached Odds API prices. npm start -- --fresh spends credits on new lines.`);
+      : isDirectOddsSource(source)
+        ? `${cachedGames} of ${games.length} prop boards used cached ${label} prices. npm start -- --fresh reads ${label} again.`
+        : `${cachedGames} of ${games.length} prop boards used saved Odds API prices. A run without that source reads the books.`);
   }
   return {
     claims,

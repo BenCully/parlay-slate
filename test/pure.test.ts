@@ -7,7 +7,11 @@ import { readStartArgs, requireRunKeys, selectDecisionModel, verify } from '../d
 import { espnCacheFresh, ESPN_DAY_HOURS, ESPN_INJURY_HOURS, readEspnCache, writeEspnCache } from '../espn/cache.js';
 import { aliasTarget, clubKey, createEvidence, nameKey, NFL_EVIDENCE, type GameBrief } from '../espn/evidence.js';
 import { bookLabel, postedMarket } from '../odds/books.js';
-import { listSavedOdds, oddsCacheName, oddsCreditFloor, oddsGet, oddsReplayCommand, oddsRequestKey, oddsRequestSource, oddsSlateFamily, oddsSourceLabel, parseOddsBody, preferFreshRecord, setOddsReplay } from '../odds/cache.js';
+import { listSavedOdds, oddsCacheName, oddsCreditFloor, oddsGet, oddsReplayCommand, oddsRequestKey, oddsRequestSource, oddsSlateFamily, oddsSourceLabel, parseOddsBody, preferFreshRecord, recordMergedBook, resetMergedBooks, setOddsReplay } from '../odds/cache.js';
+import { normalizeBetMgm } from '../odds/betmgm.js';
+import { normalizeCaesars } from '../odds/caesars.js';
+import { compositeId, mergeBookEvents, splitBookId } from '../odds/direct.js';
+import { normalizeDraftKings } from '../odds/draftkings.js';
 import { buildTeamIndex, chooseDriverBets, classifyProp, eventSides, marketOutcomes, propOutcomes, resolveTeamName, sidesFromName } from '../odds/fanduel.js';
 import { easternClock, quotaEntry } from '../odds/quota.js';
 import { acquireRunLock } from '../scripts/lock.js';
@@ -212,14 +216,15 @@ test('a top-8 cut is not described as a failed 0.60 gate', () => {
   assert.doesNotMatch(droppedCall(null, 'gate'), /clears 0\.60/);
 });
 
-test('keys are required before a run, and a replay does not need the odds key', () => {
+test('keys are required before a run, and the odds key is not one of them', () => {
   withEnv({
     ODDS_API_KEY: undefined,
+    ODDS_SOURCE: undefined,
     TYPESAFE_API_KEY: 'present',
     AUTOJEV_URL: 'http://example.test',
     AUTOJEV_API_KEY: 'present',
   }, () => {
-    assert.throws(() => requireRunKeys('jev', false), /ODDS_API_KEY/);
+    requireRunKeys('jev', false);
     requireRunKeys('jev', true);
   });
   withEnv({ ODDS_API_KEY: 'present', TYPESAFE_API_KEY: undefined }, () => {
@@ -419,9 +424,11 @@ test('family lookup skips an empty slate when a fresh sibling has games', async 
   const previousHours = process.env.ODDS_CACHE_HOURS;
   const previousCache = process.env.ODDS_CACHE;
   const original = globalThis.fetch;
+  const previousSource = process.env.ODDS_SOURCE;
   process.env.ODDS_CACHE_DIR = dir;
   process.env.ODDS_CACHE_HOURS = '24';
   process.env.ODDS_CACHE = '1';
+  process.env.ODDS_SOURCE = 'the-odds-api';
   setOddsReplay(null);
   globalThis.fetch = async () => {
     throw new Error('odds fetch should not run');
@@ -465,6 +472,8 @@ test('family lookup skips an empty slate when a fresh sibling has games', async 
     else process.env.ODDS_CACHE_HOURS = previousHours;
     if (previousCache == null) delete process.env.ODDS_CACHE;
     else process.env.ODDS_CACHE = previousCache;
+    if (previousSource == null) delete process.env.ODDS_SOURCE;
+    else process.env.ODDS_SOURCE = previousSource;
     await rm(dir, { recursive: true, force: true });
   }
 });
@@ -509,10 +518,12 @@ test('a cached odds body with the wrong shape throws and does not fetch', async 
   const dir = await mkdtemp(`${tmpdir()}/parlay-odds-`);
   const previousDir = process.env.ODDS_CACHE_DIR;
   const previousCache = process.env.ODDS_CACHE;
+  const previousSource = process.env.ODDS_SOURCE;
   const original = globalThis.fetch;
   let fetched = 0;
   process.env.ODDS_CACHE_DIR = dir;
   process.env.ODDS_CACHE = '1';
+  process.env.ODDS_SOURCE = 'the-odds-api';
   setOddsReplay(null);
   globalThis.fetch = async () => {
     fetched += 1;
@@ -530,6 +541,8 @@ test('a cached odds body with the wrong shape throws and does not fetch', async 
     else process.env.ODDS_CACHE_DIR = previousDir;
     if (previousCache == null) delete process.env.ODDS_CACHE;
     else process.env.ODDS_CACHE = previousCache;
+    if (previousSource == null) delete process.env.ODDS_SOURCE;
+    else process.env.ODDS_SOURCE = previousSource;
     await rm(dir, { recursive: true, force: true });
   }
 });
@@ -844,7 +857,11 @@ test('replay commands override a different active source', () => {
     assert.equal(oddsReplayCommand('2026-11-17', 'fanduel', 'tail-jev'), 'npm start -- odds=2026-11-17 model=tail-jev');
   });
   withEnv({ ODDS_SOURCE: undefined }, () => {
-    assert.equal(oddsReplayCommand('2026-11-17', 'the-odds-api', 'jev'), 'npm start -- odds=2026-11-17 model=jev');
+    assert.equal(
+      oddsReplayCommand('2026-11-17', 'the-odds-api', 'jev'),
+      'ODDS_SOURCE=the-odds-api npm start -- odds=2026-11-17 model=jev',
+    );
+    assert.equal(oddsReplayCommand('2026-11-17', 'books', 'jev'), 'npm start -- odds=2026-11-17 model=jev');
     assert.equal(
       oddsReplayCommand('2026-11-17', 'fanduel', 'jev'),
       'ODDS_SOURCE=fanduel npm start -- odds=2026-11-17 model=jev',
@@ -886,18 +903,16 @@ test('a replay miss names the source, and a live save updates the day list', asy
       assert.doesNotMatch(error.message, /ODDS_SOURCE=/);
       return true;
     });
-    delete process.env.ODDS_SOURCE;
+    process.env.ODDS_SOURCE = 'the-odds-api';
     const replay = await oddsGet(savedUrl);
     assert.equal(replay.cached, true);
     assert.ok(Array.isArray(replay.body));
     assert.equal(replay.body[0]?.id, 'odds-api');
     setOddsReplay(null);
-    await listSavedOdds();
-    const live = await oddsGet(liveUrl);
-    assert.equal(live.cached, false);
+    await assert.rejects(oddsGet(liveUrl), /no longer called/);
     const days = await listSavedOdds();
     const nhl = days.flatMap((day) => day.slates).find((slate) => slate.sport === 'icehockey_nhl');
-    assert.equal(nhl?.games, 1);
+    assert.equal(nhl, undefined);
   } finally {
     globalThis.fetch = original;
     setOddsReplay(null);
@@ -974,11 +989,13 @@ test('a live odds response writes a quota line without the url or the key', asyn
   const previousLog = process.env.QUOTA_LOG;
   const previousDir = process.env.ODDS_CACHE_DIR;
   const previousCache = process.env.ODDS_CACHE;
+  const previousSource = process.env.ODDS_SOURCE;
   const original = globalThis.fetch;
   const log = `${dir}/quota.jsonl`;
   process.env.QUOTA_LOG = log;
   process.env.ODDS_CACHE_DIR = dir;
   process.env.ODDS_CACHE = '1';
+  process.env.ODDS_SOURCE = 'the-odds-api';
   setOddsReplay(null);
   const slate = 'https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds?apiKey=secret-key&regions=us&markets=h2h';
   const prop = 'https://api.the-odds-api.com/v4/sports/icehockey_nhl/events/evt-9/odds?apiKey=secret-key&regions=us&markets=player_goal_scorer_anytime';
@@ -1007,22 +1024,16 @@ test('a live odds response writes a quota line without the url or the key', asyn
     assert.equal(JSON.stringify(shaped).includes('http'), false);
     assert.equal(JSON.stringify(shaped).includes('apiKey'), false);
 
-    const live = await oddsGet(slate);
-    assert.equal(live.cached, false);
-    assert.equal(live.remaining, 42);
+    await assert.rejects(oddsGet(slate), /no longer called/);
     await writeOdds(dir, prop, new Date().toISOString(), game);
     const cached = await oddsGet(prop);
     assert.equal(cached.cached, true);
     const lines = (await readFile(log, 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as { sport: string; event?: string; source: string; remaining: number | null });
-    assert.equal(lines.length, 2);
-    assert.equal(lines[0]?.sport, 'americanfootball_nfl');
-    assert.equal(lines[0]?.event, undefined);
-    assert.equal(lines[0]?.source, 'live');
-    assert.equal(lines[0]?.remaining, 42);
-    assert.equal(lines[1]?.sport, 'icehockey_nhl');
-    assert.equal(lines[1]?.event, 'evt-9');
-    assert.equal(lines[1]?.source, 'cached');
-    assert.equal(lines[1]?.remaining, null);
+    assert.equal(lines.length, 1);
+    assert.equal(lines[0]?.sport, 'icehockey_nhl');
+    assert.equal(lines[0]?.event, 'evt-9');
+    assert.equal(lines[0]?.source, 'cached');
+    assert.equal(lines[0]?.remaining, null);
     const text = await readFile(log, 'utf8');
     assert.equal(text.includes('secret-key'), false);
     assert.equal(text.includes('apiKey'), false);
@@ -1037,6 +1048,8 @@ test('a live odds response writes a quota line without the url or the key', asyn
     else process.env.ODDS_CACHE_DIR = previousDir;
     if (previousCache == null) delete process.env.ODDS_CACHE;
     else process.env.ODDS_CACHE = previousCache;
+    if (previousSource == null) delete process.env.ODDS_SOURCE;
+    else process.env.ODDS_SOURCE = previousSource;
     await rm(dir, { recursive: true, force: true });
   }
 });
@@ -1128,6 +1141,10 @@ test('Formula 1 prices stay on FanDuel when the run uses The Odds API', async ()
       assert.equal(oddsRequestSource(url), 'fanduel');
     });
     assert.equal(oddsRequestSource('https://api.the-odds-api.com/v4/sports/icehockey_nhl/odds'), 'the-odds-api');
+    withEnv({ ODDS_SOURCE: undefined }, () => {
+      assert.equal(oddsRequestSource('https://api.the-odds-api.com/v4/sports/icehockey_nhl/odds'), 'books');
+      assert.equal(oddsRequestSource(url), 'fanduel');
+    });
     const { hash, request } = oddsRequestKey(url);
     await writeFile(`${dir}/${oddsCacheName(hash, 'fanduel')}`, `${JSON.stringify({
       savedAt: new Date().toISOString(),
@@ -1224,5 +1241,177 @@ test('the sport row keeps Formula 1 inside the terminal width', () => {
     for (const line of slateHeaders(saved, width, [5, 0, 0])) {
       assert.equal(line.length <= width, true, `${line.length} > ${width}: ${line}`);
     }
+  }
+});
+
+async function fixture(name: string) {
+  return JSON.parse(await readFile(new URL(`./fixtures/${name}`, import.meta.url), 'utf8')) as any;
+}
+
+function same(name: string) {
+  return name;
+}
+
+function outcomes(event: { bookmakers: { markets: { key: string; outcomes: { name: string; price: number; point?: number; description?: string }[] }[] }[] }, key: string) {
+  return event.bookmakers[0]?.markets.find((market) => market.key === key)?.outcomes ?? [];
+}
+
+test('direct books normalize the Illinois shapes the boards already read', async () => {
+  const draftkings = await fixture('draftkings.json');
+  const slate = normalizeDraftKings(draftkings, { from: '', to: '', resolve: same });
+  const nfl = slate.find((event) => event.id === '34118011');
+  const soccer = slate.find((event) => event.id === 'soccer1');
+  assert.ok(nfl && soccer);
+  assert.deepEqual(outcomes(nfl, 'h2h'), [
+    { name: 'IND Colts', price: 500 },
+    { name: 'HOU Texans', price: -690 },
+  ]);
+  assert.deepEqual(outcomes(soccer, 'h2h').map((row) => row.name), ['Man City', 'Draw', 'Fulham']);
+  assert.deepEqual(outcomes(soccer, 'spreads').map((row) => row.point), [0.5, -0.5]);
+  assert.deepEqual(outcomes(soccer, 'totals').map((row) => row.point), [2.5, 2.5]);
+  const props = normalizeDraftKings(draftkings, { from: '', to: '', resolve: same, props: true, eventId: '34118011' });
+  const propEvent = props.find((event) => event.id === '34118011');
+  assert.ok(propEvent);
+  assert.deepEqual(outcomes(propEvent, 'player_pass_yds'), [
+    { name: 'Over', price: -112, point: 303.5, description: 'Joe Burrow' },
+    { name: 'Under', price: -112, point: 303.5, description: 'Joe Burrow' },
+  ]);
+  assert.deepEqual(outcomes(propEvent, 'player_anytime_td'), [
+    { name: 'Yes', price: -140, description: 'Chase Brown' },
+  ]);
+  assert.equal(propEvent.bookmakers[0]?.markets.some((market) => market.key === 'player_pass_yds' && market.outcomes.some((row) => row.description === '220+')), false);
+
+  const caesars = await fixture('caesars.json');
+  const caesarsSlate = normalizeCaesars(caesars.events, { from: '', to: '', resolve: same, mode: 'slate' });
+  const texans = caesarsSlate.find((event) => event.home_team === 'Houston Texans');
+  const bodo = caesarsSlate.find((event) => event.home_team === 'Bodo/Glimt');
+  assert.ok(texans && bodo);
+  const caesarsSpread = outcomes(texans, 'spreads');
+  assert.deepEqual(caesarsSpread.find((row) => row.name === 'Houston Texans'), { name: 'Houston Texans', price: -110, point: -12.5 });
+  assert.deepEqual(caesarsSpread.find((row) => row.name === 'Indianapolis Colts'), { name: 'Indianapolis Colts', price: -110, point: 12.5 });
+  assert.deepEqual(outcomes(bodo, 'h2h').map((row) => row.name), ['Bodo/Glimt', 'Draw', 'Fulham']);
+  const caesarsProps = normalizeCaesars(caesars.events, { from: '', to: '', resolve: same, mode: 'props' });
+  const passing = caesarsProps.find((event) => outcomes(event, 'player_pass_yds').length);
+  assert.ok(passing);
+  assert.deepEqual(outcomes(passing, 'player_pass_yds'), [
+    { name: 'Over', price: -115, point: 253.5, description: 'C.J. Stroud' },
+    { name: 'Under', price: -105, point: 253.5, description: 'C.J. Stroud' },
+  ]);
+  assert.equal(passing.bookmakers[0]?.markets.some((market) => market.outcomes.some((row) => row.description === 'Daniel Jones')), false);
+
+  const betmgm = await fixture('betmgm.json');
+  const nflMgm = normalizeBetMgm([betmgm.fixtures[0]], { from: '', to: '', resolve: same, soccer: false, mode: 'slate' });
+  assert.equal(nflMgm[0]?.id, '6:44037');
+  assert.deepEqual(outcomes(nflMgm[0]!, 'h2h').map((row) => row.name), ['Pittsburgh Steelers', 'Philadelphia Eagles']);
+  assert.deepEqual(outcomes(nflMgm[0]!, 'spreads').map((row) => ({ name: row.name, point: row.point })), [
+    { name: 'Pittsburgh Steelers', point: -4 },
+    { name: 'Philadelphia Eagles', point: 4 },
+  ]);
+  const soccerMgm = normalizeBetMgm([betmgm.fixtures[1]], { from: '', to: '', resolve: same, soccer: true, mode: 'slate' });
+  assert.equal(outcomes(soccerMgm[0]!, 'h2h').length, 0);
+  assert.deepEqual(outcomes(soccerMgm[0]!, 'spreads').map((row) => ({ name: row.name, point: row.point })), [
+    { name: 'Newcastle United', point: 0.5 },
+    { name: 'Arsenal', point: -0.5 },
+  ]);
+  assert.deepEqual(outcomes(soccerMgm[0]!, 'totals').map((row) => row.point), [2.5, 2.5]);
+  const mgmProps = normalizeBetMgm(betmgm.fixtures, { from: '', to: '', resolve: same, soccer: false, mode: 'props' });
+  const steelers = mgmProps.find((event) => event.id === '6:44037');
+  assert.ok(steelers);
+  assert.deepEqual(outcomes(steelers, 'player_pass_yds'), [
+    { name: 'Over', price: -115, point: 205.5, description: 'Aaron Rodgers' },
+    { name: 'Under', price: -105, point: 205.5, description: 'Aaron Rodgers' },
+  ]);
+  assert.deepEqual(outcomes(steelers, 'player_anytime_td'), [
+    { name: 'Yes', price: 120, description: 'DeVonta Smith' },
+  ]);
+});
+
+test('merged book ids and cache files stay apart', () => {
+  assert.deepEqual(splitBookId('fd=10,dk=20,mgm=6:44037,czr='), { fd: '10', dk: '20', mgm: '6:44037', czr: '' });
+  assert.equal(splitBookId('34118011'), null);
+  const merged = mergeBookEvents([
+    { source: 'fanduel', events: [{ id: '10', commence_time: '2026-11-20T01:15:00Z', home_team: 'Houston Texans', away_team: 'Indianapolis Colts', bookmakers: [{ key: 'fanduel', markets: [{ key: 'h2h', outcomes: [{ name: 'Houston Texans', price: -690 }] }] }] }] },
+    { source: 'draftkings', events: [{ id: '20', commence_time: '2026-11-20T01:15:00Z', home_team: 'Houston Texans', away_team: 'Indianapolis Colts', bookmakers: [{ key: 'draftkings', markets: [{ key: 'h2h', outcomes: [{ name: 'Houston Texans', price: -650 }] }] }] }] },
+    { source: 'williamhill_us', events: [{ id: '30', commence_time: '2026-11-21T01:15:00Z', home_team: 'Houston Texans', away_team: 'Indianapolis Colts', bookmakers: [{ key: 'williamhill_us', markets: [] }] }] },
+  ]);
+  assert.equal(merged.length, 2);
+  assert.equal(merged[0]?.id, compositeId({ fd: '10', dk: '20' }));
+  assert.deepEqual(merged[0]?.bookmakers.map((book) => book.key), ['fanduel', 'draftkings']);
+  const hash = 'abc123';
+  assert.equal(oddsCacheName(hash, 'draftkings'), `draftkings-${hash}.json`);
+  assert.equal(oddsCacheName(hash, 'betmgm'), `betmgm-${hash}.json`);
+  assert.equal(oddsCacheName(hash, 'caesars'), `caesars-${hash}.json`);
+  assert.equal(oddsCacheName(hash, 'books'), `books-${hash}.json`);
+  assert.equal(oddsCacheName(hash, 'the-odds-api'), `${hash}.json`);
+  resetMergedBooks();
+  assert.equal(oddsSourceLabel('books'), 'FanDuel · DraftKings · BetMGM · Caesars');
+  assert.equal(oddsSourceLabel('draftkings'), 'DraftKings');
+  assert.equal(oddsSourceLabel('betmgm'), 'BetMGM');
+  assert.equal(oddsSourceLabel('caesars'), 'Caesars');
+  assert.equal(oddsSourceLabel('nope'), '');
+  recordMergedBook('betmgm', false);
+  assert.equal(oddsSourceLabel('books'), 'FanDuel · DraftKings · Caesars');
+  resetMergedBooks();
+});
+
+test('a direct source does not require the Odds API key', () => {
+  withEnv({
+    ODDS_SOURCE: 'books',
+    ODDS_API_KEY: undefined,
+    TYPESAFE_API_KEY: 'present',
+  }, () => {
+    requireRunKeys('jev', false);
+  });
+  withEnv({
+    ODDS_SOURCE: 'draftkings',
+    ODDS_API_KEY: undefined,
+    TYPESAFE_API_KEY: 'present',
+  }, () => {
+    requireRunKeys('jev', false);
+  });
+});
+
+test('a replay miss names every other source that saved that day', async () => {
+  const dir = await mkdtemp(`${tmpdir()}/parlay-odds-`);
+  const previousDir = process.env.ODDS_CACHE_DIR;
+  const previousSource = process.env.ODDS_SOURCE;
+  const url = 'https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds?regions=us&markets=h2h';
+  const savedAt = new Date().toISOString();
+  process.env.ODDS_CACHE_DIR = dir;
+  setOddsReplay(null);
+  try {
+    const { request } = oddsRequestKey(url);
+    const event = oddsGame('saved');
+    await writeFile(`${dir}/caesars-third.json`, `${JSON.stringify({
+      savedAt,
+      remaining: null,
+      body: [event],
+      request,
+      source: 'caesars',
+    })}\n`);
+    await writeFile(`${dir}/fanduel-third.json`, `${JSON.stringify({
+      savedAt,
+      remaining: null,
+      body: [event],
+      request,
+      source: 'fanduel',
+    })}\n`);
+    process.env.ODDS_SOURCE = 'draftkings';
+    setOddsReplay(easternDay(savedAt));
+    await assert.rejects(oddsGet(url), (error: Error) => {
+      assert.match(error.message, /No DraftKings odds saved/);
+      assert.match(error.message, /Caesars/);
+      assert.match(error.message, /FanDuel/);
+      assert.match(error.message, /ODDS_SOURCE=caesars/);
+      assert.match(error.message, /ODDS_SOURCE=fanduel/);
+      return true;
+    });
+  } finally {
+    setOddsReplay(null);
+    if (previousDir == null) delete process.env.ODDS_CACHE_DIR;
+    else process.env.ODDS_CACHE_DIR = previousDir;
+    if (previousSource == null) delete process.env.ODDS_SOURCE;
+    else process.env.ODDS_SOURCE = previousSource;
+    await rm(dir, { recursive: true, force: true });
   }
 });
