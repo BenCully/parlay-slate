@@ -89,10 +89,13 @@ export function decisionModel() {
   return active;
 }
 
-/** Fail before any sport is walked. A replay reads saved odds and does not need ODDS_API_KEY. */
+const DIRECT_ODDS = new Set(['fanduel', 'draftkings', 'betmgm', 'caesars', 'books']);
+
+/** Fail before any sport is walked. A replay, and any direct book, does not need ODDS_API_KEY. */
 export function requireRunKeys(model: DecisionModel, replay: boolean) {
   const missing: string[] = [];
-  if (!replay && process.env.ODDS_SOURCE !== 'fanduel' && !process.env.ODDS_API_KEY?.trim()) missing.push('ODDS_API_KEY');
+  const source = process.env.ODDS_SOURCE ?? '';
+  if (!replay && !DIRECT_ODDS.has(source) && !process.env.ODDS_API_KEY?.trim()) missing.push('ODDS_API_KEY');
   if (model === 'jev' && !process.env.TYPESAFE_API_KEY?.trim()) missing.push('TYPESAFE_API_KEY');
   if (model === 'tail-jev') {
     if (!process.env.AUTOJEV_URL?.trim()) missing.push('AUTOJEV_URL');

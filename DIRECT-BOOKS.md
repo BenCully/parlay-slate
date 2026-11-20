@@ -1,6 +1,6 @@
 # Direct book sources
 
-Build spec for replacing the live call to The Odds API. Nothing here is landed. The 0.60 favorite gate, the 0.60 rerank gate, and the 0.80 verify gate stay. Do not add a paid odds service.
+Build spec for replacing the live call to The Odds API. The clients and the merged read have landed. The exit checklist at the bottom has not, so The Odds API is still the default. The 0.60 favorite gate, the 0.60 rerank gate, and the 0.80 verify gate stay. Do not add a paid odds service.
 
 Checked against Illinois responses on 2026-11-19, then checked again the same day after the first draft. Counts and prices below are that snapshot. They move. League and competition ids are what the client should start from, and it should still match the league by name when a soccer id is seasonal. `FUTURE-IDEAS.md` points here.
 
@@ -508,3 +508,37 @@ No test calls a sportsbook.
 - FanDuel's client was not called again for this spec. The Formula 1 path was not re-tested. The file references are from the current source.
 
 Node `fetch` for DraftKings and Caesars was still 200 on the last pass. If a later run returns 403, record the status and stop. That rule is in the client sections above.
+
+## Progress
+
+Updated while the clients were built. The spec above stays the contract. This section is what has actually landed.
+
+### Done
+
+- `odds/draftkings.ts`, `odds/caesars.ts`, and `odds/betmgm.ts` return the event shape `parseOddsBody` already accepts. Illinois only. Timeout 30 seconds. A network failure before a response is retried once. A priced response is not retried. Errors name the book and the status and do not include the request URL.
+- `pickBalanced` is exported from `odds/fanduel.ts`. DraftKings ladders and BetMGM ladders use that score. Team names go through `teamResolver`.
+- `ODDS_SOURCE` accepts `draftkings`, `betmgm`, `caesars`, and `books`. Cache prefixes are `draftkings-`, `betmgm-`, `caesars-`, and `books-`. A file with no `source` is still The Odds API. `replayMissError` names every other source that saved that day.
+- `ODDS_SOURCE=books` fetches all four books, matches on the two team names and the Eastern date, and sets `id` to `fd=,dk=,mgm=,czr=`. A book that throws is left off and named in the board note. The header omits a book that failed and never succeeded in that process.
+- `requireRunKeys` and the props board skip `ODDS_API_KEY` for every direct source. The cache sentence does not say a direct book spent credits. Caesars stays `williamhill_us` on the bookmaker. Formula 1 still forces FanDuel, including when the source is `books`.
+- Tests in `test/pure.test.ts` normalize the fixtures in `test/fixtures/` with no network. `npm test` (44) and `npm run typecheck` passed.
+- A live read on 2026-11-20, counts only, no decision model and no slate rewrite:
+  - DraftKings returned priced NFL, NCAAF, NBA, NHL, and all six soccer leagues, including moneylines, spreads, and totals. MLB was empty.
+  - Caesars returned the same leagues with prices. NHL was a shorter list than DraftKings. MLB was empty.
+  - BetMGM returned NFL, NCAAF, NBA, NHL, and the six soccer leagues. Premier League moneylines were absent because no game had a plain 3-way. That is the rule in the BetMGM section, not a dropped market. Soccer spreads came from fixture-view. NHL totals use the full-game name `Totals (including OT and shootouts)`. A recount after that name was accepted was 6 games, each with a moneyline, a spread, and a total. MLB was empty.
+  - NFL props came back for all three books (anytime touchdown and passing yards). Soccer anytime goalscorer came back for all three. A milestone ladder was not turned into an over/under.
+
+### Not done — exit checklist
+
+The live `fetch` to `api.the-odds-api.com` is still in `oddsGet`. `oddsSource()` still defaults to `the-odds-api`. `ODDS_API_KEY` is still required unless a direct source is set.
+
+These checklist items are not closed:
+
+1. `ODDS_SOURCE=books` was not run as one merged slate across every league. The books were read separately. A merged run still has to show a moneyline for every league that has games, or name the book that did not post it.
+2. Spreads and totals were present on the separate reads above, including the BetMGM soccer games that have no plain 3-way. They were not checked again on one merged `books` body.
+3. Prop coverage was checked for anytime touchdown, passing yards, and anytime goalscorer. The rest of the prop table was not compared with a FanDuel prop board game by game.
+4. `npm start -- odds=YYYY-MM-DD` still opens a day whose files have no `source`. Covered by the cache tests, not by a full replay.
+5. `npm run odds` still lists that day and prints `ODDS_SOURCE=the-odds-api` when that is not the active source. The command formatter is unchanged for that case.
+6. Formula 1 still takes the FanDuel path in `oddsRequestSource` when the source is `books`. That path was not called again during this build.
+7. `npm test` and `npm run typecheck` pass with no network.
+
+Do not switch the default to `books`, and do not delete the Odds API fetch, until those seven are true.

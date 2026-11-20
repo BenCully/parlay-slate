@@ -2,6 +2,12 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-20T00:26:44Z
+
+### Direct book sources
+
+`ODDS_SOURCE` now accepts `draftkings`, `betmgm`, `caesars`, and `books` in addition to `fanduel` and the default `the-odds-api`. Each direct book reads that Illinois sportsbook and normalizes moneylines, spreads, totals, and the player props the boards already ask for. `books` fetches all four, matches games by the two team names and the Eastern date, and keeps each book on its own bookmaker. A book that throws is omitted and named in the board note. The header drops a book that failed and never succeeded in that process. Cache files are prefixed `draftkings-`, `betmgm-`, `caesars-`, and `books-`, so they do not replace an Odds API file or each other. A replay miss names every other source that saved that day. Direct sources do not require `ODDS_API_KEY` and do not print a credit count. Formula 1 still reads FanDuel when the source is `books`. BetMGM loads its access id from client config at runtime. The id is not in the repo. Its fixtures calls use curl over HTTP/1.1. The Odds API stays the default, and the live fetch stays, until the exit checklist in `DIRECT-BOOKS.md` is true.
+
 ## 2026-11-19T22:55:49Z
 
 ### Formula 1

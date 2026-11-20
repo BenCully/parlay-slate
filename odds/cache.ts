@@ -1,5 +1,5 @@
 // Disk cache for odds responses. The key is the request path with apiKey removed.
-// The Odds API keeps that hash as the file name. FanDuel adds a fanduel- prefix so it does not replace a paid save.
+// The Odds API keeps that hash as the file name. Any other source adds its id as a prefix so it does not replace a paid save.
 // A hit does not call the network and does not spend a credit.
 // A slate whose kickoff window moved still counts as a hit until ODDS_CACHE_HOURS.
 // An empty slate loses that lookup while a non-empty sibling is still fresh.
@@ -11,13 +11,43 @@ import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { appendQuota, quotaEntry } from './quota.js';
 import { easternDay } from '../slate/window.js';
+import { betmgmFetch } from './betmgm.js';
+import { caesarsFetch } from './caesars.js';
+import { booksFetch } from './direct.js';
+import { draftkingsFetch } from './draftkings.js';
 import { fanduelFetch } from './fanduel.js';
 
 const DEFAULT_HOURS = 24 * 7;
 
-/** Which price source filled the record: the Odds API or FanDuel. */
+const DIRECT_SOURCES = new Set(['fanduel', 'draftkings', 'betmgm', 'caesars', 'books']);
+
+const MERGED_LABELS = [
+  ['fanduel', 'FanDuel'],
+  ['draftkings', 'DraftKings'],
+  ['betmgm', 'BetMGM'],
+  ['caesars', 'Caesars'],
+] as const;
+
+const mergedHealth = new Map<string, 'ok' | 'failed'>();
+
+/** A merged read names a book that threw. A later success in this process puts it back on the header. */
+export function recordMergedBook(id: (typeof MERGED_LABELS)[number][0], ok: boolean) {
+  if (ok) mergedHealth.set(id, 'ok');
+  else if (mergedHealth.get(id) !== 'ok') mergedHealth.set(id, 'failed');
+}
+
+export function resetMergedBooks() {
+  mergedHealth.clear();
+}
+
+/** Which price source filled the record. An unknown id stays on The Odds API. */
 export function oddsSource() {
-  return process.env.ODDS_SOURCE === 'fanduel' ? 'fanduel' : 'the-odds-api';
+  const value = process.env.ODDS_SOURCE;
+  return value && DIRECT_SOURCES.has(value) ? value : 'the-odds-api';
+}
+
+export function isDirectOddsSource(source = oddsSource()) {
+  return source !== 'the-odds-api';
 }
 
 /** Formula 1 is posted on FanDuel only. That sport keeps FanDuel prices when the run uses The Odds API. */
@@ -35,6 +65,13 @@ export function oddsRequestSource(url: string) {
 /** Screen and error name for a stored source id. An unknown id stays blank. */
 export function oddsSourceLabel(source: string | undefined) {
   if (source === 'fanduel') return 'FanDuel';
+  if (source === 'draftkings') return 'DraftKings';
+  if (source === 'betmgm') return 'BetMGM';
+  if (source === 'caesars') return 'Caesars';
+  if (source === 'books') {
+    const names = MERGED_LABELS.filter(([id]) => mergedHealth.get(id) !== 'failed').map(([, label]) => label);
+    return names.join(' · ');
+  }
   if (source === 'the-odds-api') return 'The Odds API';
   return '';
 }
@@ -51,6 +88,7 @@ type CacheRecord = {
   body: unknown;
   request: string;
   source?: string;
+  omitted?: string[];
 };
 
 export type OddsOutcome = {
@@ -87,6 +125,8 @@ export type OddsResponse = {
   savedAt: string;
   /** True when a live fetch was skipped to stay above ODDS_CREDIT_FLOOR. */
   skipped?: boolean;
+  /** Books left off a merged read. Each sentence names the book. */
+  omitted?: string[];
 };
 
 const unexpected = 'Odds API returned an unexpected payload.';
@@ -435,12 +475,40 @@ function sourceName(source: string) {
 }
 
 async function replayMissError(request: string, source: string) {
-  const other = source === 'fanduel' ? 'the-odds-api' : 'fanduel';
-  const alternate = await readReplay(request, other);
+  const others: string[] = [];
+  for (const record of await readCatalog()) {
+    if (!replayDay || easternDay(record.savedAt) !== replayDay) continue;
+    const saved = recordedSource(record);
+    if (saved === source || others.includes(saved)) continue;
+    if (!sameSavedRequest(record.request, request)) continue;
+    others.push(saved);
+  }
   const missed = `No ${sourceName(source)} odds saved on ${replayDay} for ${requestLabel(request)}.`;
-  if (!alternate) return `${missed} Nothing was fetched.`;
-  return `${missed} That day was saved by ${sourceName(other)}. Replay with ODDS_SOURCE=${other}. Nothing was fetched.`;
+  if (!others.length) return `${missed} Nothing was fetched.`;
+  const named = others.map((item) => sourceName(item));
+  const list = named.length === 1 ? named[0] : `${named.slice(0, -1).join(', ')} and ${named.at(-1)}`;
+  const replay = others.length === 1
+    ? `Replay with ODDS_SOURCE=${others[0]}.`
+    : `Replay with ${others.map((item) => `ODDS_SOURCE=${item}`).join(' or ')}.`;
+  return `${missed} That day was saved by ${list}. ${replay} Nothing was fetched.`;
 }
+
+async function readDirect(source: string, url: string) {
+  if (source === 'fanduel') return { body: await fanduelFetch(url) as unknown, omitted: [] as string[], failed: [] as string[] };
+  if (source === 'draftkings') return { body: await draftkingsFetch(url), omitted: [] as string[], failed: [] as string[] };
+  if (source === 'betmgm') return { body: await betmgmFetch(url), omitted: [] as string[], failed: [] as string[] };
+  if (source === 'caesars') return { body: await caesarsFetch(url), omitted: [] as string[], failed: [] as string[] };
+  const merged = await booksFetch(url);
+  const failed = new Set(merged.failed);
+  recordMergedBook('fanduel', !failed.has('FanDuel'));
+  recordMergedBook('draftkings', !failed.has('DraftKings'));
+  recordMergedBook('betmgm', !failed.has('BetMGM'));
+  recordMergedBook('caesars', !failed.has('Caesars'));
+  if (merged.failed.length === READER_COUNT) throw new Error(`${merged.omitted.join(' ')} Nothing was fetched.`);
+  return merged;
+}
+
+const READER_COUNT = 4;
 
 export async function oddsGet(url: string, init?: RequestInit, options?: { cacheOnly?: boolean }): Promise<OddsResponse> {
   const source = oddsRequestSource(url);
@@ -449,29 +517,37 @@ export async function oddsGet(url: string, init?: RequestInit, options?: { cache
     const hit = await readReplay(identity.request, source);
     if (!hit) throw new Error(await replayMissError(identity.request, source));
     await appendQuota(quotaEntry(identity.request, 'cached', null));
-    return { body: parseOddsBody(hit.body), remaining: null, cached: true, savedAt: hit.savedAt };
+    return { body: parseOddsBody(hit.body), remaining: null, cached: true, savedAt: hit.savedAt, omitted: hit.omitted };
   }
   const file = `${cacheDir()}/${oddsCacheName(identity.hash, source)}`;
   if (!cacheBypass()) {
     const hit = await readHit(file, source) ?? await readFamily(identity.request, source);
     if (hit) {
       await appendQuota(quotaEntry(identity.request, 'cached', null));
-      return { body: parseOddsBody(hit.body), remaining: null, cached: true, savedAt: hit.savedAt };
+      return { body: parseOddsBody(hit.body), remaining: null, cached: true, savedAt: hit.savedAt, omitted: hit.omitted };
     }
   }
   if (options?.cacheOnly) return { body: null, remaining: null, cached: false, savedAt: '', skipped: true };
-  if (source === 'fanduel') {
-    const raw = await fanduelFetch(url);
+  if (source !== 'the-odds-api') {
+    const fetched = await readDirect(source, url);
     let body: OddsEvent[] | OddsEvent;
     try {
-      body = parseOddsBody(raw);
+      body = parseOddsBody(fetched.body);
     } catch {
-      throw new Error('FanDuel returned an unexpected payload.');
+      const label = oddsSourceLabel(source) || 'The sportsbook';
+      throw new Error(`${label} returned an unexpected payload.`);
     }
     const savedAt = new Date().toISOString();
     await appendQuota(quotaEntry(identity.request, 'live', null));
-    await store(file, { savedAt, remaining: null, body: raw, request: identity.request, source });
-    return { body, remaining: null, cached: false, savedAt };
+    await store(file, {
+      savedAt,
+      remaining: null,
+      body: fetched.body,
+      request: identity.request,
+      source,
+      ...(fetched.omitted.length ? { omitted: fetched.omitted } : {}),
+    });
+    return { body, remaining: null, cached: false, savedAt, ...(fetched.omitted.length ? { omitted: fetched.omitted } : {}) };
   }
   let res: Response;
   try {

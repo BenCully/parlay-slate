@@ -85,7 +85,7 @@ Before a long `model=tail-jev` walk, call Autojev `/health` once. It is unauthen
 
 ## Direct book sources
 
-The build spec is `DIRECT-BOOKS.md`. It was checked against live Illinois responses on 2026-11-19. DraftKings, BetMGM, and Caesars each get a client in the FanDuel shape. A later merged read fills `bookmakers` so `postedMarket` can keep FanDuel, DraftKings, BetMGM, Caesars without a live call to The Odds API. Until that file's exit checklist is true, The Odds API stays the default.
+The build spec is `DIRECT-BOOKS.md`. DraftKings, Caesars, and BetMGM now have clients in the FanDuel shape, and `ODDS_SOURCE=books` merges them onto `bookmakers`. The progress section of that file is what has landed. Until its exit checklist is true, The Odds API stays the default and the live fetch stays.
 
 ## Later
 

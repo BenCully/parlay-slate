@@ -31,7 +31,7 @@ export type SavedSport = {
 export type SavedSlate = {
   savedAt: string;
   model?: string;
-  /** Price source that filled this slate: `fanduel` or `the-odds-api`. Absent on an older save. */
+  /** Price source that filled this slate. Absent on an older save. An unknown id leaves the header blank. */
   oddsSource?: string;
   /** Eastern day whose saved odds were replayed. Absent on a live run. */
   oddsDay?: string;

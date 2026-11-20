@@ -1,0 +1,63 @@
+{
+  "events": [
+    {
+      "id": "34118011",
+      "name": "IND Colts @ HOU Texans",
+      "startEventDate": "2026-11-20T01:15:00.0000000Z",
+      "participants": [
+        { "name": "HOU Texans", "venueRole": "Home" },
+        { "name": "IND Colts", "venueRole": "Away" }
+      ]
+    },
+    {
+      "id": "soccer1",
+      "name": "Man City vs Fulham",
+      "startEventDate": "2026-11-22T15:00:00.0000000Z",
+      "participants": [
+        { "name": "Man City", "venueRole": "Home" },
+        { "name": "Fulham", "venueRole": "Away" }
+      ]
+    }
+  ],
+  "markets": [
+    { "id": "ml", "eventId": "34118011", "name": "Moneyline", "marketType": { "name": "Moneyline" } },
+    { "id": "sp", "eventId": "34118011", "name": "Spread", "marketType": { "name": "Spread" } },
+    { "id": "tot", "eventId": "34118011", "name": "Total", "marketType": { "name": "Total" } },
+    { "id": "sml", "eventId": "soccer1", "name": "Moneyline", "marketType": { "name": "Moneyline" } },
+    { "id": "ssp", "eventId": "soccer1", "name": "Spread", "marketType": { "name": "Spread" } },
+    { "id": "stot", "eventId": "soccer1", "name": "Total Goals", "marketType": { "name": "Total" } },
+    { "id": "pass", "eventId": "34118011", "name": "Joe Burrow Passing Yards O/U", "marketType": { "name": "Passing Yards O/U" } },
+    { "id": "mile", "eventId": "34118011", "name": "Joe Burrow Passing Yards", "marketType": { "name": "Passing Yards Milestones" } },
+    { "id": "any", "eventId": "34118011", "name": "Anytime TD Scorer", "marketType": { "name": "Anytime Touchdown Scorer" } },
+    { "id": "first", "eventId": "34118011", "name": "First TD Scorer", "marketType": { "name": "First Touchdown Scorer" } },
+    { "id": "two", "eventId": "34118011", "name": "2+ TDs", "marketType": { "name": "To Score 2 or More Touchdowns" } }
+  ],
+  "selections": [
+    { "marketId": "ml", "label": "IND Colts", "outcomeType": "Away", "displayOdds": { "american": "+500" } },
+    { "marketId": "ml", "label": "HOU Texans", "outcomeType": "Home", "displayOdds": { "american": "−690" } },
+    { "marketId": "sp", "label": "IND Colts", "outcomeType": "Away", "points": 12.5, "displayOdds": { "american": "−114" } },
+    { "marketId": "sp", "label": "HOU Texans", "outcomeType": "Home", "points": -12.5, "displayOdds": { "american": "−106" } },
+    { "marketId": "tot", "label": "Over", "outcomeType": "Over", "points": 44.5, "displayOdds": { "american": "−104" } },
+    { "marketId": "tot", "label": "Under", "outcomeType": "Under", "points": 44.5, "displayOdds": { "american": "−116" } },
+    { "marketId": "sml", "label": "Man City", "outcomeType": "Home", "displayOdds": { "american": "−260" } },
+    { "marketId": "sml", "label": "Draw", "outcomeType": "Tie", "displayOdds": { "american": "+425" } },
+    { "marketId": "sml", "label": "Fulham", "outcomeType": "Away", "displayOdds": { "american": "+650" } },
+    { "marketId": "ssp", "label": "Man City", "outcomeType": "Home", "points": -3.5, "displayOdds": { "american": "+500" } },
+    { "marketId": "ssp", "label": "Fulham", "outcomeType": "Away", "points": 3.5, "displayOdds": { "american": "−1100" } },
+    { "marketId": "ssp", "label": "Man City", "outcomeType": "Home", "points": -0.5, "displayOdds": { "american": "−110" } },
+    { "marketId": "ssp", "label": "Fulham", "outcomeType": "Away", "points": 0.5, "displayOdds": { "american": "−110" } },
+    { "marketId": "ssp", "label": "Man City", "outcomeType": "Home", "points": -0.5, "displayOdds": { "american": "+400" } },
+    { "marketId": "ssp", "label": "Fulham", "outcomeType": "Away", "points": 0.5, "displayOdds": { "american": "−600" } },
+    { "marketId": "stot", "label": "Over", "outcomeType": "Over", "points": 3.5, "displayOdds": { "american": "+500" } },
+    { "marketId": "stot", "label": "Under", "outcomeType": "Under", "points": 3.5, "displayOdds": { "american": "−1100" } },
+    { "marketId": "stot", "label": "Over", "outcomeType": "Over", "points": 2.5, "displayOdds": { "american": "−110" } },
+    { "marketId": "stot", "label": "Under", "outcomeType": "Under", "points": 2.5, "displayOdds": { "american": "−110" } },
+    { "marketId": "pass", "label": "Over", "outcomeType": "Over", "points": 303.5, "displayOdds": { "american": "−112" } },
+    { "marketId": "pass", "label": "Under", "outcomeType": "Under", "points": 303.5, "displayOdds": { "american": "−112" } },
+    { "marketId": "mile", "label": "220+", "outcomeType": null, "points": null, "displayOdds": { "american": "−140" } },
+    { "marketId": "mile", "label": "230+", "outcomeType": null, "points": null, "displayOdds": { "american": "+120" } },
+    { "marketId": "any", "label": "Chase Brown", "outcomeType": "ToScoreAnyTime", "displayOdds": { "american": "−140" } },
+    { "marketId": "first", "label": "Chase Brown", "outcomeType": "ToScoreFirst", "displayOdds": { "american": "+450" } },
+    { "marketId": "two", "label": "Chase Brown", "outcomeType": "ToScore2OrMore", "displayOdds": { "american": "+700" } }
+  ]
+}

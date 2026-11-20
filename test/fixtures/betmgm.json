@@ -1,0 +1,201 @@
+{
+  "fixtures": [
+    {
+      "id": "6:44037",
+      "startDate": "2026-11-22T18:00:00.000Z",
+      "fixtureType": "PairGame",
+      "stage": "PreMatch",
+      "isOpenForBetting": true,
+      "participants": [
+        { "name": { "value": "Philadelphia Eagles" }, "properties": { "type": "HomeTeam" } },
+        { "name": { "value": "Pittsburgh Steelers" }, "properties": { "type": "AwayTeam" } }
+      ],
+      "optionMarkets": [
+        {
+          "name": { "value": "Moneyline" },
+          "status": "Visible",
+          "parameters": [
+            { "key": "MarketType", "value": "2way" },
+            { "key": "Period", "value": "FullTime" },
+            { "key": "Happening", "value": "Point" }
+          ],
+          "options": [
+            { "name": { "value": "Pittsburgh Steelers" }, "status": "Visible", "price": { "americanOdds": -210 } },
+            { "name": { "value": "Philadelphia Eagles" }, "status": "Visible", "price": { "americanOdds": 175 } }
+          ]
+        },
+        {
+          "name": { "value": "1st quarter moneyline" },
+          "status": "Visible",
+          "parameters": [
+            { "key": "MarketType", "value": "2way" },
+            { "key": "Period", "value": "FirstQuarter" },
+            { "key": "Happening", "value": "Point" }
+          ],
+          "options": [
+            { "name": { "value": "Pittsburgh Steelers" }, "status": "Visible", "price": { "americanOdds": -160 } },
+            { "name": { "value": "Philadelphia Eagles" }, "status": "Visible", "price": { "americanOdds": 130 } }
+          ]
+        },
+        {
+          "name": { "value": "Spread" },
+          "status": "Visible",
+          "parameters": [
+            { "key": "MarketType", "value": "2wayHandicap" },
+            { "key": "Period", "value": "FullTime" },
+            { "key": "Happening", "value": "Point" }
+          ],
+          "options": [
+            { "name": { "value": "Pittsburgh Steelers -4" }, "status": "Visible", "price": { "americanOdds": -112 } },
+            { "name": { "value": "Philadelphia Eagles +4" }, "status": "Visible", "price": { "americanOdds": -105 } }
+          ]
+        },
+        {
+          "name": { "value": "Totals" },
+          "status": "Visible",
+          "parameters": [
+            { "key": "MarketType", "value": "Over/Under" },
+            { "key": "Period", "value": "FullTime" },
+            { "key": "Happening", "value": "Point" },
+            { "key": "DecimalValue", "value": "38" }
+          ],
+          "options": [
+            { "name": { "value": "Over 38" }, "status": "Visible", "price": { "americanOdds": -110 } },
+            { "name": { "value": "Under 38" }, "status": "Visible", "price": { "americanOdds": -108 } }
+          ]
+        },
+        {
+          "name": { "value": "3-way spread" },
+          "status": "Visible",
+          "parameters": [
+            { "key": "MarketType", "value": "Handicap" },
+            { "key": "Period", "value": "FullTime" }
+          ],
+          "options": [
+            { "name": { "value": "Pittsburgh Steelers -4" }, "status": "Visible", "price": { "americanOdds": 150 } },
+            { "name": { "value": "Handicap Tie" }, "status": "Visible", "price": { "americanOdds": 300 } },
+            { "name": { "value": "Philadelphia Eagles +4" }, "status": "Visible", "price": { "americanOdds": -200 } }
+          ]
+        },
+        {
+          "name": { "value": "Aaron Rodgers Passing Yards" },
+          "status": "Visible",
+          "parameters": [
+            { "key": "MarketType", "value": "Over/Under" },
+            { "key": "Period", "value": "FullTime" },
+            { "key": "Happening", "value": "PassingYards" }
+          ],
+          "options": [
+            { "name": { "value": "Yes" }, "status": "Visible", "price": { "americanOdds": -140 } }
+          ]
+        },
+        {
+          "name": { "value": "Aaron Rodgers - Passing Yards" },
+          "status": "Visible",
+          "parameters": [
+            { "key": "MarketType", "value": "Over/Under" },
+            { "key": "Period", "value": "FullTime" },
+            { "key": "Happening", "value": "PassingYards" }
+          ],
+          "options": [
+            { "name": { "value": "Over 205.5" }, "status": "Visible", "price": { "americanOdds": -115 } },
+            { "name": { "value": "Under 205.5" }, "status": "Visible", "price": { "americanOdds": -105 } }
+          ]
+        },
+        {
+          "name": { "value": "DeVonta Smith to score 1+ TDs" },
+          "status": "Visible",
+          "parameters": [
+            { "key": "MarketType", "value": "YesNo" },
+            { "key": "Period", "value": "FullTime" },
+            { "key": "Happening", "value": "Touchdown" }
+          ],
+          "options": [
+            { "name": { "value": "Yes" }, "status": "Visible", "price": { "americanOdds": 120 } }
+          ]
+        },
+        {
+          "name": { "value": "PIT D/ST to score 1+ TDs" },
+          "status": "Visible",
+          "parameters": [
+            { "key": "MarketType", "value": "YesNo" },
+            { "key": "Period", "value": "FullTime" },
+            { "key": "Happening", "value": "Touchdown" }
+          ],
+          "options": [
+            { "name": { "value": "Yes" }, "status": "Visible", "price": { "americanOdds": 450 } }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "2:7910926",
+      "startDate": "2026-11-22T16:30:00.000Z",
+      "fixtureType": "PairGame",
+      "stage": "PreMatch",
+      "isOpenForBetting": true,
+      "participants": [
+        { "name": { "value": "Newcastle United" }, "properties": { "type": "HomeTeam" } },
+        { "name": { "value": "Arsenal" }, "properties": { "type": "AwayTeam" } }
+      ],
+      "optionMarkets": [
+        {
+          "name": { "value": "Match result: Early payout" },
+          "status": "Visible",
+          "parameters": [
+            { "key": "MarketType", "value": "3way" },
+            { "key": "Period", "value": "RegularTime" },
+            { "key": "Happening", "value": "Goal" },
+            { "key": "MarketSubType", "value": "2Up3wayPricing" }
+          ],
+          "options": [
+            { "name": { "value": "Newcastle United" }, "status": "Visible", "price": { "americanOdds": 260 } },
+            { "name": { "value": "Tie" }, "status": "Visible", "price": { "americanOdds": 230 } },
+            { "name": { "value": "Arsenal" }, "status": "Visible", "price": { "americanOdds": -110 } }
+          ]
+        },
+        {
+          "name": { "value": "Total goals" },
+          "status": "Visible",
+          "parameters": [
+            { "key": "MarketType", "value": "Over/Under" },
+            { "key": "Period", "value": "RegularTime" },
+            { "key": "Happening", "value": "Goal" },
+            { "key": "DecimalValue", "value": "3.5000" }
+          ],
+          "options": [
+            { "name": { "value": "Over 3.5" }, "status": "Visible", "price": { "americanOdds": 180 } },
+            { "name": { "value": "Under 3.5" }, "status": "Visible", "price": { "americanOdds": -220 } }
+          ]
+        },
+        {
+          "name": { "value": "Total goals" },
+          "status": "Visible",
+          "parameters": [
+            { "key": "MarketType", "value": "Over/Under" },
+            { "key": "Period", "value": "RegularTime" },
+            { "key": "Happening", "value": "Goal" },
+            { "key": "DecimalValue", "value": "2.5000" }
+          ],
+          "options": [
+            { "name": { "value": "Over 2.5" }, "status": "Visible", "price": { "americanOdds": -105 } },
+            { "name": { "value": "Under 2.5" }, "status": "Visible", "price": { "americanOdds": -115 } }
+          ]
+        },
+        {
+          "name": { "value": "2-way spread (+0.5): Regular time" },
+          "status": "Visible",
+          "parameters": [
+            { "key": "MarketType", "value": "2wayHandicap" },
+            { "key": "Period", "value": "RegularTime" },
+            { "key": "Happening", "value": "Goal" }
+          ],
+          "options": [
+            { "name": { "value": "Newcastle United (0.5)" }, "status": "Visible", "price": { "americanOdds": -130 } },
+            { "name": { "value": "Arsenal (-0.5)" }, "status": "Visible", "price": { "americanOdds": 110 } }
+          ]
+        }
+      ]
+    }
+  ]
+}
