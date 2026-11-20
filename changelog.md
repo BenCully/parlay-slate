@@ -2,6 +2,12 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-20T01:46:30Z
+
+### Launcher click no longer flickers or sticks
+
+A click in the last-run screen was being cut apart. The digits in the mouse report then changed tabs, and every one of those paints cleared the whole terminal. The terminal stopped accepting keys, including `q` and Ctrl-C, and stayed in raw mode. Mouse bytes now stay mouse reports, including a report whose escape byte arrived in the previous chunk. Later paints overwrite the rows in place instead of clearing the screen, and a burst of motion paints once. A draw that throws restores the terminal before the process exits. A resize that does not change the size does not paint again.
+
 ## 2026-11-20T01:14:10Z
 
 ### Terminal launcher

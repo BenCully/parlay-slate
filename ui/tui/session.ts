@@ -1,4 +1,4 @@
-import { theme, withAltScreen } from '../term.js';
+import { paintScreen, runPaint, schedulePaint, theme, withAltScreen } from '../term.js';
 import type { FormContext } from './commands.js';
 import { focusedHitId, headerLine, hintFor, layoutScreen, reduceForm, type Layout, type UiState } from './options.js';
 
@@ -53,9 +53,9 @@ export function showOptions(state: UiState, ctx: FormContext): Promise<OptionsRe
       const hint = hintFor(current);
       const shownHint = hint.length > bodyWidth ? hint.slice(0, bodyWidth) : hint;
       const rule = '─'.repeat(Math.max(1, Math.min(columns, bodyWidth)));
-      const frame = [header, rule, ...body, rule, shownHint].join('\n');
-      process.stdout.write(`${theme}\x1b[2J\x1b[H${frame}`);
+      paintScreen([header, rule, ...body, rule, shownHint]);
     };
+    const refresh = schedulePaint(session, draw);
     const apply = (key: { type: 'key'; key: string } | { type: 'click'; id: string } | { type: 'wheel'; delta: number }) => {
       const next = reduceForm(current, key, ctx);
       current = next.state;
@@ -78,17 +78,17 @@ export function showOptions(state: UiState, ctx: FormContext): Promise<OptionsRe
           ctx.oddsLines = fresh.oddsLines;
           ctx.lastRun = fresh.lastRun;
           current = { ...current, confirm: false, confirmTyped: '', message: lines.at(-1) ?? 'Cleared snapshots.', scroll: 0 };
-          draw();
+          refresh();
         }).catch((error: unknown) => {
           current = { ...current, confirm: false, message: error instanceof Error ? error.message : 'Could not clear snapshots.' };
-          draw();
+          refresh();
         });
         return;
       }
-      draw();
+      refresh();
     };
     return {
-      draw,
+      draw: () => runPaint(session, draw),
       onKey(key) {
         if (key === '\u0003') {
           finish('interrupt');
@@ -101,7 +101,7 @@ export function showOptions(state: UiState, ctx: FormContext): Promise<OptionsRe
           apply({ type: 'wheel', delta: (mouse.button & 1) === 0 ? -3 : 3 });
           return;
         }
-        if (mouse.release || (mouse.button & 67) !== 0) return;
+        if (mouse.release || (mouse.button & 32) !== 0 || (mouse.button & 67) !== 0) return;
         const columns = Math.max(20, process.stdout.columns || 80);
         if (mouse.y === 1 && mouse.x >= columns - 3) {
           apply({ type: 'click', id: 'header-x' });

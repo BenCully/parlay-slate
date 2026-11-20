@@ -28,55 +28,111 @@ export type AltHandlers = {
   onMouse: (mouse: MouseEvent) => void;
 };
 
-type InputEvent = { key: string; mouse?: MouseEvent };
+export type InputEvent = { key: string; mouse?: MouseEvent };
 
-function takeInput(pending: Buffer): { pending: Buffer; event: InputEvent | null; wait: boolean } {
-  if (!pending.length) return { pending, event: null, wait: false };
-  if (pending[0] !== 0x1b) {
-    return { pending: pending.subarray(1), event: { key: String.fromCharCode(pending[0]) }, wait: false };
-  }
-  if (pending.length < 3) return { pending, event: null, wait: true };
-  if (pending[1] === 0x5b && pending[2] === 0x3c) {
-    const match = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])/.exec(pending.toString('utf8'));
-    if (!match) {
-      if (pending.length > 64) return { pending: pending.subarray(1), event: { key: '\x1b' }, wait: false };
-      return { pending, event: null, wait: true };
+const SGR = /^\x1b\[<(\d+);(\d+);(\d+)(?:;\d+)*([Mm])/;
+const SGR_TAIL = /^<(\d+);(\d+);(\d+)(?:;\d+)*([Mm])/;
+
+function mouseEvent(button: number, x: number, y: number, release: boolean): InputEvent {
+  return { key: '', mouse: { button, x, y, release } };
+}
+
+/**
+ * Pull every complete key or mouse report out of a stdin chunk.
+ * A split SGR report stays buffered. A tail left after a lost escape (`<0;1;2M`)
+ * is still a mouse report, not digit keys, so a click cannot change tabs.
+ */
+export function takeEvents(input: Buffer): { pending: Buffer; events: InputEvent[] } {
+  const events: InputEvent[] = [];
+  let pending = input;
+  while (pending.length) {
+    if (pending[0] === 0x3c) {
+      const text = pending.toString('utf8');
+      const tail = SGR_TAIL.exec(text);
+      if (tail?.index === 0) {
+        events.push(mouseEvent(Number(tail[1]), Number(tail[2]), Number(tail[3]), tail[4] === 'm'));
+        pending = pending.subarray(Buffer.byteLength(tail[0]));
+        continue;
+      }
+      if (/^<\d+(;\d+)+$/.test(text) && pending.length < 48) break;
+      events.push({ key: '<' });
+      pending = pending.subarray(1);
+      continue;
     }
-    return {
-      pending: pending.subarray(Buffer.byteLength(match[0])),
-      event: {
-        key: '',
-        mouse: { button: Number(match[1]), x: Number(match[2]), y: Number(match[3]), release: match[4] === 'm' },
-      },
-      wait: false,
-    };
+    if (pending[0] !== 0x1b) {
+      events.push({ key: String.fromCharCode(pending[0]!) });
+      pending = pending.subarray(1);
+      continue;
+    }
+    if (pending.length < 3) break;
+    if (pending[1] === 0x5b && pending[2] === 0x3c) {
+      const text = pending.toString('utf8');
+      const match = SGR.exec(text);
+      if (match?.index === 0) {
+        events.push(mouseEvent(Number(match[1]), Number(match[2]), Number(match[3]), match[4] === 'm'));
+        pending = pending.subarray(Buffer.byteLength(match[0]));
+        continue;
+      }
+      if (/^\x1b\[<\d*(;\d+)*$/.test(text) && pending.length < 64) break;
+      pending = pending.subarray(1);
+      continue;
+    }
+    if (pending[1] === 0x5b && pending[2] === 0x4d) {
+      if (pending.length < 6) break;
+      const button = pending[3]! - 32;
+      events.push(mouseEvent(button, pending[4]! - 32, pending[5]! - 32, (button & 3) === 3 && (button & 64) === 0));
+      pending = pending.subarray(6);
+      continue;
+    }
+    const text = pending.toString('utf8');
+    const match = /^\x1b\[[\d;]*[A-Za-z~]/.exec(text);
+    if (match?.index === 0) {
+      events.push({ key: match[0] });
+      pending = pending.subarray(Buffer.byteLength(match[0]));
+      continue;
+    }
+    if (pending.length <= 16 && /^\x1b\[[\d;]*$/.test(text)) break;
+    if (pending[1] !== 0x5b) {
+      events.push({ key: '\x1b' });
+      pending = pending.subarray(1);
+      continue;
+    }
+    pending = pending.subarray(1);
   }
-  if (pending[1] === 0x5b && pending[2] === 0x4d) {
-    if (pending.length < 6) return { pending, event: null, wait: true };
-    const button = pending[3] - 32;
-    return {
-      pending: pending.subarray(6),
-      event: {
-        key: '',
-        mouse: {
-          button,
-          x: pending[4] - 32,
-          y: pending[5] - 32,
-          release: (button & 3) === 3 && (button & 64) === 0,
-        },
-      },
-      wait: false,
-    };
+  return { pending, events };
+}
+
+/** Overwrite the visible rows in place. A full clear scrolls some terminals and looks like flicker. */
+export function paintScreen(lines: string[], options?: { color?: boolean }) {
+  const rows = Math.max(1, process.stdout.rows || lines.length || 1);
+  const color = options?.color !== false;
+  let out = color ? theme : '\x1b[0m';
+  for (let row = 0; row < rows; row++) {
+    out += `\x1b[${row + 1};1H${color ? theme : ''}${lines[row] ?? ''}\x1b[K`;
   }
-  const match = /^\x1b\[[\d;]*[A-Za-z~]/.exec(pending.toString('utf8'));
-  if (!match) {
-    if (pending.length > 16) return { pending: pending.subarray(1), event: { key: '\x1b' }, wait: false };
-    return { pending, event: null, wait: true };
+  process.stdout.write(out);
+}
+
+export function runPaint(session: AltSession, paint: () => void) {
+  try {
+    paint();
+  } catch (error) {
+    if (!session.closed) session.restore();
+    console.error(error instanceof Error ? error.message : 'The screen failed.');
+    process.exit(1);
   }
-  return {
-    pending: pending.subarray(Buffer.byteLength(match[0])),
-    event: { key: match[0] },
-    wait: false,
+}
+
+/** One paint for a burst of mouse reports, after the current chunk has been handled. */
+export function schedulePaint(session: AltSession, paint: () => void) {
+  let queued = false;
+  return () => {
+    if (queued || session.closed) return;
+    queued = true;
+    queueMicrotask(() => {
+      queued = false;
+      if (!session.closed) runPaint(session, paint);
+    });
   };
 }
 
@@ -124,25 +180,30 @@ export function withAltScreen(
 
     const dispatch = (event: InputEvent) => {
       if (session.closed) return;
-      if (event.mouse) handlers.onMouse(event.mouse);
-      else handlers.onKey(event.key);
+      try {
+        if (event.mouse) handlers.onMouse(event.mouse);
+        else handlers.onKey(event.key);
+      } catch (error) {
+        if (!session.closed) session.restore();
+        console.error(error instanceof Error ? error.message : 'The screen failed.');
+        process.exit(1);
+      }
     };
 
     const pump = () => {
-      for (;;) {
-        const next = takeInput(pending);
-        pending = next.pending as typeof pending;
-        if (!next.event) break;
-        dispatch(next.event);
+      const next = takeEvents(pending);
+      pending = next.pending as typeof pending;
+      for (const event of next.events) {
+        dispatch(event);
         if (session.closed) return;
       }
       if (session.closed || pending.length !== 1 || pending[0] !== 0x1b) return;
       escTimer = setTimeout(() => {
         escTimer = undefined;
         if (session.closed || pending.length !== 1 || pending[0] !== 0x1b) return;
-        pending = pending.subarray(1) as typeof pending;
+        pending = Buffer.alloc(0);
         dispatch({ key: '\x1b' });
-      }, 50);
+      }, 200);
     };
 
     const onData = (chunk: Buffer) => {
@@ -154,10 +215,27 @@ export function withAltScreen(
       pump();
     };
 
+    let seenCols = process.stdout.columns || 0;
+    let seenRows = process.stdout.rows || 0;
+    let resizing = false;
     const onResize = () => {
-      if (session.closed) return;
-      process.stdout.write(`${paintOn}\x1b[2J\x1b[H`);
-      handlers.draw();
+      if (resizing || session.closed) return;
+      const nextCols = process.stdout.columns || 0;
+      const nextRows = process.stdout.rows || 0;
+      if (nextCols === seenCols && nextRows === seenRows) return;
+      seenCols = nextCols;
+      seenRows = nextRows;
+      resizing = true;
+      try {
+        process.stdout.write(`${paintOn}\x1b[2J\x1b[H`);
+        handlers.draw();
+      } catch (error) {
+        if (!session.closed) session.restore();
+        console.error(error instanceof Error ? error.message : 'The screen failed.');
+        process.exit(1);
+      } finally {
+        resizing = false;
+      }
     };
 
     Object.assign(handlers, setup(session));

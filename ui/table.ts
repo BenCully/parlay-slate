@@ -1,4 +1,4 @@
-import { theme, withAltScreen, type ScreenClose } from './term.js';
+import { paintScreen, runPaint, schedulePaint, theme, withAltScreen, type ScreenClose } from './term.js';
 
 type Align = 'left' | 'right';
 
@@ -359,7 +359,7 @@ export function presentScreen(input: ScreenPage[] | ((width: number) => string[]
       else leaf = index;
       scroll = 0;
       dragging = false;
-      draw();
+      refresh();
     };
 
     const cycle = (depth: number, delta: number) => {
@@ -375,7 +375,7 @@ export function presentScreen(input: ScreenPage[] | ((width: number) => string[]
     };
 
     const draw = () => {
-      const width = Math.max(20, process.stdout.columns || 80);
+      const width = Math.max(20, (process.stdout.columns || 80) - 1);
       rows = tabRows(pages, cursor());
       headerCount = Math.max(1, rows.length);
       const height = Math.max(headerCount + 2, process.stdout.rows || 24);
@@ -392,7 +392,6 @@ export function presentScreen(input: ScreenPage[] | ((width: number) => string[]
       const view = lines.slice(scroll, scroll + body);
       while (view.length < body) view.push('');
       const bar = scrollbarColumn(body, lines.length, scroll);
-      const frame = view.map((line, index) => pad(line, contentWidth, 'left') + bar[index]).join('\n');
       const hintParts = ['q quits', 'wheel scrolls'];
       const leafRow = rows.at(-1);
       if (leafRow && leafRow.nodes.length > 1) hintParts.push('tab games');
@@ -401,7 +400,7 @@ export function presentScreen(input: ScreenPage[] | ((width: number) => string[]
       if (leagueRow && leagueRow.nodes.length > 1 && rows.some((row) => row.depth === 2)) hintParts.push(', . league');
       const hint = hintParts.join(' · ');
       const shownHint = hint.length > width ? hint.slice(0, width) : hint;
-      const status = `${theme}${shownHint}${' '.repeat(width - shownHint.length)}`;
+      const status = `${shownHint}${' '.repeat(Math.max(0, width - shownHint.length))}`;
       const headers = rows.length
         ? rows.map((row, index) => {
           const top = index === 0;
@@ -411,14 +410,16 @@ export function presentScreen(input: ScreenPage[] | ((width: number) => string[]
         })
         : [paintHeader([], 0, width, true, model, oddsSource)];
       rowHits = headers.map((header) => header.hits);
-      const painted = [...headers.map((header) => header.line), frame, status].join('\n');
-      process.stdout.write(`${theme}\x1b[2J\x1b[H${painted}`);
+      const bodyLines = view.map((line, index) => pad(line, contentWidth, 'left') + bar[index]);
+      paintScreen([...headers.map((header) => header.line), ...bodyLines, status]);
     };
+
+    const refresh = schedulePaint(session, draw);
 
     const onMouse = (pb: number, x: number, y: number, release: boolean) => {
       if ((pb & 64) !== 0 && !release) {
         scroll += (pb & 1) === 0 ? -3 : 3;
-        draw();
+        refresh();
         return;
       }
       const motion = (pb & 32) !== 0;
@@ -443,7 +444,7 @@ export function presentScreen(input: ScreenPage[] | ((width: number) => string[]
       if (x === screenWidth && y >= bodyTop && y < statusRow) {
         dragging = !motion;
         jumpTo(y - bodyTop + 1);
-        draw();
+        refresh();
       }
     };
 
@@ -488,11 +489,11 @@ export function presentScreen(input: ScreenPage[] | ((width: number) => string[]
       else if (key === 'g') scroll = 0;
       else if (key === 'G') scroll = Number.MAX_SAFE_INTEGER;
       else return;
-      draw();
+      refresh();
     };
 
     return {
-      draw,
+      draw: () => runPaint(session, draw),
       onKey,
       onMouse: (mouse) => onMouse(mouse.button, mouse.x, mouse.y, mouse.release),
     };

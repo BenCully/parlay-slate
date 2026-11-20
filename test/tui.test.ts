@@ -19,6 +19,7 @@ import { pickLogo, SMALL, STANDARD } from '../ui/tui/logo.js';
 import { createUi, headerLine, hintFor, layoutScreen, reduceForm, type UiState } from '../ui/tui/options.js';
 import { loadTuiSettings, parseSettings, saveTuiSettings } from '../ui/tui/settings.js';
 import { createSplashPlayer, planSplash, sliceLogo, visibleColumns } from '../ui/tui/splash.js';
+import { takeEvents } from '../ui/term.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 
@@ -264,6 +265,36 @@ test('setOddsFresh does not leak into the next read', () => {
     if (previous === undefined) delete process.env.ODDS_CACHE;
     else process.env.ODDS_CACHE = previous;
   }
+});
+
+test('mouse reports stay mouse reports when a click is split', () => {
+  const click = Buffer.from('\x1b[<0;15;3M');
+  const whole = takeEvents(click);
+  assert.equal(whole.events.length, 1);
+  assert.equal(whole.events[0]?.key, '');
+  assert.deepEqual(whole.events[0]?.mouse, { button: 0, x: 15, y: 3, release: false });
+  assert.equal(whole.pending.length, 0);
+
+  const split = takeEvents(click.subarray(0, 1));
+  assert.equal(split.events.length, 0);
+  assert.equal(split.pending.length, 1);
+  const rest = takeEvents(Buffer.concat([split.pending, click.subarray(1)]));
+  assert.equal(rest.events.length, 1);
+  assert.equal(rest.events[0]?.mouse?.x, 15);
+  assert.equal(rest.events.some((event) => /\d/.test(event.key)), false);
+
+  const tail = takeEvents(Buffer.from('<32;15;3M'));
+  assert.equal(tail.events.length, 1);
+  assert.equal(tail.events[0]?.mouse?.button, 32);
+  assert.equal(tail.events[0]?.key, '');
+
+  const burst = Buffer.concat(Array.from({ length: 30 }, () => Buffer.from('\x1b[<32;40;8M\x1b[<0;40;8m')));
+  const moved = takeEvents(burst);
+  assert.equal(moved.events.length, 60);
+  assert.equal(moved.events.every((event) => event.mouse && event.key === ''), true);
+
+  const typed = takeEvents(Buffer.from('q1'));
+  assert.deepEqual(typed.events.map((event) => event.key), ['q', '1']);
 });
 
 test('npm run tui without a terminal exits 1', async () => {
