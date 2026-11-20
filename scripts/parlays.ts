@@ -1,22 +1,41 @@
 // Builds every sport in sports/index.ts, saves runs/last-run.json and a snapshot, and opens the screen.
 // env: TYPESAFE_API_KEY, plus cache settings in .env.settings. Prices come from the books.
-// run: npm start                              current slate, games that have not kicked off
-//      npm start -- 2026-11-15                one Eastern calendar day
-//      npm start -- 2026-11-15 model=jev      TypeSafe through jev-recipes (also the default)
-//      npm start -- 2026-11-15 model=tail-jev Autojev on the tailnet (model=autojev is the same)
-//      npm start -- odds=2026-11-15 model=jev prices saved that Eastern day, no Odds API call
-import { mkdir, rename, writeFile } from 'node:fs/promises';
+// run: npm run slate                              current slate, games that have not kicked off
+//      npm run slate -- 2026-11-15                one Eastern calendar day
+//      npm run slate -- 2026-11-15 model=jev      TypeSafe through jev-recipes (also the default)
+//      npm run slate -- 2026-11-15 model=tail-jev Autojev on the tailnet (model=autojev is the same)
+//      npm run slate -- odds=2026-11-15 model=jev prices saved that Eastern day, no live fetch
+// npm start with those same arguments does this too. Bare npm start opens the launcher.
+import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readStartArgs, requireRunKeys, selectDecisionModel } from '../decisions/judge.js';
-import { oddsSource, setOddsReplay } from '../odds/cache.js';
+import { oddsSource, setOddsFresh, setOddsReplay } from '../odds/cache.js';
+import { resetBookReads } from '../odds/direct.js';
 import { buildBoard, type BuiltBoard } from '../slate/board.js';
 import { todayEastern } from '../slate/window.js';
 import { showSlate, type SavedBoard, type SavedLeague, type SavedSlate, type SavedSport } from '../ui/screen.js';
+import type { ScreenClose } from '../ui/term.js';
 import { SPORTS, type LeagueDef } from '../sports/index.js';
+import { isDirectRun } from './entry.js';
 import { acquireRunLock } from './lock.js';
 import { scrubError } from './scrub.js';
-import { saveDecisionSnapshot } from './snapshot.js';
+import { saveDecisionSnapshot, writeAtomic } from './snapshot.js';
+
+export type RunSlateOptions = {
+  day?: string;
+  model?: string;
+  odds?: string;
+  fresh?: boolean;
+  /** Sets ODDS_SOURCE for this run only, then restores the previous value. */
+  source?: string;
+};
+
+export type SlateRunResult = {
+  built: boolean;
+  close: ScreenClose;
+  message: string;
+};
 
 function gamesOf(board: BuiltBoard): SavedBoard {
   return { title: board.title, groups: board.groups, note: board.note, ticketGroups: board.ticketGroups };
@@ -60,14 +79,24 @@ function currentSlate(sports: SavedSport[], model: SavedSlate['model'], odds: st
   };
 }
 
-async function main() {
-  const { day, model, odds } = readStartArgs(process.argv.slice(2));
+const savedPath = fileURLToPath(new URL('../runs/last-run.json', import.meta.url));
+const snapshotDir = fileURLToPath(new URL('../snapshots/', import.meta.url));
+
+export async function runSlate(options: RunSlateOptions = {}): Promise<SlateRunResult> {
+  const day = options.day;
+  const odds = options.odds;
+  const previousSource = process.env.ODDS_SOURCE;
+  const sourceSet = options.source != null && options.source !== '';
+  if (sourceSet) process.env.ODDS_SOURCE = options.source;
+  setOddsFresh(Boolean(options.fresh));
+  resetBookReads();
   if (odds) setOddsReplay(odds);
-  const source = oddsSource();
-  const chosen = selectDecisionModel(model);
-  requireRunKeys(chosen, Boolean(odds));
-  const release = await acquireRunLock(dirname(savedPath));
+  let release: (() => Promise<void>) | undefined;
   try {
+    const source = oddsSource();
+    const chosen = selectDecisionModel(options.model ?? 'jev');
+    requireRunKeys(chosen);
+    release = await acquireRunLock(dirname(savedPath));
     console.log(odds ? `Decisions: ${chosen}. Odds saved on ${odds}.` : `Decisions: ${chosen}.`);
     const sports: SavedSport[] = [];
     let built = false;
@@ -106,17 +135,25 @@ async function main() {
     }
 
     if (!built) {
-      console.error('No sport produced a board. Left runs/last-run.json unchanged.');
+      const message = 'No sport produced a board. Left runs/last-run.json unchanged.';
+      console.error(message);
       process.exitCode = 1;
-      return;
+      return { built: false, close: 'quit', message };
     }
 
     const saved = currentSlate(sports, chosen, odds, source);
     await saveRun(saved);
     await saveSnapshot(saved, label);
-    await showSlate(saved);
+    const close = await showSlate(saved);
+    return { built: true, close, message: '' };
   } finally {
-    await release();
+    setOddsFresh(false);
+    setOddsReplay(null);
+    if (sourceSet) {
+      if (previousSource === undefined) delete process.env.ODDS_SOURCE;
+      else process.env.ODDS_SOURCE = previousSource;
+    }
+    if (release) await release();
   }
 }
 
@@ -127,15 +164,6 @@ function openedBoard(sports: SavedSport[]) {
     if (league) return league;
   }
   return undefined;
-}
-
-const savedPath = fileURLToPath(new URL('../runs/last-run.json', import.meta.url));
-const snapshotDir = fileURLToPath(new URL('../snapshots/', import.meta.url));
-
-async function writeAtomic(path: string, body: string) {
-  const temp = `${path}.${process.pid}.tmp`;
-  await writeFile(temp, body);
-  await rename(temp, path);
 }
 
 async function saveRun(saved: SavedSlate) {
@@ -150,7 +178,10 @@ async function saveSnapshot(saved: SavedSlate, label: string) {
   console.log(`Saved ${path}`);
 }
 
-main().catch((error) => {
-  console.error(scrubError(error, 'The slate failed.'));
-  process.exit(1);
-});
+if (isDirectRun(import.meta.url)) {
+  const args = readStartArgs(process.argv.slice(2));
+  runSlate({ day: args.day, model: args.model, odds: args.odds, fresh: args.fresh }).catch((error) => {
+    console.error(scrubError(error, 'The slate failed.'));
+    process.exit(1);
+  });
+}

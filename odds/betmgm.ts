@@ -4,6 +4,7 @@
 // Do not print the command or the access id. A non-200 stops. There is no paid fallback.
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { bookEventId, decodedEventId } from './direct.js';
 import { pickBalanced, teamResolver, type LineQuote } from './fanduel.js';
 import { americanPrice, BookError, fetchJson, inWindow, mapPool, textValue, BROWSER } from './http.js';
 import { bookEvent, outcome, type Market, type Outcome } from './shape.js';
@@ -46,7 +47,7 @@ const SPORTS: Record<string, SportRef> = {
   americanfootball_ncaaf: { sportId: '11', competitionId: '103495' },
   basketball_nba: { sportId: '7', competitionId: '6004' },
   icehockey_nhl: { sportId: '12', competitionId: '34' },
-  baseball_mlb: { sportId: '23' },
+  baseball_mlb: { sportId: '23', name: 'MLB' },
   soccer_epl: { sportId: '4', name: 'Premier League', region: 'England', soccer: true },
   soccer_uefa_champs_league: { sportId: '4', name: 'UEFA Champions League', region: 'Europe', soccer: true },
   soccer_spain_la_liga: { sportId: '4', name: 'LaLiga', region: 'Spain', soccer: true },
@@ -85,6 +86,36 @@ let sawSuccess = false;
 let refreshed = false;
 const sportCache = new Map<string, Promise<BetMgmFixture[]>>();
 const viewCache = new Map<string, Promise<BetMgmFixture | null>>();
+
+export function resetBetMgm() {
+  sportCache.clear();
+  viewCache.clear();
+  session = null;
+  sawSuccess = false;
+  refreshed = false;
+}
+
+export function betMgmCacheSize() {
+  return sportCache.size + viewCache.size;
+}
+
+/** One resolved sport list, so a test can prove `resetBetMgm` drops it. Also arms the session flags. */
+export function holdBetMgmSport(sportId: string, fixtures: BetMgmFixture[]) {
+  sportCache.set(sportId, Promise.resolve(fixtures));
+  viewCache.set(`${sportId}:view`, Promise.resolve(null));
+  session = { access: 'test-access', base: 'https://example.invalid' };
+  sawSuccess = true;
+  refreshed = true;
+}
+
+export function betMgmSessionOpen() {
+  return session != null;
+}
+
+/** A new fixture. Spreads stay off the object `sportCache` is holding. */
+export function attachSpreads(fixture: BetMgmFixture, spreads: BetMgmMarket[]): BetMgmFixture {
+  return { ...fixture, optionMarkets: [...(fixture.optionMarkets ?? []), ...spreads] };
+}
 
 function configHeaders() {
   return {
@@ -276,9 +307,13 @@ export function normalizeBetMgm(fixtures: BetMgmFixture[], options: {
   soccer: boolean;
   mode: 'slate' | 'props';
   wanted?: Set<string>;
+  /** When set, fixtures outside that competition are dropped. */
+  sportKey?: string;
 }) {
+  const sport = options.sportKey ? SPORTS[options.sportKey] : undefined;
   const slate = [];
   for (const fixture of fixtures) {
+    if (sport && !matches(fixture, sport)) continue;
     if (!fixture.id || !fixture.startDate) continue;
     if (!isListedGame(fixture)) continue;
     if (fixture.stage && fixture.stage !== 'PreMatch') continue;
@@ -489,8 +524,9 @@ function matches(fixture: BetMgmFixture, sport: SportRef) {
   if (sport.soccer) {
     return textValue(fixture.competition?.name) === sport.name && textValue(fixture.region?.name) === sport.region;
   }
-  if (!sport.competitionId) return true;
-  return String(fixture.competition?.id ?? '') === sport.competitionId;
+  if (sport.competitionId) return String(fixture.competition?.id ?? '') === sport.competitionId;
+  if (sport.name) return textValue(fixture.competition?.name) === sport.name;
+  return false;
 }
 
 async function slate(sportKey: string, from: string, to: string) {
@@ -505,7 +541,8 @@ async function slate(sportKey: string, from: string, to: string) {
         const info = fields(market);
         return info.MarketType === '2wayHandicap' && info.Period === 'RegularTime';
       });
-      fixture.optionMarkets = [...(fixture.optionMarkets ?? []), ...spreads];
+      const index = fixtures.indexOf(fixture);
+      if (index >= 0) fixtures[index] = attachSpreads(fixture, spreads);
     });
   }
   const resolve = await teamResolver(sportKey);
@@ -535,11 +572,10 @@ export async function betmgmFetch(url: string): Promise<unknown> {
   const sportKey = /\/sports\/([^/]+)/.exec(parsed.pathname)?.[1] ?? '';
   if (!sportKey || sportKey === 'motorsport_f1') return [];
   if (parsed.pathname.includes('/events/')) {
-    const eventId = decodeURIComponent(/\/events\/([^/]+)/.exec(parsed.pathname)?.[1] ?? '');
-    if (!eventId) throw new Error('BetMGM could not read the event.');
-    const segment = eventId.includes('mgm=')
-      ? (eventId.split(',').map((part) => part.trim()).find((part) => part.startsWith('mgm=')) ?? '').slice(4)
-      : eventId;
+    const raw = /\/events\/([^/]+)/.exec(parsed.pathname)?.[1] ?? '';
+    if (!raw) throw new Error('BetMGM could not read the event.');
+    const eventId = decodedEventId(raw);
+    const segment = bookEventId(raw, 'mgm');
     if (!segment) return bookEvent(eventId, new Date().toISOString(), 'Home', 'Away', 'betmgm', []);
     const wanted = new Set((parsed.searchParams.get('markets') ?? '').split(',').filter(Boolean));
     return props(sportKey, segment, wanted);

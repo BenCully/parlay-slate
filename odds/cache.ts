@@ -1,7 +1,7 @@
 // Disk cache for odds responses. The key is the request path with apiKey removed.
 // Old Odds API files keep that hash as the file name. Any other source adds its id as a prefix.
 // A hit does not call the network. The live Odds API is not called.
-// A slate whose kickoff window moved still counts as a hit until ODDS_CACHE_HOURS.
+// A slate whose kickoff window moved still counts, for the games inside the new window.
 // An empty slate loses that lookup while a non-empty sibling is still fresh.
 // The empty file is used when it is the only fresh one. An exact request hash still wins.
 // odds=YYYY-MM-DD reads that Eastern day's saves even after the lifetime, and does not fetch.
@@ -9,6 +9,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { inWindow } from './http.js';
 import { appendQuota, quotaEntry } from './quota.js';
 import { easternDay } from '../slate/window.js';
 import { betmgmFetch } from './betmgm.js';
@@ -91,6 +92,8 @@ type CacheRecord = {
   request: string;
   source?: string;
   omitted?: string[];
+  /** A merged read where at least one book failed. Fresh for 30 minutes, not the full lifetime. */
+  partial?: boolean;
 };
 
 export type OddsOutcome = {
@@ -206,6 +209,7 @@ export type SavedOddsDay = {
 };
 
 let replayDay: string | null = null;
+let oddsFresh = false;
 let catalog: Promise<CacheRecord[]> | null = null;
 let catalogDir: string | null = null;
 
@@ -218,12 +222,17 @@ export function oddsReplayDay() {
   return replayDay;
 }
 
+/** Ignore odds-cache until this is set back to false. A direct `--fresh` argument and `ODDS_CACHE=0` still bypass on their own. */
+export function setOddsFresh(fresh: boolean) {
+  oddsFresh = fresh;
+}
+
 function cacheDir() {
   return process.env.ODDS_CACHE_DIR || fileURLToPath(new URL('../odds-cache/', import.meta.url));
 }
 
-function cacheBypass() {
-  return process.argv.includes('--fresh') || process.env.ODDS_CACHE === '0';
+export function cacheBypass() {
+  return oddsFresh || process.argv.includes('--fresh') || process.env.ODDS_CACHE === '0';
 }
 
 function maxAgeMs() {
@@ -232,6 +241,14 @@ function maxAgeMs() {
   const hours = Number(raw);
   if (!Number.isFinite(hours) || hours < 0) return DEFAULT_HOURS * 3_600_000;
   return hours * 3_600_000;
+}
+
+const PARTIAL_MS = 30 * 60_000;
+
+function recordFresh(record: CacheRecord, saved: number) {
+  const age = Date.now() - saved;
+  if (record.partial) return age <= PARTIAL_MS;
+  return age <= maxAgeMs();
 }
 
 /** Live prop requests stop once the last Odds API header is under this. Cached reads still run. 0 disables the stop. */
@@ -291,7 +308,7 @@ async function readHit(file: string, source: string): Promise<CacheRecord | null
     return null;
   }
   const saved = Date.parse(record?.savedAt ?? '');
-  if (!Number.isFinite(saved) || Date.now() - saved > maxAgeMs()) return null;
+  if (!Number.isFinite(saved) || !recordFresh(record, saved)) return null;
   if (record.body == null) return null;
   if (recordedSource(record) !== source) return null;
   return record;
@@ -512,6 +529,32 @@ async function readDirect(source: string, url: string) {
 
 const READER_COUNT = 4;
 
+function requestWindow(request: string) {
+  const parsed = new URL(request, 'https://api.the-odds-api.com');
+  return {
+    from: parsed.searchParams.get('commenceTimeFrom') ?? '',
+    to: parsed.searchParams.get('commenceTimeTo') ?? '',
+  };
+}
+
+function eventInRequest(event: unknown, from: string, to: string) {
+  if (!event || typeof event !== 'object') return false;
+  const time = (event as { commence_time?: unknown }).commence_time;
+  return typeof time === 'string' && inWindow(time, from, to);
+}
+
+/** Family hits keep the games inside the new window. Null means the save had games and none remain. */
+function familyBody(body: unknown, request: string): unknown | null {
+  const { from, to } = requestWindow(request);
+  if (Array.isArray(body)) {
+    const kept = body.filter((event) => eventInRequest(event, from, to));
+    if (!kept.length && body.length > 0) return null;
+    return kept;
+  }
+  if (body && typeof body === 'object') return eventInRequest(body, from, to) ? body : null;
+  return body;
+}
+
 export async function oddsGet(url: string, _init?: RequestInit, options?: { cacheOnly?: boolean }): Promise<OddsResponse> {
   const source = oddsRequestSource(url);
   const identity = oddsRequestKey(url);
@@ -523,7 +566,10 @@ export async function oddsGet(url: string, _init?: RequestInit, options?: { cach
   }
   const file = `${cacheDir()}/${oddsCacheName(identity.hash, source)}`;
   if (!cacheBypass()) {
-    const hit = await readHit(file, source) ?? await readFamily(identity.request, source);
+    const exact = await readHit(file, source);
+    const family = exact ? null : await readFamily(identity.request, source);
+    const narrowed = family ? familyBody(family.body, identity.request) : undefined;
+    const hit = exact ?? (narrowed == null ? null : { ...family!, body: narrowed });
     if (hit) {
       await appendQuota(quotaEntry(identity.request, 'cached', null));
       return { body: parseOddsBody(hit.body), remaining: null, cached: true, savedAt: hit.savedAt, omitted: hit.omitted };
@@ -540,15 +586,20 @@ export async function oddsGet(url: string, _init?: RequestInit, options?: { cach
       throw new Error(`${label} returned an unexpected payload.`);
     }
     const savedAt = new Date().toISOString();
+    const partial = fetched.failed.length > 0;
+    const emptySlate = Array.isArray(fetched.body) && fetched.body.length === 0;
     await appendQuota(quotaEntry(identity.request, 'live', null));
-    await store(file, {
-      savedAt,
-      remaining: null,
-      body: fetched.body,
-      request: identity.request,
-      source,
-      ...(fetched.omitted.length ? { omitted: fetched.omitted } : {}),
-    });
+    if (!(partial && emptySlate)) {
+      await store(file, {
+        savedAt,
+        remaining: null,
+        body: fetched.body,
+        request: identity.request,
+        source,
+        ...(partial ? { partial: true } : {}),
+        ...(fetched.omitted.length ? { omitted: fetched.omitted } : {}),
+      });
+    }
     return { body, remaining: null, cached: false, savedAt, ...(fetched.omitted.length ? { omitted: fetched.omitted } : {}) };
   }
   throw new Error('The Odds API is no longer called. Leave ODDS_SOURCE unset to read the books, or replay a saved day with ODDS_SOURCE=the-odds-api npm start -- odds=YYYY-MM-DD.');

@@ -8,16 +8,21 @@ import { espnCacheFresh, ESPN_DAY_HOURS, ESPN_INJURY_HOURS, readEspnCache, write
 import { aliasTarget, clubKey, createEvidence, nameKey, NFL_EVIDENCE, type GameBrief } from '../espn/evidence.js';
 import { bookLabel, postedMarket } from '../odds/books.js';
 import { listSavedOdds, oddsCacheName, oddsCreditFloor, oddsGet, oddsReplayCommand, oddsRequestKey, oddsRequestSource, oddsSlateFamily, oddsSourceLabel, parseOddsBody, preferFreshRecord, recordMergedBook, resetMergedBooks, setOddsReplay } from '../odds/cache.js';
-import { normalizeBetMgm } from '../odds/betmgm.js';
+import { attachSpreads, betMgmCacheSize, betMgmSessionOpen, holdBetMgmSport, normalizeBetMgm } from '../odds/betmgm.js';
 import { normalizeCaesars } from '../odds/caesars.js';
-import { compositeId, mergeBookEvents, splitBookId } from '../odds/direct.js';
-import { normalizeDraftKings } from '../odds/draftkings.js';
-import { buildTeamIndex, chooseDriverBets, classifyProp, eventSides, marketOutcomes, propOutcomes, resolveTeamName, sidesFromName } from '../odds/fanduel.js';
+import { bookCacheSize, bookEventId, compositeId, mergeBookEvents, mergePropEvent, resetBookReads, splitBookId } from '../odds/direct.js';
+import { draftKingsCacheSize, draftkingsFetch, normalizeDraftKings } from '../odds/draftkings.js';
+import { buildTeamIndex, chooseDriverBets, classifyProp, eventSides, fanduelFetch, marketOutcomes, pickBalanced, propOutcomes, resolveTeamName, sidesFromName } from '../odds/fanduel.js';
+import { balancedSpreads } from '../odds/lines.js';
 import { easternClock, quotaEntry } from '../odds/quota.js';
 import { acquireRunLock } from '../scripts/lock.js';
 import { scrubError } from '../scripts/scrub.js';
 import { archiveStamp, saveDecisionSnapshot } from '../scripts/snapshot.js';
+import { pickLayeredExtra } from '../props/board.js';
+import { realExtra as mlbRealExtra } from '../sports/baseball/index.js';
+import { realExtra as nbaRealExtra } from '../sports/basketball/index.js';
 import { describeDriver, driverLine, driverLines, matchDriver } from '../sports/formula1/brief.js';
+import { realExtra as nhlRealExtra } from '../sports/hockey/index.js';
 import { absenceText, applyFotmob, matchClub, openAbsences, parseLeague, pickFixture, type FotmobLeague } from '../sports/soccer/fotmob.js';
 
 process.env.QUOTA_LOG ??= '0';
@@ -172,15 +177,26 @@ test('start args accept model before or after the day', () => {
     day: '2026-11-15',
     model: 'tail-jev',
     odds: undefined,
+    fresh: false,
   });
   assert.deepEqual(readStartArgs(['model=autojev', 'odds=2026-11-15']), {
     day: undefined,
     model: 'autojev',
     odds: '2026-11-15',
+    fresh: false,
+  });
+  assert.deepEqual(readStartArgs(['--fresh', 'model=jev']), {
+    day: undefined,
+    model: 'jev',
+    odds: undefined,
+    fresh: true,
   });
   assert.throws(() => readStartArgs(['odds=2026-11-15', '--fresh']), /fresh/);
   assert.throws(() => readStartArgs(['odds=2026-11-15', '2026-11-16']), /not both/);
   assert.throws(() => readStartArgs(['odds=yesterday']), /YYYY-MM-DD/);
+  assert.throws(() => readStartArgs(['11/20']), /Date must be YYYY-MM-DD/);
+  assert.throws(() => readStartArgs(['--freshh']), /Unknown option "--freshh"/);
+  assert.throws(() => readStartArgs(['2026-11-20', '2026-11-21']), /Pass one date/);
 });
 
 test('slip text follows the verdict', () => {
@@ -193,6 +209,8 @@ test('slip text follows the verdict', () => {
     moneylineSlip({ team: 'Max Verstappen', price: -195, phrase: 'to finish top 2' }, supported),
     'Take Verstappen to finish top 2 -195',
   );
+  const review: Judgment = { kind: 'checked', verdict: 'supported', confidence: 0.55, status: 'review' };
+  assert.equal(moneylineSlip(team, review), 'Lean Chiefs -150');
   assert.equal(moneylineSlip(team, unsupported), 'Pass');
   assert.equal(moneylineSlip(team, { kind: 'dropped', relevance: 0.71, reason: 'cap' }), 'Pass');
   assert.equal(moneylineSlip(team, { kind: 'missed', stage: 'verify' }), 'Pass');
@@ -201,8 +219,11 @@ test('slip text follows the verdict', () => {
   const line = { verdict: 'supported' as const, confidence: 0.9, status: 'ready' as const };
   assert.equal(spreadSlip(spread, line), 'Take Chiefs -3.5');
   assert.equal(spreadSlip(spread, { ...line, verdict: 'contradicted' }), 'Take Bills +3.5');
+  assert.equal(spreadSlip(spread, { ...line, status: 'review' }), 'Lean Chiefs -3.5');
+  assert.equal(spreadSlip(spread, { ...line, verdict: 'contradicted', status: 'review' }), 'Lean Bills +3.5');
   assert.equal(spreadSlip(spread, { ...line, verdict: 'unsupported' }), 'Pass');
   assert.equal(totalSlip('Over', 45.5, line), 'Take the over 45.5');
+  assert.equal(totalSlip('Over', 45.5, { ...line, status: 'review' }), 'Lean the over 45.5');
   assert.equal(totalSlip('Under', 45.5, { ...line, verdict: 'unsupported' }), 'Pass');
 });
 
@@ -224,18 +245,18 @@ test('keys are required before a run, and the odds key is not one of them', () =
     AUTOJEV_URL: 'http://example.test',
     AUTOJEV_API_KEY: 'present',
   }, () => {
-    requireRunKeys('jev', false);
-    requireRunKeys('jev', true);
+    requireRunKeys('jev');
+    requireRunKeys('jev');
   });
   withEnv({ ODDS_API_KEY: 'present', TYPESAFE_API_KEY: undefined }, () => {
-    assert.throws(() => requireRunKeys('jev', false), /TYPESAFE_API_KEY/);
+    assert.throws(() => requireRunKeys('jev'), /TYPESAFE_API_KEY/);
   });
   withEnv({
     ODDS_API_KEY: 'present',
     AUTOJEV_URL: undefined,
     AUTOJEV_API_KEY: undefined,
   }, () => {
-    assert.throws(() => requireRunKeys('tail-jev', true), /AUTOJEV_URL and AUTOJEV_API_KEY/);
+    assert.throws(() => requireRunKeys('tail-jev'), /AUTOJEV_URL and AUTOJEV_API_KEY/);
   });
 });
 
@@ -379,6 +400,20 @@ test('a failed scoreboard returns no events', async () => {
   }
 });
 
+test('an unreadable scoreboard returns no events', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async () => new Response('<html>', { status: 200, headers: { 'content-type': 'text/html' } });
+  try {
+    const result = await scoreboardEvents(
+      'https://example.test/apis/site/v2/sports/football/nfl/scoreboard',
+      (status) => `ESPN scoreboard returned ${status}`,
+    );
+    assert.deepEqual(result.stamps, []);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
 test('a printed error hides the odds api key', () => {
   const error = new Error('Odds API 401 from https://api.the-odds-api.com/v4/sports/x/odds?apiKey=super-secret&regions=us');
   const safe = scrubError(error, 'The slate failed.');
@@ -389,9 +424,9 @@ test('a printed error hides the odds api key', () => {
 
 test('the first book that posted the market is named on the row', () => {
   const books = [
-    { key: 'draftkings', markets: [{ key: 'h2h', outcomes: [{ name: 'Chiefs', price: -180 }] }] },
-    { key: 'fanduel', markets: [{ key: 'spreads', outcomes: [{ name: 'Chiefs', price: -110, point: -3.5 }] }] },
-    { key: 'somebook', title: 'Some Book', markets: [{ key: 'totals', outcomes: [{ name: 'Over', price: -105, point: 45 }] }] },
+    { key: 'draftkings', markets: [{ key: 'h2h', outcomes: [{ name: 'Chiefs', price: -180 }, { name: 'Raiders', price: 155 }] }] },
+    { key: 'fanduel', markets: [{ key: 'spreads', outcomes: [{ name: 'Chiefs', price: -110, point: -3.5 }, { name: 'Raiders', price: -110, point: 3.5 }] }] },
+    { key: 'somebook', title: 'Some Book', markets: [{ key: 'totals', outcomes: [{ name: 'Over', price: -105, point: 45 }, { name: 'Under', price: -115, point: 45 }] }] },
   ];
   assert.equal(postedMarket(books, 'h2h')?.book, 'DraftKings');
   assert.equal(postedMarket(books, 'spreads')?.book, 'FanDuel');
@@ -399,7 +434,13 @@ test('the first book that posted the market is named on the row', () => {
   assert.equal(postedMarket(books, 'player_points'), null);
   assert.equal(bookLabel({ key: 'williamhill_us' }), 'Caesars');
   assert.equal(bookLabel({ key: 'betonlineag' }), 'betonlineag');
-  assert.equal(postedMarket([{ key: 'williamhill_us', markets: [{ key: 'h2h', outcomes: [{ name: 'A', price: -150 }] }] }], 'h2h')?.book, 'Caesars');
+  assert.equal(postedMarket([{ key: 'williamhill_us', markets: [{ key: 'h2h', outcomes: [{ name: 'A', price: -150 }, { name: 'B', price: 130 }] }] }], 'h2h')?.book, 'Caesars');
+  const oneSided = [
+    { key: 'fanduel', markets: [{ key: 'h2h', outcomes: [{ name: 'Chiefs', price: -180 }] }] },
+    { key: 'draftkings', markets: [{ key: 'h2h', outcomes: [{ name: 'Chiefs', price: -170 }, { name: 'Raiders', price: 150 }] }] },
+  ];
+  assert.equal(postedMarket(oneSided, 'h2h')?.book, 'DraftKings');
+  assert.equal(postedMarket([{ key: 'fanduel', markets: [{ key: 'h2h', outcomes: [{ name: 'A', price: -150 }] }] }], 'h2h'), null);
 });
 
 test('an empty odds body loses to a sibling that still has games', () => {
@@ -443,7 +484,7 @@ test('family lookup skips an empty slate when a fresh sibling has games', async 
     const now = Date.now();
     const game = {
       id: 'game-1',
-      commence_time: '2026-11-15T18:00:00Z',
+      commence_time: '2026-11-20T18:00:00Z',
       home_team: 'Home',
       away_team: 'Away',
       bookmakers: [],
@@ -1360,14 +1401,14 @@ test('a direct source does not require the Odds API key', () => {
     ODDS_API_KEY: undefined,
     TYPESAFE_API_KEY: 'present',
   }, () => {
-    requireRunKeys('jev', false);
+    requireRunKeys('jev');
   });
   withEnv({
     ODDS_SOURCE: 'draftkings',
     ODDS_API_KEY: undefined,
     TYPESAFE_API_KEY: 'present',
   }, () => {
-    requireRunKeys('jev', false);
+    requireRunKeys('jev');
   });
 });
 
@@ -1414,4 +1455,291 @@ test('a replay miss names every other source that saved that day', async () => {
     else process.env.ODDS_SOURCE = previousSource;
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test('resetBookReads drops in-memory book prices', async () => {
+  const dir = await mkdtemp(`${tmpdir()}/parlay-espn-`);
+  const previousEspn = process.env.ESPN_CACHE_DIR;
+  const original = globalThis.fetch;
+  let draftKingsCalls = 0;
+  process.env.ESPN_CACHE_DIR = dir;
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    if (url.includes('draftkings.com')) draftKingsCalls += 1;
+    return new Response(JSON.stringify({ events: [], markets: [], selections: [], sports: [] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  };
+  const oddsUrl = 'https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds?regions=us&markets=h2h';
+  try {
+    resetBookReads();
+    assert.equal(bookCacheSize(), 0);
+    await draftkingsFetch(oddsUrl);
+    const afterFirst = draftKingsCalls;
+    assert.ok(afterFirst > 0);
+    assert.ok(draftKingsCacheSize() > 0);
+    await draftkingsFetch(oddsUrl);
+    assert.equal(draftKingsCalls, afterFirst);
+    const cached = { id: '1', optionMarkets: [{ name: { value: 'Moneyline' } }] };
+    holdBetMgmSport('11', [cached]);
+    assert.equal(betMgmSessionOpen(), true);
+    assert.ok(betMgmCacheSize() > 0);
+    recordMergedBook('betmgm', false);
+    assert.equal(oddsSourceLabel('books').includes('BetMGM'), false);
+    resetBookReads();
+    assert.equal(draftKingsCacheSize(), 0);
+    assert.equal(betMgmCacheSize(), 0);
+    assert.equal(betMgmSessionOpen(), false);
+    assert.equal(bookCacheSize(), 0);
+    assert.equal(oddsSourceLabel('books'), 'FanDuel · DraftKings · BetMGM · Caesars');
+    assert.equal(cached.optionMarkets?.length, 1);
+    await draftkingsFetch(oddsUrl);
+    assert.ok(draftKingsCalls > afterFirst);
+  } finally {
+    globalThis.fetch = original;
+    resetBookReads();
+    if (previousEspn == null) delete process.env.ESPN_CACHE_DIR;
+    else process.env.ESPN_CACHE_DIR = previousEspn;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('BetMGM spread copy leaves the cached fixture alone', () => {
+  const fixture = { id: '1', optionMarkets: [{ name: { value: 'Moneyline' } }] };
+  const next = attachSpreads(fixture, [{ name: { value: 'Spread' } }]);
+  assert.notEqual(next, fixture);
+  assert.equal(fixture.optionMarkets?.length, 1);
+  assert.equal(next.optionMarkets?.length, 2);
+  assert.notEqual(next.optionMarkets, fixture.optionMarkets);
+});
+
+test('bookEventId reads one book from a merged prop id', async () => {
+  const combined = 'fd=10,dk=20,mgm=6:44037,czr=';
+  assert.equal(bookEventId(combined, 'fd'), '10');
+  assert.equal(bookEventId(combined, 'dk'), '20');
+  assert.equal(bookEventId(combined, 'mgm'), '6:44037');
+  assert.equal(bookEventId(combined, 'czr'), '');
+  assert.equal(bookEventId('fd=,dk=20,mgm=6:44037,czr=9', 'fd'), '');
+  assert.equal(bookEventId('34118011', 'fd'), '34118011');
+  assert.equal(bookEventId('fd%3D10%2Cdk%3D20%2Cmgm%3D6%3A44037%2Cczr%3D', 'dk'), '20');
+  const original = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const url = 'https://api.the-odds-api.com/v4/sports/americanfootball_nfl/events/fd=,dk=20,mgm=6:1,czr=/odds?markets=player_pass_yds';
+    assert.deepEqual(await fanduelFetch(url), []);
+    assert.equal(calls, 0);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('a merged props read keeps every book even when the team names differ', () => {
+  const priced = (key: string, player: string) => ({
+    key,
+    markets: [{ key: 'player_goal_scorer_anytime', outcomes: [{ name: 'Yes', price: -110, description: player }] }],
+  });
+  const merged = mergePropEvent('fd=10,dk=20,mgm=,czr=', [
+    {
+      source: 'fanduel',
+      events: [{
+        id: '10',
+        commence_time: '2026-11-21T15:00:00Z',
+        home_team: 'Man City',
+        away_team: 'Arsenal',
+        bookmakers: [priced('fanduel', 'Haaland')],
+      }],
+    },
+    {
+      source: 'draftkings',
+      events: [{
+        id: '20',
+        commence_time: '2026-11-21T15:00:00Z',
+        home_team: 'Manchester City',
+        away_team: 'Arsenal',
+        bookmakers: [priced('draftkings', 'Haaland')],
+      }],
+    },
+    {
+      source: 'betmgm',
+      events: [{
+        id: '30',
+        commence_time: '2026-11-21T15:00:00Z',
+        home_team: 'Home',
+        away_team: 'Away',
+        bookmakers: [],
+      }],
+    },
+  ]);
+  assert.equal(merged.home_team, 'Man City');
+  assert.equal(merged.id, 'fd=10,dk=20,mgm=,czr=');
+  assert.deepEqual(merged.bookmakers.map((book) => book.key), ['fanduel', 'draftkings']);
+  const empty = mergePropEvent('fd=,dk=,mgm=,czr=', [{ source: 'fanduel', events: [] }]);
+  assert.equal(empty.home_team, 'Home');
+  assert.deepEqual(empty.bookmakers, []);
+});
+
+test('a dated run does not reuse another day from the family cache', async () => {
+  const dir = await mkdtemp(`${tmpdir()}/parlay-odds-`);
+  const previousDir = process.env.ODDS_CACHE_DIR;
+  const previousSource = process.env.ODDS_SOURCE;
+  const previousCache = process.env.ODDS_CACHE;
+  const saved = 'https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds?regions=us&markets=h2h&commenceTimeFrom=2026-11-21T05:00:00Z&commenceTimeTo=2026-11-22T05:00:00Z';
+  const next = 'https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds?regions=us&markets=h2h&commenceTimeFrom=2026-11-22T05:00:00Z&commenceTimeTo=2026-11-23T05:00:00Z';
+  process.env.ODDS_CACHE_DIR = dir;
+  process.env.ODDS_CACHE = '1';
+  process.env.ODDS_SOURCE = 'books';
+  setOddsReplay(null);
+  try {
+    const { hash, request } = oddsRequestKey(saved);
+    const game = { ...oddsGame('nov-21'), commence_time: '2026-11-21T18:00:00Z', bookmakers: [{ key: 'fanduel', markets: [{ key: 'h2h', outcomes: [{ name: 'Home', price: -150 }] }] }] };
+    await writeFile(`${dir}/${oddsCacheName(hash, 'books')}`, `${JSON.stringify({
+      savedAt: new Date().toISOString(),
+      remaining: null,
+      body: [game],
+      request,
+      source: 'books',
+    })}\n`);
+    const missed = await oddsGet(next, undefined, { cacheOnly: true });
+    assert.equal(missed.skipped, true);
+    assert.equal(missed.body, null);
+  } finally {
+    setOddsReplay(null);
+    if (previousDir == null) delete process.env.ODDS_CACHE_DIR;
+    else process.env.ODDS_CACHE_DIR = previousDir;
+    if (previousSource == null) delete process.env.ODDS_SOURCE;
+    else process.env.ODDS_SOURCE = previousSource;
+    if (previousCache == null) delete process.env.ODDS_CACHE;
+    else process.env.ODDS_CACHE = previousCache;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a partial merged read stays fresh for 30 minutes', async () => {
+  const dir = await mkdtemp(`${tmpdir()}/parlay-odds-`);
+  const previousDir = process.env.ODDS_CACHE_DIR;
+  const previousSource = process.env.ODDS_SOURCE;
+  const previousCache = process.env.ODDS_CACHE;
+  const url = 'https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds?regions=us&markets=h2h';
+  process.env.ODDS_CACHE_DIR = dir;
+  process.env.ODDS_CACHE = '1';
+  process.env.ODDS_SOURCE = 'books';
+  setOddsReplay(null);
+  try {
+    const { hash, request } = oddsRequestKey(url);
+    const file = `${dir}/${oddsCacheName(hash, 'books')}`;
+    const game = { ...oddsGame('partial'), bookmakers: [{ key: 'fanduel', markets: [{ key: 'h2h', outcomes: [{ name: 'Home', price: -150 }] }] }] };
+    const write = (savedAt: string) => writeFile(file, `${JSON.stringify({
+      savedAt,
+      remaining: null,
+      body: [game],
+      request,
+      source: 'books',
+      partial: true,
+    })}\n`);
+    await write(new Date(Date.now() - 31 * 60_000).toISOString());
+    const stale = await oddsGet(url, undefined, { cacheOnly: true });
+    assert.equal(stale.skipped, true);
+    await write(new Date(Date.now() - 5 * 60_000).toISOString());
+    const fresh = await oddsGet(url, undefined, { cacheOnly: true });
+    assert.equal(fresh.cached, true);
+    assert.ok(Array.isArray(fresh.body));
+    assert.equal(fresh.body[0]?.id, 'partial');
+  } finally {
+    setOddsReplay(null);
+    if (previousDir == null) delete process.env.ODDS_CACHE_DIR;
+    else process.env.ODDS_CACHE_DIR = previousDir;
+    if (previousSource == null) delete process.env.ODDS_SOURCE;
+    else process.env.ODDS_SOURCE = previousSource;
+    if (previousCache == null) delete process.env.ODDS_CACHE;
+    else process.env.ODDS_CACHE = previousCache;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('BetMGM baseball keeps MLB and drops the other league', () => {
+  const game = (id: string, competition: string, home: string, away: string) => ({
+    id,
+    startDate: '2026-11-21T18:00:00Z',
+    fixtureType: 'PairGame',
+    stage: 'PreMatch',
+    isOpenForBetting: true,
+    competition: { name: { value: competition } },
+    participants: [
+      { name: { value: home }, properties: { type: 'HomeTeam' } },
+      { name: { value: away }, properties: { type: 'AwayTeam' } },
+    ],
+    optionMarkets: [{
+      name: { value: 'Moneyline' },
+      parameters: [
+        { key: 'MarketType', value: '2way' },
+        { key: 'Period', value: 'FullTime' },
+      ],
+      options: [
+        { name: { value: home }, price: { americanOdds: -150 }, status: 'Visible' },
+        { name: { value: away }, price: { americanOdds: 130 }, status: 'Visible' },
+      ],
+    }],
+  });
+  const events = normalizeBetMgm(
+    [game('mlb', 'MLB', 'New York Yankees', 'Boston Red Sox'), game('winter', 'LIDOM', 'Tigres', 'Leones')],
+    { from: '', to: '', resolve: (name) => name, soccer: false, mode: 'slate', sportKey: 'baseball_mlb' },
+  );
+  assert.deepEqual(events.map((event) => event.id), ['mlb']);
+});
+
+test('an extra prop stays on a featured player at 0.60 or better', () => {
+  const row = (player: string, impliedPrice: number) => ({ implied: impliedPrice, market: 'player_steals', player });
+  assert.equal(pickLayeredExtra('Lakers', [[], [row('Backup', 0.55)]], { requireLikely: true }), null);
+  assert.equal(pickLayeredExtra('Lakers', [[row('Star', 0.65)], [row('Other', 0.8)]])?.player, 'Star');
+});
+
+test('rare stat unders are not extra props', () => {
+  const option = (market: string, side: 'Over' | 'Under', point: number) => ({
+    market,
+    side,
+    posted: { point },
+    ref: { name: 'Player', pos: 'G' },
+  });
+  assert.equal(nbaRealExtra(option('player_steals', 'Under', 1.5)), false);
+  assert.equal(nbaRealExtra(option('player_blocks', 'Under', 1.5)), false);
+  assert.equal(nbaRealExtra(option('player_steals', 'Over', 0.5)), true);
+  assert.equal(mlbRealExtra(option('batter_stolen_bases', 'Under', 1.5)), false);
+  assert.equal(mlbRealExtra(option('batter_stolen_bases', 'Over', 0.5)), true);
+  assert.equal(mlbRealExtra(option('batter_total_bases', 'Under', 1.5)), true);
+  assert.equal(nhlRealExtra(option('player_power_play_points', 'Under', 1.5)), false);
+  assert.equal(nhlRealExtra(option('player_power_play_points', 'Over', 0.5)), true);
+  assert.equal(nhlRealExtra(option('player_total_saves', 'Over', 18.5)), true);
+});
+
+test('the main line beats an alternate that is closer on one side', () => {
+  const main = pickBalanced([
+    [{ label: 'Over', price: -110, point: 45.5 }, { label: 'Under', price: -110, point: 45.5 }],
+    [{ label: 'Over', price: 100, point: 47.5 }, { label: 'Under', price: -125, point: 47.5 }],
+  ]);
+  assert.equal(main[0]?.point, 45.5);
+});
+
+test('spread pairing keeps pickem and does not pair a team with itself', () => {
+  const pickem = balancedSpreads([
+    { name: 'Chiefs', price: -110, point: 0 },
+    { name: 'Raiders', price: -110, point: 0 },
+  ]);
+  assert.deepEqual(pickem.map((side) => side.label), ['Chiefs', 'Raiders']);
+  const line = balancedSpreads([
+    { name: 'Bills', price: -110, point: -3.5 },
+    { name: 'Dolphins', price: -110, point: 3.5 },
+  ]);
+  assert.deepEqual(line.map((side) => side.point), [3.5, -3.5]);
+  const doubled = balancedSpreads([
+    { name: 'Bills', price: -110, point: -3.5 },
+    { name: 'Bills', price: -105, point: -3.5 },
+    { name: 'Dolphins', price: -110, point: 3.5 },
+  ]);
+  assert.equal(doubled.length, 2);
+  assert.equal(new Set(doubled.map((side) => side.label)).size, 2);
 });

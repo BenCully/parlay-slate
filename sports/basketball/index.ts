@@ -22,10 +22,11 @@ type ExtraOption = {
   ref: { name: string; pos: string };
 };
 
-function realExtra(option: ExtraOption) {
+export function realExtra(option: ExtraOption) {
   const point = option.posted.point ?? 0;
   if (option.market !== 'player_blocks' && option.market !== 'player_steals') return false;
-  return option.side === 'Over' ? point >= 0.5 : point >= 1.5;
+  if (option.side === 'Under') return false;
+  return point >= 0.5;
 }
 
 function featureExtra(option: { ref: { name: string } }, featured: Set<string>) {

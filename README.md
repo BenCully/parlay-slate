@@ -10,7 +10,7 @@ The pictures below are the saved Eastern day 2026-11-15. `npm run view -- 2026-1
 
 ## How it works
 
-`npm start` loads US moneylines, spreads, and totals for the slate. A moneyline stays on the board when its implied win probability is at least 0.60, about -150. Closer prices, such as -148, stay off. The script writes a brief for each favorite, then asks the decision model two questions.
+A slate run loads US moneylines, spreads, and totals. Bare `npm start` in a terminal opens the launcher first. `npm run slate` runs the slate directly. A moneyline stays on the board when its implied win probability is at least 0.60, about -150. Closer prices, such as -148, stay off. The script writes a brief for each favorite, then asks the decision model two questions.
 
 1. `rerank` keeps up to 8 legs with relevance at least 0.60. The NFL asks which NFL team is very likely to win. NCAA asks the same about a college team. Soccer asks which team is very likely to win the match. The NHL, NBA, and MLB ask which team in that league is very likely to win the game. Formula 1 asks which driver is very likely to win the race, finish top 2, or finish on the podium. A favorite under that cutoff is `Dropped`.
 2. `verify` reads the brief. The leg is ready for a ticket when the verdict supports the win and the confidence is at least 0.80. On Autojev that confidence is the probability of the chosen verdict. A choice response can also carry a separate confidence field. The gate uses the chosen option's probability.
@@ -25,11 +25,11 @@ The top row is the sport: Football, Soccer, Hockey, Basketball, Baseball, Formul
 
 Each favorite is three rows inside one border.
 
-- The moneyline names the team. Price is the American odds and Market is the implied win probability. Decision is `Ready 0.82` when verify clears 0.80, `Review 0.70` when the brief was checked and the confidence is under 0.80, or `Dropped` when rerank scored the brief under 0.60. Slip is `Take Rams -510` when verify supports the win, and `Pass` when it does not. A supported win under 0.80 still shows Take, and the comment says that leg was left out of the tickets.
-- The next row is the spread. Price is the point and Market is the juice. Slip is `Take Rams -9.5` when the brief supports the number, and `Take Cardinals +9.5` when the brief cuts against it. A missing spread shows `n/a`, `No line`, and `Pass`.
+- The moneyline names the team. Price is the American odds and Market is the implied win probability. Decision is `Ready 0.82` when verify clears 0.80, `Review 0.70` when the brief was checked and the confidence is under 0.80, or `Dropped` when rerank scored the brief under 0.60. Slip is `Take Rams -510` when verify supports the win at 0.80 or better, `Lean Rams -510` when it supports the win under 0.80, and `Pass` when it does not. A Lean leg stays off the tickets, and the comment says so.
+- The next row is the spread. Price is the point and Market is the juice. Slip is `Take Rams -9.5` when the brief supports the number at 0.80 or better, and `Lean Cardinals +9.5` when the brief cuts against it under 0.80. A missing spread shows `n/a`, `No line`, and `Pass`.
 - The third row is Over or Under, whichever side the evidence supports more. The number is points in football and the NBA, goals in soccer and the NHL, and runs in MLB.
 
-On this NFL board the Bills are -15000, a 99.3% favorite, and the slip is still Pass. Verify did not establish the win at 0.37, so the row says `Left out`. The Vikings and the Jaguars show Take because the brief leans toward the win, and Review because 0.26 and 0.77 are short of 0.80. Their spreads and totals are Pass. This page has no ticket. A ticket needs two moneylines the brief supports at 0.80 or better.
+On this NFL board the Bills are -15000, a 99.3% favorite, and the slip is still Pass. Verify did not establish the win at 0.37, so the row says `Left out`. The Vikings and the Jaguars show Lean because the brief leans toward the win, and Review because 0.26 and 0.77 are short of 0.80. Their spreads and totals are Pass. This page has no ticket. A ticket needs two moneylines the brief supports at 0.80 or better.
 
 Prices come from FanDuel, then DraftKings, then BetMGM, then Caesars, then the first book that posted the market. The comment on that row names the book, so a moneyline and a spread on the same game can come from different books. A prop comment names its book the same way. NCAA, soccer, and MLB slips use the ESPN short name, so a slip can read `Take Man City -180` or `Take Red Sox -150`.
 
@@ -86,33 +86,45 @@ Put the TypeSafe key in `.env`. For `model=tail-jev`, also put the Autojev `/v1`
 
 ## Run
 
+In a terminal, `npm start` opens the launcher: a short Parlay Slate logo, then an options screen. Pick the action, date, model, and odds source there. When that screen closes, you come back to the options. `q`, Esc, Quit, or the x button leaves the launcher. `npm start -- --no-splash` skips the logo. `npm run tui` opens the same screen. `PARLAY_SLATE_NO_ANIM=1` holds a still logo instead of the wipe. The last options you run are kept in `runs/tui-settings.json`.
+
+`npm run slate` is the direct run, with no launcher. `npm start --` plus a slate argument does that too. A pipe with no arguments still runs the current slate and prints every page as text.
+
 ```bash
-# Current slate: this week's NFL and NCAA, plus each other league's scoreboard window. The model is jev.
+# Launcher: logo, then click or type the run you want.
 npm start
+# Launcher without the logo.
+npm start -- --no-splash
+# Same launcher.
+npm run tui
+# Current slate, no launcher. Games that have not kicked off. The model is jev.
+npm run slate
 # One America/New_York day for every league. The model is jev.
+npm run slate -- 2026-11-15
+# The same dated run, bypassing the launcher.
 npm start -- 2026-11-15
 # That Eastern day, ranked with TypeSafe through jev-recipes.
-npm start -- 2026-11-15 model=jev
+npm run slate -- 2026-11-15 model=jev
 # That Eastern day, ranked with Autojev on the tailnet.
 npm start -- 2026-11-15 model=tail-jev
-# Replay prices saved that Eastern day through TypeSafe. Does not call the Odds API.
-npm start -- odds=2026-11-15 model=jev
-# Replay prices saved that Eastern day through Autojev. Does not call the Odds API.
+# Replay prices saved that Eastern day through TypeSafe. Does not fetch.
+npm run slate -- odds=2026-11-15 model=jev
+# Replay prices saved that Eastern day through Autojev. Does not fetch.
 npm start -- odds=2026-11-15 model=tail-jev
 # Ignore odds-cache and read the books again.
-npm start -- --fresh
+npm run slate -- --fresh
 # Current slate from FanDuel only. The model is jev.
-ODDS_SOURCE=fanduel npm start
+ODDS_SOURCE=fanduel npm run slate
 # One Eastern day from FanDuel, ranked with TypeSafe.
 ODDS_SOURCE=fanduel npm start -- 2026-11-15 model=jev
 # That Eastern day from FanDuel, ranked with Autojev.
-ODDS_SOURCE=fanduel npm start -- 2026-11-15 model=tail-jev
+ODDS_SOURCE=fanduel npm run slate -- 2026-11-15 model=tail-jev
 # Replay FanDuel prices saved that Eastern day through TypeSafe. Does not fetch.
-ODDS_SOURCE=fanduel npm start -- odds=2026-11-15 model=jev
+ODDS_SOURCE=fanduel npm run slate -- odds=2026-11-15 model=jev
 # Replay FanDuel prices saved that Eastern day through Autojev. Does not fetch.
 ODDS_SOURCE=fanduel npm start -- odds=2026-11-15 model=tail-jev
 # Read FanDuel again and ignore odds-cache.
-ODDS_SOURCE=fanduel npm start -- --fresh
+ODDS_SOURCE=fanduel npm run slate -- --fresh
 # List the Eastern days stored in odds-cache. Does not call the network.
 npm run odds
 # Open the jev and tail-jev snapshots for that day side by side. Does not call any API.
@@ -129,7 +141,7 @@ npm run view -- 2026-11-15-jev
 
 Leave `ODDS_SOURCE` unset, or set `books`, to read FanDuel, DraftKings, BetMGM, and Caesars. The row still uses the first of those four that posted the market. Set `fanduel`, `draftkings`, `betmgm`, or `caesars` to read that one book. The same `model=` and `odds=` arguments apply, and `model=tail-jev` is the Autojev run on those prices. Each book prices moneylines, spreads, and totals for the NFL, NCAA, the NHL, the NBA, and the six soccer leagues, plus the full-game player props it posts as a two-way line. A market it does not post stays no line. A BetMGM soccer game with no plain 3-way moneyline stays no line at that book. Formula 1 driver prices come from FanDuel on every run. MLB stays no line while that season is off. One book's save does not replace another's. To replay a day saved by The Odds API before that live call was removed, prefix the command with `ODDS_SOURCE=the-odds-api`. That replay does not call The Odds API.
 
-`npm start` looks up the slate, writes `runs/last-run.json` and a snapshot, then opens the screen. Odds responses are saved in gitignored `odds-cache/` and reused for `ODDS_CACHE_HOURS` (168 by default, which is 7 days). A later run does not refetch a sport while that save is inside the lifetime, even if the kickoff window moved. A cached board says when those prices were saved. Game lines and player props both go through that cache. `npm start -- --fresh` ignores that cache. `--fresh` reads the books again. `npm run view` opens the saved screen again and does not call the Odds API, FanDuel, ESPN, or a decision model.
+`npm run slate`, or `npm start --` with a date, `model=`, `odds=`, or `--fresh`, looks up the slate, writes `runs/last-run.json` and a snapshot, then opens the screen. A launcher run does the same when you choose Start slate or Replay saved odds. Odds responses are saved in gitignored `odds-cache/` and reused for `ODDS_CACHE_HOURS` (168 by default, which is 7 days). A later run reuses a save inside the lifetime for the games that fall in the new kickoff window. A cached board says when those prices were saved. Game lines and player props both go through that cache. `npm run slate -- --fresh` ignores that cache. `--fresh` reads the books again. `npm run view` opens the saved screen again and does not call the Odds API, FanDuel, ESPN, or a decision model.
 
 With no arguments, the NFL and NCAA use the current ESPN week and skip games that have already kicked off. Each soccer league uses the games on its ESPN scoreboard and the following four days, so the rest of that matchweek is included. The NHL, NBA, MLB, and Formula 1 use the games on that competition's ESPN scoreboard, from one hour before the first to six hours after the last. A scoreboard with nothing still ahead uses one Eastern day. A `YYYY-MM-DD` argument is one America/New_York calendar day for every league, so Sunday night is included and Monday night is not.
 
@@ -147,7 +159,7 @@ A window too narrow for the headers stacks each row: the name, then the other fi
 
 ## Saved slate
 
-`npm start` overwrites `parlay-slate/runs/last-run.json` after the lookups finish, then prints `Saved` and the file path. A second `npm start` exits while the first is still running, including while its screen is open. The message names the other process id. It also writes `snapshots/<day>-<model>.json`. The day is the `odds=` day, the slate date, or today's Eastern date. The next run of that same day and model copies the previous file into `snapshots/archive/` and then replaces that snapshot, so compare still opens the current name. Both folders are gitignored. Team pages, schedules, rosters, and gamelogs from ESPN are reused for the rest of the Eastern day. Injury reports are reused for 3 hours. The scoreboard is read on every run.
+A slate run overwrites `parlay-slate/runs/last-run.json` after the lookups finish, then prints `Saved` and the file path. A second slate run exits while the first is still running, including while its screen is open. Sitting on the launcher does not hold that lock. The message names the other process id. It also writes `snapshots/<day>-<model>.json`. The day is the `odds=` day, the slate date, or today's Eastern date. The next run of that same day and model copies the previous file into `snapshots/archive/` and then replaces that snapshot, so compare still opens the current name. Both folders are gitignored. Team pages, schedules, rosters, and gamelogs from ESPN are reused for the rest of the Eastern day. Injury reports are reused for 3 hours. The scoreboard is read on every run.
 
 `npm run compare -- 2026-11-15` opens `snapshots/2026-11-15-jev.json` beside `snapshots/2026-11-15-tail-jev.json`. A missing file prints the `npm start` command that writes it. `npm run clear-snapshots` deletes the files in `snapshots/`, including `snapshots/archive/`, and leaves that folder, `runs/`, and `odds-cache/` in place.
 
@@ -163,11 +175,12 @@ The file is the finished screen, not the raw API responses. Each table cell is a
 - `ticketGroups`, the moneyline tickets, only when at least two wins cleared 0.80.
 - `props`, the Props tab: its title, one group of rows per team, and the note under that table.
 
-`npm run view` reads `runs/last-run.json` and draws it with the same screen. `npm run view -- 2026-11-15-jev` opens that snapshot. Prices and decisions stay as they were on that run. If the file is missing, the command says so and exits. Run `npm start` when you want a new slate.
+`npm run view` reads `runs/last-run.json` and draws it with the same screen. `npm run view -- 2026-11-15-jev` opens that snapshot. Prices and decisions stay as they were on that run. If the file is missing, the command says so and exits. Run `npm run slate` when you want a new slate. `npm start -- 2026-11-15` still does that dated run.
 
-The same command without npm is:
+The same commands without npm are:
 
 ```bash
+node --env-file-if-exists=.env.settings --env-file-if-exists=.env --import tsx scripts/start.ts
 node --env-file-if-exists=.env.settings --env-file-if-exists=.env --import tsx scripts/parlays.ts
 node --env-file-if-exists=.env.settings --env-file-if-exists=.env --import tsx scripts/parlays.ts 2026-11-15
 ODDS_SOURCE=fanduel node --env-file-if-exists=.env.settings --env-file-if-exists=.env --import tsx scripts/parlays.ts 2026-11-15

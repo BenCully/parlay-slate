@@ -2,6 +2,68 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-20T18:03:52Z
+
+### Lean under 0.80
+
+A supported verdict that clears 0.80 still says `Take`. A supported verdict under 0.80 says `Lean`, including a contradicted spread that flips to the other side. Anything else stays `Pass`. Prop slips use the same words. Tickets still use only Ready legs. A save already written keeps the slip text it stored. `Lean` is the same width as `Take`.
+
+## 2026-11-20T17:59:57Z
+
+### Cached windows, merged props, and extra props
+
+A merged props read keeps every book's markets on one event. Team-name differences no longer split the game. A row with no priced market is left out.
+
+A reused slate keeps the games whose kickoff falls in the new window. When that save had games and none remain, the run fetches again. An exact request hash still returns that file. A merged read that lost a book is stored as partial and stays fresh for 30 minutes. A partial empty slate is not stored. `odds=` still opens a partial file from that day.
+
+BetMGM baseball keeps a fixture whose competition name is MLB. There is no saved BetMGM baseball file to read a competition id from. A sport with no competition id and no name matches nothing.
+
+A one-sided moneyline, spread, or total does not beat a complete line from a later book. A 3-way moneyline needs three outcomes. `pickBalanced` scores a pair by its no-vig price, then by the vig. A spread pairs a team with the other team's opposite number, including a pick'em.
+
+An extra prop outside soccer stays on a featured player at 0.60 or better. Soccer can still fall through to another posted option. An Under is not the extra for NBA blocks or steals, MLB stolen bases, or NHL power-play points.
+
+A bad date or an unknown `--` flag throws before the sports walk. A `.json` path is still a view file. An unreadable ESPN scoreboard is an empty board.
+
+## 2026-11-20T17:34:27Z
+
+### Merged prop ids
+
+A merged props read uses each book's own event id. `bookEventId` pulls `fd`, `dk`, `mgm`, or `czr` out of `fd=…,dk=…,mgm=…,czr=…`. FanDuel no longer sends that whole string to its props search. When FanDuel did not list the game, that part is empty and FanDuel makes no request. DraftKings, BetMGM, and Caesars use the same helper.
+
+## 2026-11-20T17:31:14Z
+
+### Splash Ctrl-C, clear confirm, and fresh book reads
+
+Ctrl-C during the logo restores the terminal and exits 130. Any other key still skips to the options screen.
+
+Clear snapshots opens with No focused. Enter on No cancels. Tab to Yes, typing `yes`, or clicking Yes still clears. `q` and Esc close the date picker and that confirm. The x button still leaves the launcher.
+
+Each slate run drops the DraftKings and BetMGM prices kept in memory, and the merged-book header flags. A later run in the same process reads the books again. Soccer spreads are copied onto a new BetMGM fixture, so one league does not leave its lines on the cached object the next league reads. FanDuel and Caesars do not keep a price cache.
+
+## 2026-11-20T16:48:48Z
+
+### Terminal screen tests
+
+`npm test` drives the alt screen with `@microsoft/tui-test` 0.1.1, pinned, backend Alacritty. `test/screen.test.ts` opens the committed `test/fixtures/slate.json` through `scripts/view.ts`. It checks a league click, the Props tab, the close button, `]` and `2`, the wheel, a scrollbar drag, and the sport names at 100 columns and at 70. `q` on the launcher exits. Opening that file from the launcher, then `q`, returns to the options screen, and a second `q` exits. Ctrl-C on that slate exits. This version of the driver does not report a `run()` exit code, so the tests wait until the process is gone. Koffi loads from its optional prebuild, so `allowScripts` stays limited to esbuild and fsevents.
+
+`npm run tui -- path.json` selects View snapshot for that file. The path is not written to `runs/tui-settings.json`.
+
+## 2026-11-20T01:46:30Z
+
+### Launcher click no longer flickers or sticks
+
+A click in the last-run screen was being cut apart. The digits in the mouse report then changed tabs, and every one of those paints cleared the whole terminal. The terminal stopped accepting keys, including `q` and Ctrl-C, and stayed in raw mode. Mouse bytes now stay mouse reports, including a report whose escape byte arrived in the previous chunk. Later paints overwrite the rows in place instead of clearing the screen, and a burst of motion paints once. A draw that throws restores the terminal before the process exits. A resize that does not change the size does not paint again.
+
+## 2026-11-20T01:14:10Z
+
+### Terminal launcher
+
+Bare `npm start` in a terminal plays a Parlay Slate logo, then opens the options screen. `npm run slate` is the direct run. `npm start --` with a date, `model=`, `odds=`, or `--fresh` still runs the slate and skips the launcher. `--no-splash` skips the logo. `--tui` opens the launcher and can prefill those arguments. `--slate` forces a direct run and wins over `--tui`. A pipe running `npm start` with no slate arguments still prints the slate as text. `npm run tui` needs a terminal and exits 1 without one.
+
+After a slate, a compare, or the saved-odds list closes, the options screen comes back. `q` on those screens returns to the options. Quit, Esc when no dialog is open, `q`, or the x button leaves the launcher. Ctrl-C restores the terminal and exits. The options screen does not hold `runs/slate.lock`. Last-used options are `runs/tui-settings.json`. That file is not the saved slate.
+
+The odds source choices are All books, FanDuel, DraftKings, BetMGM, Caesars, and The Odds API. The Odds API only opens saved files, so a live start cannot use it. Fresh rereads the books and ignores `odds-cache/`. `readStartArgs` returns `fresh`. `setOddsFresh` bypasses the cache for that run without putting `--fresh` on `process.argv`, and the flag is cleared when the run finishes. `PARLAY_SLATE_NO_ANIM` set to anything other than `0` holds a still logo.
+
 ## 2026-11-20T00:35:31Z
 
 ### The Odds API is no longer called

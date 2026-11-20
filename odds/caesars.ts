@@ -2,6 +2,7 @@
 // No login. The device id is generated for this process and is not a secret.
 // A 403 stops. Do not scrape a WAF token.
 import { randomUUID } from 'node:crypto';
+import { bookEventId, decodedEventId } from './direct.js';
 import { pickBalanced, teamResolver, type LineQuote } from './fanduel.js';
 import { americanPrice, BookError, fetchJson, inWindow, BROWSER } from './http.js';
 import { bookEvent, outcome, type Market, type Outcome } from './shape.js';
@@ -382,9 +383,10 @@ export async function caesarsFetch(url: string): Promise<unknown> {
   const sportKey = /\/sports\/([^/]+)/.exec(parsed.pathname)?.[1] ?? '';
   if (!sportKey) throw new Error('Caesars could not read the sport.');
   if (parsed.pathname.includes('/events/')) {
-    const eventId = decodeURIComponent(/\/events\/([^/]+)/.exec(parsed.pathname)?.[1] ?? '');
-    if (!eventId) throw new Error('Caesars could not read the event.');
-    const segment = eventId.includes('czr=') ? (eventId.split(',').find((part) => part.startsWith('czr=')) ?? '').slice(4) : eventId;
+    const raw = /\/events\/([^/]+)/.exec(parsed.pathname)?.[1] ?? '';
+    if (!raw) throw new Error('Caesars could not read the event.');
+    const eventId = decodedEventId(raw);
+    const segment = bookEventId(raw, 'czr');
     if (!segment) return bookEvent(eventId, new Date().toISOString(), 'Home', 'Away', 'williamhill_us', []);
     const wanted = new Set((parsed.searchParams.get('markets') ?? '').split(',').filter(Boolean));
     return props(sportKey, segment, wanted);

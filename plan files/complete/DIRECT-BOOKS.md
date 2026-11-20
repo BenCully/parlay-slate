@@ -2,7 +2,7 @@
 
 Build spec for replacing the live call to The Odds API. The clients, the merged read, and the removal of that live call have landed. An unset `ODDS_SOURCE` reads the four books. Old Odds API files stay readable. The 0.60 favorite gate, the 0.60 rerank gate, and the 0.80 verify gate stay. Do not add a paid odds service.
 
-Checked against Illinois responses on 2026-11-19, then checked again the same day after the first draft. Counts and prices below are that snapshot. They move. League and competition ids are what the client should start from, and it should still match the league by name when a soccer id is seasonal. `FUTURE-IDEAS.md` points here.
+Checked against Illinois responses on 2026-11-19, then checked again the same day after the first draft. Counts and prices below are that snapshot. They move. League and competition ids are what the client should start from, and it should still match the league by name when a soccer id is seasonal. `plan files/wip/FUTURE-IDEAS.md` points here.
 
 ## Goal
 

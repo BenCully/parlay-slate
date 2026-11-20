@@ -1,0 +1,365 @@
+{
+  "savedAt": "2026-11-20T16:00:00.000Z",
+  "model": "jev",
+  "title": "NFL slate marker",
+  "groups": [],
+  "sports": [
+    {
+      "label": "Football",
+      "leagues": [
+        {
+          "label": "NFL",
+          "short": "NFL",
+          "games": {
+            "title": "NFL slate marker",
+            "groups": [
+              [
+                [
+                  "Alpha Team",
+                  "-200",
+                  "moneyline",
+                  "Pass",
+                  "Pass",
+                  "noted"
+                ],
+                [
+                  "Lane 02",
+                  "-200",
+                  "moneyline",
+                  "Pass",
+                  "Pass",
+                  "noted"
+                ],
+                [
+                  "Lane 03",
+                  "-200",
+                  "moneyline",
+                  "Pass",
+                  "Pass",
+                  "noted"
+                ],
+                [
+                  "Lane 04",
+                  "-200",
+                  "moneyline",
+                  "Pass",
+                  "Pass",
+                  "noted"
+                ],
+                [
+                  "Lane 05",
+                  "-200",
+                  "moneyline",
+                  "Pass",
+                  "Pass",
+                  "noted"
+                ],
+                [
+                  "Lane 06",
+                  "-200",
+                  "moneyline",
+                  "Pass",
+                  "Pass",
+                  "noted"
+                ],
+                [
+                  "Lane 07",
+                  "-200",
+                  "moneyline",
+                  "Pass",
+                  "Pass",
+                  "noted"
+                ],
+                [
+                  "Lane 08",
+                  "-200",
+                  "moneyline",
+                  "Pass",
+                  "Pass",
+                  "noted"
+                ],
+                [
+                  "Lane 09",
+                  "-200",
+                  "moneyline",
+                  "Pass",
+                  "Pass",
+                  "noted"
+                ],
+                [
+                  "Lane 10",
+                  "-200",
+                  "moneyline",
+                  "Pass",
+                  "Pass",
+                  "noted"
+                ],
+                [
+                  "Lane 11",
+                  "-200",
+                  "moneyline",
+                  "Pass",
+                  "Pass",
+                  "noted"
+                ],
+                [
+                  "Lane 12",
+                  "-200",
+                  "moneyline",
+                  "Pass",
+                  "Pass",
+                  "noted"
+                ],
+                [
+                  "Lane 13",
+                  "-200",
+                  "moneyline",
+                  "Pass",
+                  "Pass",
+                  "noted"
+                ],
+                [
+                  "Lane 14",
+                  "-200",
+                  "moneyline",
+                  "Pass",
+                  "Pass",
+                  "noted"
+                ],
+                [
+                  "Lane 15",
+                  "-200",
+                  "moneyline",
+                  "Pass",
+                  "Pass",
+                  "noted"
+                ],
+                [
+                  "Lane 16",
+                  "-200",
+                  "moneyline",
+                  "Pass",
+                  "Pass",
+                  "noted"
+                ],
+                [
+                  "Lane 17",
+                  "-200",
+                  "moneyline",
+                  "Pass",
+                  "Pass",
+                  "noted"
+                ],
+                [
+                  "Lane 18",
+                  "-200",
+                  "moneyline",
+                  "Pass",
+                  "Pass",
+                  "noted"
+                ],
+                [
+                  "Lane 19",
+                  "-200",
+                  "moneyline",
+                  "Pass",
+                  "Pass",
+                  "noted"
+                ],
+                [
+                  "Lane 20",
+                  "-200",
+                  "moneyline",
+                  "Pass",
+                  "Pass",
+                  "noted"
+                ],
+                [
+                  "Lane 21",
+                  "-200",
+                  "moneyline",
+                  "Pass",
+                  "Pass",
+                  "noted"
+                ],
+                [
+                  "Later Team",
+                  "-200",
+                  "moneyline",
+                  "Pass",
+                  "Pass",
+                  "noted"
+                ],
+                [
+                  "Lane 23",
+                  "-200",
+                  "moneyline",
+                  "Pass",
+                  "Pass",
+                  "noted"
+                ],
+                [
+                  "Lane 24",
+                  "-200",
+                  "moneyline",
+                  "Pass",
+                  "Pass",
+                  "noted"
+                ],
+                [
+                  "Lane 25",
+                  "-200",
+                  "moneyline",
+                  "Pass",
+                  "Pass",
+                  "noted"
+                ],
+                [
+                  "Lane 26",
+                  "-200",
+                  "moneyline",
+                  "Pass",
+                  "Pass",
+                  "noted"
+                ],
+                [
+                  "Lane 27",
+                  "-200",
+                  "moneyline",
+                  "Pass",
+                  "Pass",
+                  "noted"
+                ],
+                [
+                  "Lane 28",
+                  "-200",
+                  "moneyline",
+                  "Pass",
+                  "Pass",
+                  "noted"
+                ],
+                [
+                  "Lane 29",
+                  "-200",
+                  "moneyline",
+                  "Pass",
+                  "Pass",
+                  "noted"
+                ],
+                [
+                  "Omega Team",
+                  "-200",
+                  "moneyline",
+                  "Pass",
+                  "Pass",
+                  "noted"
+                ]
+              ]
+            ]
+          },
+          "props": {
+            "title": "NFL props marker",
+            "groups": []
+          }
+        },
+        {
+          "label": "NCAA",
+          "short": "NCAA",
+          "games": {
+            "title": "NCAA games marker",
+            "groups": []
+          },
+          "props": {
+            "title": "NCAA props marker",
+            "groups": []
+          }
+        }
+      ]
+    },
+    {
+      "label": "Soccer",
+      "leagues": [
+        {
+          "label": "Premier League",
+          "short": "EPL",
+          "games": {
+            "title": "Premier games marker",
+            "groups": []
+          },
+          "props": {
+            "title": "Soccer props marker",
+            "groups": []
+          }
+        }
+      ]
+    },
+    {
+      "label": "Hockey",
+      "leagues": [
+        {
+          "label": "NHL",
+          "short": "NHL",
+          "games": {
+            "title": "NHL games marker",
+            "groups": []
+          },
+          "props": {
+            "title": "NHL props marker",
+            "groups": []
+          }
+        }
+      ]
+    },
+    {
+      "label": "Basketball",
+      "leagues": [
+        {
+          "label": "NBA",
+          "short": "NBA",
+          "games": {
+            "title": "NBA games marker",
+            "groups": []
+          },
+          "props": {
+            "title": "NBA props marker",
+            "groups": []
+          }
+        }
+      ]
+    },
+    {
+      "label": "Baseball",
+      "leagues": [
+        {
+          "label": "MLB",
+          "short": "MLB",
+          "games": {
+            "title": "MLB games marker",
+            "groups": []
+          },
+          "props": {
+            "title": "MLB props marker",
+            "groups": []
+          }
+        }
+      ]
+    },
+    {
+      "label": "Formula 1",
+      "leagues": [
+        {
+          "label": "F1",
+          "short": "F1",
+          "games": {
+            "title": "Race marker",
+            "groups": []
+          },
+          "props": {
+            "title": "Race props marker",
+            "groups": []
+          }
+        }
+      ]
+    }
+  ]
+}
