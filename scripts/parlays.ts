@@ -6,7 +6,7 @@
 //      npm run slate -- 2026-11-15 model=tail-jev Autojev on the tailnet (model=autojev is the same)
 //      npm run slate -- odds=2026-11-15 model=jev prices saved that Eastern day, no live fetch
 // npm start with those same arguments does this too. Bare npm start opens the launcher.
-import { mkdir, rename, writeFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readStartArgs, requireRunKeys, selectDecisionModel } from '../decisions/judge.js';
@@ -20,7 +20,7 @@ import { SPORTS, type LeagueDef } from '../sports/index.js';
 import { isDirectRun } from './entry.js';
 import { acquireRunLock } from './lock.js';
 import { scrubError } from './scrub.js';
-import { saveDecisionSnapshot } from './snapshot.js';
+import { saveDecisionSnapshot, writeAtomic } from './snapshot.js';
 
 export type RunSlateOptions = {
   day?: string;
@@ -95,7 +95,7 @@ export async function runSlate(options: RunSlateOptions = {}): Promise<SlateRunR
   try {
     const source = oddsSource();
     const chosen = selectDecisionModel(options.model ?? 'jev');
-    requireRunKeys(chosen, Boolean(odds));
+    requireRunKeys(chosen);
     release = await acquireRunLock(dirname(savedPath));
     console.log(odds ? `Decisions: ${chosen}. Odds saved on ${odds}.` : `Decisions: ${chosen}.`);
     const sports: SavedSport[] = [];
@@ -164,12 +164,6 @@ function openedBoard(sports: SavedSport[]) {
     if (league) return league;
   }
   return undefined;
-}
-
-async function writeAtomic(path: string, body: string) {
-  const temp = `${path}.${process.pid}.tmp`;
-  await writeFile(temp, body);
-  await rename(temp, path);
 }
 
 async function saveRun(saved: SavedSlate) {

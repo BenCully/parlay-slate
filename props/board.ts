@@ -178,13 +178,17 @@ export function pickExtra<T extends { implied: number; market: string; player: s
   return pool[mix(team) % pool.length];
 }
 
-export function pickLayeredExtra<T extends { implied: number; market: string; player: string }>(team: string, tiers: T[][]): T | null {
+export function pickLayeredExtra<T extends { implied: number; market: string; player: string }>(
+  team: string,
+  tiers: T[][],
+  options?: { requireLikely?: boolean },
+): T | null {
   for (let index = 0; index < tiers.length; index++) {
     const tier = tiers[index];
-    if (!tier.length) continue;
+    if (!tier?.length) continue;
     const likely = tier.filter((option) => option.implied >= 0.6);
     if (likely.length) return pickExtra(team, likely);
-    if (index === tiers.length - 1) return pickExtra(team, tier);
+    if (index === tiers.length - 1 && !options?.requireLikely) return pickExtra(team, tier);
   }
   return null;
 }
@@ -225,6 +229,8 @@ export type PropProfile = {
   teamShort?: (name: string) => Promise<string | null>;
   realExtra: (option: { market: string; side: 'Over' | 'Under' | 'Yes'; posted: { point: number | null }; ref: PlayerRef }) => boolean;
   featureExtra: (option: { market: string; ref: PlayerRef }, featured: Set<string>) => boolean;
+  /** Soccer may leave the featured block. Other sports stay on a featured player, or the kicker. */
+  extraFallback?: boolean;
 };
 
 async function fetchEvent(eventId: string, profile: PropProfile, cacheOnly: boolean) {
@@ -270,9 +276,10 @@ function lineText(label: string, side: SideName, point: number | null, price: nu
 
 function slipText(player: string, info: MarketInfo, side: SideName, point: number | null, price: number, check: PropCheck | undefined) {
   if (check?.verdict !== 'supported') return 'Pass';
+  const verb = check.status === 'ready' ? 'Take' : 'Lean';
   const who = nick(player);
-  if (info.yes && (point == null || side === 'Yes')) return info.yes.slip(who, priceText(price));
-  return `Take ${who} ${side.toLowerCase()} ${points(point ?? 0)} ${info.label.toLowerCase()}`;
+  if (info.yes && (point == null || side === 'Yes')) return info.yes.slip(who, priceText(price)).replace(/^Take /, `${verb} `);
+  return `${verb} ${who} ${side.toLowerCase()} ${points(point ?? 0)} ${info.label.toLowerCase()}`;
 }
 
 function thingFor(info: MarketInfo, side: SideName) {
@@ -586,11 +593,9 @@ async function extraRow(
     }
   }
   const real = options.filter((option) => profile.realExtra(option));
-  const picked = pickLayeredExtra(team.name, [
-    real.filter((option) => profile.featureExtra(option, featured)),
-    real,
-    options,
-  ]);
+  const featuredReal = real.filter((option) => profile.featureExtra(option, featured));
+  const tiers = profile.extraFallback ? [featuredReal, real, options] : [featuredReal];
+  const picked = pickLayeredExtra(team.name, tiers, { requireLikely: !profile.extraFallback });
   if (!picked) {
     return { kind: 'missing', team: team.name, label: 'Extra', reason: `No other short-priced prop was posted for ${namedTeam(team.name, label, profile)}.` };
   }

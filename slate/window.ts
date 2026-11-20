@@ -95,7 +95,13 @@ export async function scoreboardEvents(url: string, failure: (status: number) =>
     console.error(failure(res.status));
     return empty;
   }
-  const board = await res.json() as { events?: { date?: string }[]; week?: { number?: number } };
+  let board: { events?: { date?: string }[]; week?: { number?: number } };
+  try {
+    board = await res.json() as { events?: { date?: string }[]; week?: { number?: number } };
+  } catch {
+    console.error(`ESPN ${scoreboardLabel(url)} returned an unreadable body.`);
+    return empty;
+  }
   const stamps = (board.events ?? []).map((event) => Date.parse(event.date ?? '')).filter(Number.isFinite);
   return { board, stamps };
 }

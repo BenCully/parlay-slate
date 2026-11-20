@@ -22,9 +22,10 @@ type ExtraOption = {
   ref: { name: string; pos: string };
 };
 
-function realExtra(option: ExtraOption) {
+export function realExtra(option: ExtraOption) {
   const point = option.posted.point ?? 0;
-  if (option.market !== 'batter_total_bases' && option.market !== 'batter_stolen_bases') return false;
+  if (option.market === 'batter_stolen_bases') return option.side === 'Over' && point >= 0.5;
+  if (option.market !== 'batter_total_bases') return false;
   return option.side === 'Over' ? point >= 0.5 : point >= 1.5;
 }
 

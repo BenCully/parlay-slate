@@ -81,7 +81,7 @@ async function getLegs(oddsKey: string, from: string, to: string, threeWay: bool
   const legs = body.flatMap((game) => {
     if (!oddsReplayDay() && Date.parse(game.commence_time) <= Date.now()) return [];
     const books = game.bookmakers;
-    const moneyMarket = postedMarket(books, 'h2h');
+    const moneyMarket = postedMarket(books, 'h2h', { threeWay });
     const spreadMarket = postedMarket(books, 'spreads');
     const totalMarket = postedMarket(books, 'totals');
     const moneylines = moneyMarket?.outcomes ?? [];
@@ -238,25 +238,30 @@ function sideLabel(check: Check) {
   return `Pass ${confidence}`;
 }
 
+function slipVerb(status: 'ready' | 'review') {
+  return status === 'ready' ? 'Take' : 'Lean';
+}
+
 export function moneylineSlip(leg: { team: string; price: number; phrase?: string }, judgment: Judgment) {
   if (judgment.kind === 'checked' && judgment.verdict === 'supported') {
     const who = nick(leg.team);
     const bet = leg.phrase ? `${who} ${leg.phrase}` : who;
-    return `Take ${bet} ${priceText(leg.price)}`;
+    return `${slipVerb(judgment.status)} ${bet} ${priceText(leg.price)}`;
   }
   return 'Pass';
 }
 
 export function spreadSlip(leg: { team: string; opponent: string; spread: { point: number } | null }, check: Check) {
   const point = leg.spread!.point;
-  if (check.verdict === 'supported') return `Take ${nick(leg.team)} ${signed(point)}`;
-  if (check.verdict === 'contradicted') return `Take ${nick(leg.opponent)} ${signed(-point)}`;
+  const verb = slipVerb(check.status);
+  if (check.verdict === 'supported') return `${verb} ${nick(leg.team)} ${signed(point)}`;
+  if (check.verdict === 'contradicted') return `${verb} ${nick(leg.opponent)} ${signed(-point)}`;
   return 'Pass';
 }
 
 export function totalSlip(side: 'Over' | 'Under', point: number, check: Check) {
   if (check.verdict !== 'supported') return 'Pass';
-  return `Take the ${side.toLowerCase()} ${points(point)}`;
+  return `${slipVerb(check.status)} the ${side.toLowerCase()} ${points(point)}`;
 }
 
 function callSentence(judgment: Judgment, thing: string) {

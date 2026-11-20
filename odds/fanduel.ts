@@ -457,16 +457,23 @@ function soccerQuotes(market: any, price: any) {
 
 export type LineQuote = { label: string; price: number; point: number };
 
-/** The line closest to even. The score is the quote whose implied probability is nearest 0.50. A tie keeps the earlier group. */
+/** The pair closest to a fair 50/50. A tie keeps the pair with less vig, then the earlier group. */
 export function pickBalanced(groups: LineQuote[][]): LineQuote[] {
   let best: LineQuote[] | null = null;
-  let bestScore = Infinity;
+  let bestFair = Infinity;
+  let bestVig = Infinity;
   for (const quotes of groups) {
-    if (quotes.length < 2) continue;
-    const score = Math.min(...quotes.map((quote) => Math.abs(americanImplied(quote.price) - 0.5)));
-    if (score >= bestScore) continue;
+    const left = quotes[0];
+    const right = quotes[1];
+    if (!left || !right) continue;
+    const first = americanImplied(left.price);
+    const second = americanImplied(right.price);
+    const vig = first + second;
+    const fair = vig > 0 ? Math.abs(first / vig - 0.5) : 1;
+    if (fair > bestFair || (fair === bestFair && vig >= bestVig)) continue;
     best = quotes;
-    bestScore = score;
+    bestFair = fair;
+    bestVig = vig;
   }
   return best ?? [];
 }

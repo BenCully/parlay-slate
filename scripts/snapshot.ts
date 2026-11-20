@@ -3,7 +3,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-async function writeAtomic(path: string, body: string) {
+export async function writeAtomic(path: string, body: string) {
   const temp = `${path}.${process.pid}.tmp`;
   await writeFile(temp, body);
   await rename(temp, path);

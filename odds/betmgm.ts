@@ -47,7 +47,7 @@ const SPORTS: Record<string, SportRef> = {
   americanfootball_ncaaf: { sportId: '11', competitionId: '103495' },
   basketball_nba: { sportId: '7', competitionId: '6004' },
   icehockey_nhl: { sportId: '12', competitionId: '34' },
-  baseball_mlb: { sportId: '23' },
+  baseball_mlb: { sportId: '23', name: 'MLB' },
   soccer_epl: { sportId: '4', name: 'Premier League', region: 'England', soccer: true },
   soccer_uefa_champs_league: { sportId: '4', name: 'UEFA Champions League', region: 'Europe', soccer: true },
   soccer_spain_la_liga: { sportId: '4', name: 'LaLiga', region: 'Spain', soccer: true },
@@ -307,9 +307,13 @@ export function normalizeBetMgm(fixtures: BetMgmFixture[], options: {
   soccer: boolean;
   mode: 'slate' | 'props';
   wanted?: Set<string>;
+  /** When set, fixtures outside that competition are dropped. */
+  sportKey?: string;
 }) {
+  const sport = options.sportKey ? SPORTS[options.sportKey] : undefined;
   const slate = [];
   for (const fixture of fixtures) {
+    if (sport && !matches(fixture, sport)) continue;
     if (!fixture.id || !fixture.startDate) continue;
     if (!isListedGame(fixture)) continue;
     if (fixture.stage && fixture.stage !== 'PreMatch') continue;
@@ -520,8 +524,9 @@ function matches(fixture: BetMgmFixture, sport: SportRef) {
   if (sport.soccer) {
     return textValue(fixture.competition?.name) === sport.name && textValue(fixture.region?.name) === sport.region;
   }
-  if (!sport.competitionId) return true;
-  return String(fixture.competition?.id ?? '') === sport.competitionId;
+  if (sport.competitionId) return String(fixture.competition?.id ?? '') === sport.competitionId;
+  if (sport.name) return textValue(fixture.competition?.name) === sport.name;
+  return false;
 }
 
 async function slate(sportKey: string, from: string, to: string) {

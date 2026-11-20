@@ -72,6 +72,7 @@ function profileFor(league: SoccerLeague): PropProfile | null {
     recentStat: players.recentStat,
     realExtra: (option) => option.side === 'Yes',
     featureExtra: (option, featured) => featured.has(nameKey(option.ref.name)),
+    extraFallback: true,
   };
 }
 

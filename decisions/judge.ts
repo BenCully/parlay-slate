@@ -67,14 +67,18 @@ export function readStartArgs(argv: string[]) {
       odds = saved[1].trim();
       continue;
     }
+    if (arg.startsWith('--')) throw new Error(`Unknown option "${arg}". Use --fresh, model=, or odds=.`);
     positional.push(arg);
   }
+  const dates = positional.filter((arg) => !arg.endsWith('.json'));
+  if (dates.length > 1) throw new Error('Pass one date.');
+  if (dates[0] && !/^\d{4}-\d{2}-\d{2}$/.test(dates[0])) throw new Error('Date must be YYYY-MM-DD.');
   if (odds && !/^\d{4}-\d{2}-\d{2}$/.test(odds)) {
     throw new Error('odds= must be YYYY-MM-DD, the Eastern day the prices were saved.');
   }
   if (odds && fresh) throw new Error('odds= reads saved prices only. Leave off --fresh.');
-  if (odds && positional[0]) throw new Error('Pass a slate date or odds=YYYY-MM-DD, not both.');
-  return { day: positional[0], model, odds, fresh };
+  if (odds && dates[0]) throw new Error('Pass a slate date or odds=YYYY-MM-DD, not both.');
+  return { day: dates[0], model, odds, fresh };
 }
 
 /** `autojev` is tail-jev. An unknown name returns null and does not change the active model. */
@@ -97,7 +101,7 @@ export function decisionModel() {
 }
 
 /** Fail before any sport is walked. Prices come from the books, so ODDS_API_KEY is not required. */
-export function requireRunKeys(model: DecisionModel, _replay: boolean) {
+export function requireRunKeys(model: DecisionModel) {
   const missing: string[] = [];
   if (model === 'jev' && !process.env.TYPESAFE_API_KEY?.trim()) missing.push('TYPESAFE_API_KEY');
   if (model === 'tail-jev') {

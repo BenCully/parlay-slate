@@ -2,6 +2,28 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-20T18:03:52Z
+
+### Lean under 0.80
+
+A supported verdict that clears 0.80 still says `Take`. A supported verdict under 0.80 says `Lean`, including a contradicted spread that flips to the other side. Anything else stays `Pass`. Prop slips use the same words. Tickets still use only Ready legs. A save already written keeps the slip text it stored. `Lean` is the same width as `Take`.
+
+## 2026-11-20T17:59:57Z
+
+### Cached windows, merged props, and extra props
+
+A merged props read keeps every book's markets on one event. Team-name differences no longer split the game. A row with no priced market is left out.
+
+A reused slate keeps the games whose kickoff falls in the new window. When that save had games and none remain, the run fetches again. An exact request hash still returns that file. A merged read that lost a book is stored as partial and stays fresh for 30 minutes. A partial empty slate is not stored. `odds=` still opens a partial file from that day.
+
+BetMGM baseball keeps a fixture whose competition name is MLB. There is no saved BetMGM baseball file to read a competition id from. A sport with no competition id and no name matches nothing.
+
+A one-sided moneyline, spread, or total does not beat a complete line from a later book. A 3-way moneyline needs three outcomes. `pickBalanced` scores a pair by its no-vig price, then by the vig. A spread pairs a team with the other team's opposite number, including a pick'em.
+
+An extra prop outside soccer stays on a featured player at 0.60 or better. Soccer can still fall through to another posted option. An Under is not the extra for NBA blocks or steals, MLB stolen bases, or NHL power-play points.
+
+A bad date or an unknown `--` flag throws before the sports walk. A `.json` path is still a view file. An unreadable ESPN scoreboard is an empty board.
+
 ## 2026-11-20T17:34:27Z
 
 ### Merged prop ids

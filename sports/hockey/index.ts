@@ -28,10 +28,10 @@ type ExtraOption = {
   ref: { name: string; pos: string };
 };
 
-function realExtra(option: ExtraOption) {
+export function realExtra(option: ExtraOption) {
   const point = option.posted.point ?? 0;
   if (option.market === 'player_total_saves') return point >= 18.5;
-  if (option.market === 'player_power_play_points') return option.side === 'Over' ? point >= 0.5 : point >= 1.5;
+  if (option.market === 'player_power_play_points') return option.side === 'Over' && point >= 0.5;
   return false;
 }
 
