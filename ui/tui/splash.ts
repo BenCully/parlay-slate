@@ -80,10 +80,16 @@ function paintFrame(elapsed: number, noAnim: boolean, noColor: boolean) {
   process.stdout.write(out);
 }
 
-/** Column wipe, then a short hold. Any key or a left click skips. Keeps the alt screen up for the options screen. */
-export function playSplash() {
+/** Ctrl-C leaves the launcher. Any other key skips the logo. */
+export function splashKeyAction(key: string): 'interrupt' | 'skip' {
+  return key === '\u0003' ? 'interrupt' : 'skip';
+}
+
+/** Column wipe, then a short hold. Any key or a left click skips. Ctrl-C exits. Keeps the alt screen up for the options screen. */
+export function playSplash(): Promise<'done' | 'interrupt'> {
   const noAnim = noMotion();
   const noColor = process.env.NO_COLOR != null;
+  let interrupted = false;
   return withAltScreen((session) => {
     const started = performance.now();
     let timer: NodeJS.Timeout | undefined;
@@ -107,12 +113,19 @@ export function playSplash() {
       draw() {
         if (!session.closed) paintFrame(performance.now() - started, noAnim, noColor);
       },
-      onKey() {
+      onKey(key) {
+        if (splashKeyAction(key) === 'interrupt') {
+          interrupted = true;
+          if (timer) clearTimeout(timer);
+          timer = undefined;
+          session.restore();
+          return;
+        }
         finish();
       },
       onMouse(mouse) {
         if (leftClick(mouse)) finish();
       },
     };
-  }, { color: !noColor });
+  }, { color: !noColor }).then(() => (interrupted ? 'interrupt' : 'done'));
 }

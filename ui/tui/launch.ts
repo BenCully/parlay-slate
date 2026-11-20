@@ -39,7 +39,7 @@ async function perform(state: UiState): Promise<{ ok: boolean; interrupt: boolea
 }
 
 export async function launchTui(input: { splash: boolean; prefill: string[] }) {
-  if (input.splash) await playSplash();
+  if (input.splash && (await playSplash()) === 'interrupt') process.exit(130);
   const loaded = await loadTuiSettings();
   const ctx = await loadContext();
   let form = settleForm(formFromSettings(loaded.settings, ctx.today || todayEastern()), ctx);

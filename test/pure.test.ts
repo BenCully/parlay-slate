@@ -8,11 +8,11 @@ import { espnCacheFresh, ESPN_DAY_HOURS, ESPN_INJURY_HOURS, readEspnCache, write
 import { aliasTarget, clubKey, createEvidence, nameKey, NFL_EVIDENCE, type GameBrief } from '../espn/evidence.js';
 import { bookLabel, postedMarket } from '../odds/books.js';
 import { listSavedOdds, oddsCacheName, oddsCreditFloor, oddsGet, oddsReplayCommand, oddsRequestKey, oddsRequestSource, oddsSlateFamily, oddsSourceLabel, parseOddsBody, preferFreshRecord, recordMergedBook, resetMergedBooks, setOddsReplay } from '../odds/cache.js';
-import { normalizeBetMgm } from '../odds/betmgm.js';
+import { attachSpreads, betMgmCacheSize, betMgmSessionOpen, holdBetMgmSport, normalizeBetMgm } from '../odds/betmgm.js';
 import { normalizeCaesars } from '../odds/caesars.js';
-import { compositeId, mergeBookEvents, splitBookId } from '../odds/direct.js';
-import { normalizeDraftKings } from '../odds/draftkings.js';
-import { buildTeamIndex, chooseDriverBets, classifyProp, eventSides, marketOutcomes, propOutcomes, resolveTeamName, sidesFromName } from '../odds/fanduel.js';
+import { bookCacheSize, bookEventId, compositeId, mergeBookEvents, resetBookReads, splitBookId } from '../odds/direct.js';
+import { draftKingsCacheSize, draftkingsFetch, normalizeDraftKings } from '../odds/draftkings.js';
+import { buildTeamIndex, chooseDriverBets, classifyProp, eventSides, fanduelFetch, marketOutcomes, propOutcomes, resolveTeamName, sidesFromName } from '../odds/fanduel.js';
 import { easternClock, quotaEntry } from '../odds/quota.js';
 import { acquireRunLock } from '../scripts/lock.js';
 import { scrubError } from '../scripts/scrub.js';
@@ -1421,5 +1421,86 @@ test('a replay miss names every other source that saved that day', async () => {
     if (previousSource == null) delete process.env.ODDS_SOURCE;
     else process.env.ODDS_SOURCE = previousSource;
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('resetBookReads drops in-memory book prices', async () => {
+  const dir = await mkdtemp(`${tmpdir()}/parlay-espn-`);
+  const previousEspn = process.env.ESPN_CACHE_DIR;
+  const original = globalThis.fetch;
+  let draftKingsCalls = 0;
+  process.env.ESPN_CACHE_DIR = dir;
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    if (url.includes('draftkings.com')) draftKingsCalls += 1;
+    return new Response(JSON.stringify({ events: [], markets: [], selections: [], sports: [] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  };
+  const oddsUrl = 'https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds?regions=us&markets=h2h';
+  try {
+    resetBookReads();
+    assert.equal(bookCacheSize(), 0);
+    await draftkingsFetch(oddsUrl);
+    const afterFirst = draftKingsCalls;
+    assert.ok(afterFirst > 0);
+    assert.ok(draftKingsCacheSize() > 0);
+    await draftkingsFetch(oddsUrl);
+    assert.equal(draftKingsCalls, afterFirst);
+    const cached = { id: '1', optionMarkets: [{ name: { value: 'Moneyline' } }] };
+    holdBetMgmSport('11', [cached]);
+    assert.equal(betMgmSessionOpen(), true);
+    assert.ok(betMgmCacheSize() > 0);
+    recordMergedBook('betmgm', false);
+    assert.equal(oddsSourceLabel('books').includes('BetMGM'), false);
+    resetBookReads();
+    assert.equal(draftKingsCacheSize(), 0);
+    assert.equal(betMgmCacheSize(), 0);
+    assert.equal(betMgmSessionOpen(), false);
+    assert.equal(bookCacheSize(), 0);
+    assert.equal(oddsSourceLabel('books'), 'FanDuel · DraftKings · BetMGM · Caesars');
+    assert.equal(cached.optionMarkets?.length, 1);
+    await draftkingsFetch(oddsUrl);
+    assert.ok(draftKingsCalls > afterFirst);
+  } finally {
+    globalThis.fetch = original;
+    resetBookReads();
+    if (previousEspn == null) delete process.env.ESPN_CACHE_DIR;
+    else process.env.ESPN_CACHE_DIR = previousEspn;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('BetMGM spread copy leaves the cached fixture alone', () => {
+  const fixture = { id: '1', optionMarkets: [{ name: { value: 'Moneyline' } }] };
+  const next = attachSpreads(fixture, [{ name: { value: 'Spread' } }]);
+  assert.notEqual(next, fixture);
+  assert.equal(fixture.optionMarkets?.length, 1);
+  assert.equal(next.optionMarkets?.length, 2);
+  assert.notEqual(next.optionMarkets, fixture.optionMarkets);
+});
+
+test('bookEventId reads one book from a merged prop id', async () => {
+  const combined = 'fd=10,dk=20,mgm=6:44037,czr=';
+  assert.equal(bookEventId(combined, 'fd'), '10');
+  assert.equal(bookEventId(combined, 'dk'), '20');
+  assert.equal(bookEventId(combined, 'mgm'), '6:44037');
+  assert.equal(bookEventId(combined, 'czr'), '');
+  assert.equal(bookEventId('fd=,dk=20,mgm=6:44037,czr=9', 'fd'), '');
+  assert.equal(bookEventId('34118011', 'fd'), '34118011');
+  assert.equal(bookEventId('fd%3D10%2Cdk%3D20%2Cmgm%3D6%3A44037%2Cczr%3D', 'dk'), '20');
+  const original = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const url = 'https://api.the-odds-api.com/v4/sports/americanfootball_nfl/events/fd=,dk=20,mgm=6:1,czr=/odds?markets=player_pass_yds';
+    assert.deepEqual(await fanduelFetch(url), []);
+    assert.equal(calls, 0);
+  } finally {
+    globalThis.fetch = original;
   }
 });

@@ -35,10 +35,10 @@ Each ID matches the tag in that finding's heading below.
 
 | ID | Sev | Finding | Status | Change | Check | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| PR-1 | High | Ctrl-C during the splash doesn't exit | Open | | | |
-| PR-2 | High | Clear snapshots is two Enters away | Open | | | |
-| PR-3 | Low | PR description: "one alt-screen session" | Open | | | Description edit only |
-| PR-4 | Medium | `q` inside a dialog quits the launcher | Open | | | |
+| PR-1 | High | Ctrl-C during the splash doesn't exit | Done | `ui/tui/splash.ts`, `ui/tui/launch.ts`, `test/screen.test.ts`, `test/tui.test.ts`. Not committed. | `npm test` 68/68, `npm run typecheck` clean. Splash test asserts exit 130. tui-test 0.1.1 does not report a `run()` code, so a wrapper writes the child's code. | |
+| PR-2 | High | Clear snapshots is two Enters away | Done | `ui/tui/options.ts`, `test/tui.test.ts`. Not committed. | Same run as PR-1. Enter, Enter stays `effect: none` and `confirm: false`. Tab, Enter and `y` `e` `s` Enter return `clear`. | Hint now says to type yes or tab to Yes. |
+| PR-3 | Low | PR description: "one alt-screen session" | Blocked | | | No open pull request on BenCully/parlay-slate. `gh` is not installed and no GitHub token is set. Replacement sentence is in the work log. |
+| PR-4 | Medium | `q` inside a dialog quits the launcher | Done | `ui/tui/options.ts`, `test/tui.test.ts`. Not committed. | Same run as PR-1. `q` closes the picker and the confirm. Header x still returns `quit`. | |
 | PR-5 | Low | Saved Eastern day goes stale | Open | | | |
 | PR-6 | Low | Alt-key press waits for the next key | Open | | | |
 | PR-7 | Low | Ctrl-C during a launcher run leaves the lock | Open | | | Optional |
@@ -59,12 +59,12 @@ Each ID matches the tag in that finding's heading below.
 | P-2 | Medium | Tiny-under filters miss rare stats | Open | | | |
 | P-3 | Medium | No ESPN concurrency limit | Open | | | |
 | P-4 | Medium | NFL, NCAA, and soccer windows copied, keep finished games | Open | | | |
-| O-1 | High | FanDuel props never read in a merged run | Open | | | |
+| O-1 | High | FanDuel props never read in a merged run | Done | `odds/direct.ts`, `odds/fanduel.ts`, `odds/draftkings.ts`, `odds/betmgm.ts`, `odds/caesars.ts`, `test/pure.test.ts`. Not committed. | `npm test` 69/69, `npm run typecheck` clean. `bookEventId` covers a combined id, a plain id, an empty FanDuel part, and an encoded id. Empty FanDuel part makes no fetch. | Also covers the combined-id half of O-L3. |
 | O-2 | High | Merged props read keeps one book's event | Open | | | |
 | O-3 | High | Dated run can show another day's games | Open | | | Updates an `AGENTS.md` cache sentence |
 | O-4 | High | Partial and empty merged reads cached 168 hours | Open | | | |
 | O-5 | High | BetMGM puts every baseball league in MLB | Open | | | |
-| O-6 | Medium | In-memory book caches never expire | Open | | | Do before merging `clickability` |
+| O-6 | Medium | In-memory book caches never expire | Done | `odds/draftkings.ts`, `odds/betmgm.ts`, `odds/direct.ts`, `scripts/parlays.ts`, `test/pure.test.ts`. Not committed. | Same run as PR-1. Second DraftKings read does not fetch; after `resetBookReads` it does. BetMGM session and caches drop to empty. Spread copy does not mutate the cached fixture. | FanDuel and Caesars keep no in-memory price cache, so `resetBookReads` only clears DraftKings, BetMGM, and `resetMergedBooks`. |
 | O-7 | Medium | Doubleheader merges into one game | Open | | | |
 | O-8 | Medium | One-sided market beats a complete one | Open | | | |
 | O-9 | Medium | `pickBalanced` prefers an alternate line | Open | | | |
@@ -72,7 +72,7 @@ Each ID matches the tag in that finding's heading below.
 | O-11 | Medium | FanDuel bypasses the shared HTTP code | Open | | | |
 | O-L1 | Low | BetMGM curl arguments | Open | | | |
 | O-L2 | Low | Caesars `dataPath` unchecked | Open | | | |
-| O-L3 | Low | Duplicated odds code | Open | | | Partly covered by O-1 |
+| O-L3 | Low | Duplicated odds code | Partial | Combined-id parsing now uses `bookEventId` (O-1). | | Placeholder events and FanDuel's own price parser are still open. |
 | O-L4 | Low | Odds type-safety holes | Open | | | |
 | O-L5 | Low | `QUOTA_LOG` doubles as a path | Open | | | |
 | O-L6 | Low | Dead code | Open | | | |
@@ -86,7 +86,14 @@ Add one line per finding you touch, newest at the bottom: the UTC time, the ID, 
 YYYY-MM-DDTHH:MM:SSZ  ID  Status  What changed, or why it stopped
 ```
 
-_No entries yet._
+2026-11-20T17:31:14Z  PR-1  Done  Ctrl-C during the splash restores the terminal and exits 130. Any other key still skips the logo.
+2026-11-20T17:31:14Z  PR-2  Done  Clear snapshots opens on No. A second Enter cancels. Tab to Yes, typing yes, or clicking Yes still clears.
+2026-11-20T17:31:14Z  PR-4  Done  q and Esc close the date picker and the confirm. The x button still quits the launcher.
+2026-11-20T17:31:14Z  O-6  Done  runSlate clears DraftKings and BetMGM memory caches. Soccer spreads are copied onto a new fixture.
+2026-11-20T17:31:14Z  PR-3  Blocked  No open pull request, and gh is not installed. Use: "The splash, the options screen, and the slate use one terminal layer in ui/term.ts. Progress from a run prints on the normal screen between the options and the slate."
+2026-11-20T17:31:14Z  B-2  Needs decision  Take versus Lean under 0.80 changes the AGENTS.md slip rule. Left for Ben.
+2026-11-20T17:34:27Z  O-1  Done  bookEventId splits a merged prop id. An empty FanDuel part makes no request.
+2026-11-20T17:34:27Z  O-L3  Partial  Combined-id parsing now uses bookEventId. Placeholders and the FanDuel price parser remain.
 
 ### Status line under each finding
 
@@ -139,6 +146,8 @@ The PR mostly does what its description says. Two issues should be fixed before 
 
 #### [PR-1] Ctrl-C during the splash doesn't exit
 
+> **Status:** Done, 2026-11-20T17:31:14Z. See tracker.
+
 In `ui/tui/splash.ts`, `onKey()` calls `finish()` for every key, so Ctrl-C only skips to the options screen. The description says Ctrl-C restores the terminal and exits.
 
 **Fix path**
@@ -148,6 +157,8 @@ In `ui/tui/splash.ts`, `onKey()` calls `finish()` for every key, so Ctrl-C only 
 4. Test: add a case to `test/screen.test.ts` that starts `npm start` with `PARLAY_SLATE_NO_ANIM=1`, sends `\x03` before the options screen appears, and asserts exit 130 and no "Start slate" on screen. Add a unit check in `test/tui.test.ts` that the splash player still skips on an ordinary key.
 
 #### [PR-2] Clear snapshots is two Enters away
+
+> **Status:** Done, 2026-11-20T17:31:14Z. See tracker.
 
 `requestRun` opens the confirm with `confirmFocus: 'yes'`, and `reduceConfirm` clears on Enter when focus is Yes. Enter on Run, then Enter again, deletes every file in `snapshots/`, archive included, with no "yes" typed.
 
@@ -159,6 +170,8 @@ In `ui/tui/splash.ts`, `onKey()` calls `finish()` for every key, so Ctrl-C only 
 
 #### [PR-3] The description says the slate and launcher "share one alt-screen session"
 
+> **Status:** Blocked, 2026-11-20T17:31:14Z. See tracker.
+
 They don't. Each `withAltScreen` call enters and leaves the alternate screen. Only the splash passes `leaveAlt: false` to keep it up for the options screen. Between the options and the slate, the run's progress lines print on the normal screen, which is a reasonable behavior.
 
 **Fix path**
@@ -166,6 +179,8 @@ They don't. Each `withAltScreen` call enters and leaves the alternate screen. On
 2. No code change.
 
 #### [PR-4] `q` inside a dialog quits the whole launcher
+
+> **Status:** Done, 2026-11-20T17:31:14Z. See tracker.
 
 In `reducePicker` and `reduceConfirm`, `q` returns `{ type: 'quit' }`. On the slate, compare, and list screens, `q` means back. The picker hint only mentions Esc.
 
@@ -227,6 +242,8 @@ Those are the rules `AGENTS.md` says must not change, and nothing pins them.
 5. Restore `fetch` and the env in `t.after`.
 
 #### [B-2] Medium. A supported verdict under 0.80 still prints `Take`
+
+> **Status:** Needs decision, 2026-11-20T17:31:14Z. See tracker.
 
 `moneylineSlip` and `spreadSlip` (`slate/board.ts:241`, `:250`) check only `verdict === 'supported'`, so a `Review 0.55` row says `Take Chiefs -150`. That matches the `AGENTS.md` rule ("Take only when verify verdict is supported"), but it reads like a recommendation the 0.80 gate rejected, and only Ready legs make tickets.
 
@@ -377,6 +394,8 @@ None of the high-severity paths below has a test. I confirmed O-1, O-3, O-5, and
 
 ##### [O-1] FanDuel props are never read in a merged run
 
+> **Status:** Done, 2026-11-20T17:34:27Z. See tracker.
+
 In a merged read (`ODDS_SOURCE` unset), the props URL carries a combined id, `fd=…,dk=…,mgm=…,czr=…`. DraftKings, BetMGM, and Caesars each parse out their own part. `fanduelFetch` (`odds/fanduel.ts:820-824`) passes the whole string to `fanduelProps`. Either FanDuel throws and its props are omitted, or it returns a `Home`/`Away` placeholder. In the placeholder case, that placeholder can be the only event `booksFetch` returns (`odds/direct.ts:124-126`), which drops every book's props for that game.
 
 **Fix path**
@@ -431,6 +450,8 @@ The merged read throws only when all four books fail (`odds/cache.ts:515`, store
 #### Medium
 
 ##### [O-6] In-memory book caches never expire
+
+> **Status:** Done, 2026-11-20T17:31:14Z. See tracker.
 
 These are the DraftKings `cache` (`odds/draftkings.ts:94`) and BetMGM's `sportCache`, `viewCache`, and `session` (`odds/betmgm.ts:83-87`). This is new with the launcher, which runs `runSlate` repeatedly in one process. A `--fresh` run hours later still serves the first run's DraftKings and BetMGM prices and saves them to disk as live. Also, `odds/betmgm.ts:508` adds spread markets onto the cached fixture objects again on every run.
 
@@ -496,6 +517,9 @@ The merge key is day plus team names (`odds/direct.ts:56`), so two MLB games bet
   **Fix path:** accept a `dataPath` only when it matches `/^\/[\w\-/.]+$/`, and build the URL with `new URL(dataPath, BASE)`, checking that the host didn't change. Memoize the competition read in a per-run `Map`, and clear it from `resetBookReads()`.
 
 - **[O-L3] Duplicated code:**
+
+  > **Status:** Partial, 2026-11-20T17:34:27Z. See tracker.
+
   - Combined-id parsing is copied into three clients (`odds/draftkings.ts:415`, `odds/betmgm.ts:540`, `odds/caesars.ts:387`) while `splitBookId` goes unused.
   - Each client repeats the `Home`/`Away` placeholder event.
   - FanDuel has its own price parsing instead of `americanPrice`, so it rejects the Unicode minus sign (`odds/fanduel.ts:241`).

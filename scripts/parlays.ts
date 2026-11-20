@@ -11,6 +11,7 @@ import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readStartArgs, requireRunKeys, selectDecisionModel } from '../decisions/judge.js';
 import { oddsSource, setOddsFresh, setOddsReplay } from '../odds/cache.js';
+import { resetBookReads } from '../odds/direct.js';
 import { buildBoard, type BuiltBoard } from '../slate/board.js';
 import { todayEastern } from '../slate/window.js';
 import { showSlate, type SavedBoard, type SavedLeague, type SavedSlate, type SavedSport } from '../ui/screen.js';
@@ -88,6 +89,7 @@ export async function runSlate(options: RunSlateOptions = {}): Promise<SlateRunR
   const sourceSet = options.source != null && options.source !== '';
   if (sourceSet) process.env.ODDS_SOURCE = options.source;
   setOddsFresh(Boolean(options.fresh));
+  resetBookReads();
   if (odds) setOddsReplay(odds);
   let release: (() => Promise<void>) | undefined;
   try {

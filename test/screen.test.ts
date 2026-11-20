@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import type { TuiTest } from '@microsoft/tui-test';
@@ -20,13 +23,13 @@ function childEnv(): Record<string, string> {
   return env;
 }
 
-function terminalOptions(program: string[], cols: number, rows: number): CreateTerminalOptions {
+function terminalOptions(program: string[], cols: number, rows: number, env: Record<string, string> = {}): CreateTerminalOptions {
   return {
     backend,
     cols,
     rows,
     cwd: root,
-    env: childEnv(),
+    env: { ...childEnv(), ...env },
     program,
     timeouts,
     artifacts: { dir: '/tmp/parlay-slate-tui', onFailure: 'text' },
@@ -175,6 +178,33 @@ test('q on a viewed slate returns to the options screen', limit, async () => {
     await terminal.getByText('Football').wait({ state: 'hidden' });
     await quit(terminal);
   });
+});
+
+test('ctrl-c during the splash exits', limit, async () => {
+  // This tui-test build does not report a run() exit code, so the wrapper records the child's.
+  const exitFile = join(tmpdir(), `parlay-splash-exit-${process.pid}`);
+  const wrapper = [
+    "import { spawn } from 'node:child_process';",
+    "import { writeFileSync } from 'node:fs';",
+    "const child = spawn(process.execPath, ['--import', 'tsx', 'scripts/start.ts'], { stdio: 'inherit', env: process.env });",
+    "child.on('exit', (code) => { writeFileSync(process.env.PARLAY_EXIT_FILE ?? '', String(code)); process.exit(0); });",
+  ].join('\n');
+  try {
+    await withTerminal(terminalOptions(
+      [process.execPath, '--input-type=module', '-e', wrapper],
+      100,
+      30,
+      { PARLAY_EXIT_FILE: exitFile },
+    ), async (terminal) => {
+      await terminal.getByText('press any key').expect();
+      assert.equal((await terminal.text()).includes('Start slate'), false);
+      await terminal.write('\x03');
+      await terminal.waitExit();
+    });
+    assert.equal(await readFile(exitFile, 'utf8'), '130');
+  } finally {
+    await rm(exitFile, { force: true });
+  }
 });
 
 test('ctrl-c on a launcher slate exits', limit, async () => {

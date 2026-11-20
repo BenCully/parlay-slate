@@ -103,8 +103,8 @@ export function focusedHitId(state: UiState) {
 
 export function hintFor(state: UiState) {
   if (state.list) return 'q returns · wheel scrolls · ctrl-c exits';
-  if (state.picker) return ', . change month · enter selects · esc closes';
-  if (state.confirm) return 'enter confirms · esc cancels · type yes';
+  if (state.picker) return ', . change month · enter selects · q / esc closes';
+  if (state.confirm) return 'type yes, or tab to Yes · q / esc closes';
   return 'enter runs · tab / arrows move · click selects · q / esc quits · ctrl-c exits';
 }
 
@@ -221,7 +221,7 @@ function requestRun(state: UiState, ctx: FormContext): { state: UiState; effect:
   const issues = formIssues(state, ctx);
   if (issues.length) return { state: { ...state, message: issues[0] ?? '' }, effect: { type: 'none' } };
   if (state.action === 'clear-snapshots') {
-    return { state: { ...state, confirm: true, confirmFocus: 'yes', confirmTyped: '', scroll: 0, message: '' }, effect: { type: 'none' } };
+    return { state: { ...state, confirm: true, confirmFocus: 'no', confirmTyped: '', scroll: 0, message: '' }, effect: { type: 'none' } };
   }
   if (state.action === 'list-odds') return { state: { ...state, list: true, scroll: 0, message: '' }, effect: { type: 'none' } };
   return { state, effect: { type: 'run' } };
@@ -247,8 +247,9 @@ function reduceConfirm(state: UiState, event: FormEvent): { state: UiState; effe
   }
   if (event.type !== 'key') return { state, effect: { type: 'none' } };
   const key = event.key;
-  if (key === '\x1b') return { state: { ...state, confirm: false, confirmTyped: '' }, effect: { type: 'none' } };
-  if (key === 'q' || key === 'Q') return { state, effect: { type: 'quit' } };
+  if (key === '\x1b' || key === 'q' || key === 'Q') {
+    return { state: { ...state, confirm: false, confirmTyped: '' }, effect: { type: 'none' } };
+  }
   if (key === '\t' || key === '\x1b[C' || key === '\x1b[Z' || key === '\x1b[D') {
     return { state: { ...state, confirmFocus: state.confirmFocus === 'yes' ? 'no' : 'yes' }, effect: { type: 'none' } };
   }
@@ -271,8 +272,7 @@ function reducePicker(state: UiState, event: FormEvent, ctx: FormContext): { sta
   }
   if (event.type !== 'key') return { state, effect: { type: 'none' } };
   const key = event.key;
-  if (key === '\x1b') return { state: { ...state, picker: false }, effect: { type: 'none' } };
-  if (key === 'q' || key === 'Q') return { state, effect: { type: 'quit' } };
+  if (key === '\x1b' || key === 'q' || key === 'Q') return { state: { ...state, picker: false }, effect: { type: 'none' } };
   let cursor = state.pickerCursor || state.day || ctx.today;
   if (key === '\x1b[C' || key === 'l' || key === ']') cursor = stepDay(cursor, 1, ctx.today);
   else if (key === '\x1b[D' || key === 'h' || key === '[') cursor = stepDay(cursor, -1, ctx.today);

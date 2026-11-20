@@ -1,5 +1,6 @@
 // DraftKings Illinois sportsbook JSON, normalized into the event shape the boards already read.
 // No login and no client id. Node fetch with a browser User-Agent. A 403 stops. There is no paid fallback.
+import { bookEventId, decodedEventId } from './direct.js';
 import { teamResolver } from './fanduel.js';
 import { americanPrice, fetchJson, inWindow, trimStamp, BROWSER } from './http.js';
 import { balancedSpreads, balancedTotals } from './lines.js';
@@ -92,6 +93,14 @@ export type DraftKingsBody = {
 };
 
 const cache = new Map<string, Promise<DraftKingsBody>>();
+
+export function resetDraftKings() {
+  cache.clear();
+}
+
+export function draftKingsCacheSize() {
+  return cache.size;
+}
 
 function headers() {
   return {
@@ -409,9 +418,10 @@ export async function draftkingsFetch(url: string): Promise<unknown> {
   const sportKey = sportOf(url);
   if (!sportKey) throw new Error('DraftKings could not read the sport.');
   if (parsed.pathname.includes('/events/')) {
-    const eventId = decodeURIComponent(/\/events\/([^/]+)/.exec(parsed.pathname)?.[1] ?? '');
-    if (!eventId) throw new Error('DraftKings could not read the event.');
-    const segment = eventId.includes('dk=') ? (eventId.split(',').find((part) => part.startsWith('dk=')) ?? '').slice(3) : eventId;
+    const raw = /\/events\/([^/]+)/.exec(parsed.pathname)?.[1] ?? '';
+    if (!raw) throw new Error('DraftKings could not read the event.');
+    const eventId = decodedEventId(raw);
+    const segment = bookEventId(raw, 'dk');
     if (!segment) return bookEvent(eventId, new Date().toISOString(), 'Home', 'Away', 'draftkings', []);
     const wanted = new Set((parsed.searchParams.get('markets') ?? '').split(',').filter(Boolean));
     return props(sportKey, segment, wanted);

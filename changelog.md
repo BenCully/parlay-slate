@@ -2,6 +2,22 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-20T17:34:27Z
+
+### Merged prop ids
+
+A merged props read uses each book's own event id. `bookEventId` pulls `fd`, `dk`, `mgm`, or `czr` out of `fd=…,dk=…,mgm=…,czr=…`. FanDuel no longer sends that whole string to its props search. When FanDuel did not list the game, that part is empty and FanDuel makes no request. DraftKings, BetMGM, and Caesars use the same helper.
+
+## 2026-11-20T17:31:14Z
+
+### Splash Ctrl-C, clear confirm, and fresh book reads
+
+Ctrl-C during the logo restores the terminal and exits 130. Any other key still skips to the options screen.
+
+Clear snapshots opens with No focused. Enter on No cancels. Tab to Yes, typing `yes`, or clicking Yes still clears. `q` and Esc close the date picker and that confirm. The x button still leaves the launcher.
+
+Each slate run drops the DraftKings and BetMGM prices kept in memory, and the merged-book header flags. A later run in the same process reads the books again. Soccer spreads are copied onto a new BetMGM fixture, so one league does not leave its lines on the cached object the next league reads. FanDuel and Caesars do not keep a price cache.
+
 ## 2026-11-20T16:48:48Z
 
 ### Terminal screen tests

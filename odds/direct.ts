@@ -1,10 +1,10 @@
 // Merged read of FanDuel, DraftKings, BetMGM, and Caesars.
 // Games match on the two team names and the America/New_York date. A book that throws is left off.
-import { betmgmFetch } from './betmgm.js';
+import { betMgmCacheSize, betmgmFetch, resetBetMgm } from './betmgm.js';
+import { resetMergedBooks, type OddsEvent } from './cache.js';
 import { caesarsFetch } from './caesars.js';
-import { draftkingsFetch } from './draftkings.js';
+import { draftKingsCacheSize, draftkingsFetch, resetDraftKings } from './draftkings.js';
 import { fanduelFetch } from './fanduel.js';
-import type { OddsEvent } from './cache.js';
 import { easternDay } from '../slate/window.js';
 
 export type BookId = 'fd' | 'dk' | 'mgm' | 'czr';
@@ -45,6 +45,21 @@ export function splitBookId(id: string): Record<BookId, string> | null {
 
 export function compositeId(ids: Partial<Record<BookId, string>>) {
   return `fd=${ids.fd ?? ''},dk=${ids.dk ?? ''},mgm=${ids.mgm ?? ''},czr=${ids.czr ?? ''}`;
+}
+
+export function decodedEventId(raw: string) {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+/** One book's event id from a merged prop id. A plain id is returned unchanged. An empty part stays empty. */
+export function bookEventId(raw: string, book: BookId): string {
+  const parts = splitBookId(decodedEventId(raw));
+  if (!parts) return raw;
+  return parts[book];
 }
 
 function asEvents(body: unknown): OddsEvent[] {
@@ -105,6 +120,18 @@ export type MergedRead = {
   omitted: string[];
   failed: string[];
 };
+
+/** In-memory DraftKings and BetMGM reads. FanDuel and Caesars do not keep a price cache. */
+export function bookCacheSize() {
+  return draftKingsCacheSize() + betMgmCacheSize();
+}
+
+/** Drop book reads kept in this process, including the merged-book header flags. */
+export function resetBookReads() {
+  resetDraftKings();
+  resetBetMgm();
+  resetMergedBooks();
+}
 
 /** FanDuel, DraftKings, BetMGM, and Caesars for one Odds API URL. A thrown book is named and skipped. */
 export async function booksFetch(url: string): Promise<MergedRead> {

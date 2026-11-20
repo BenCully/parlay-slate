@@ -20,7 +20,7 @@ import {
 import { pickLogo, SMALL, STANDARD } from '../ui/tui/logo.js';
 import { createUi, headerLine, hintFor, layoutScreen, reduceForm, type UiState } from '../ui/tui/options.js';
 import { loadTuiSettings, parseSettings, saveTuiSettings } from '../ui/tui/settings.js';
-import { createSplashPlayer, planSplash, sliceLogo, visibleColumns } from '../ui/tui/splash.js';
+import { createSplashPlayer, planSplash, sliceLogo, splashKeyAction, visibleColumns } from '../ui/tui/splash.js';
 import { takeEvents } from '../ui/term.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -148,6 +148,9 @@ test('keyboard reaches every action and esc closes only the open dialog', () => 
   const closed = reduceForm(opened, { type: 'key', key: '\x1b' }, sample);
   assert.equal(closed.state.picker, false);
   assert.equal(closed.effect.type, 'none');
+  const closedQ = reduceForm(opened, { type: 'key', key: 'q' }, sample);
+  assert.equal(closedQ.state.picker, false);
+  assert.equal(closedQ.effect.type, 'none');
   const chosen = reduceForm(opened, { type: 'click', id: 'pick:2026-11-20' }, sample).state;
   assert.equal(chosen.day, '2026-11-20');
   assert.equal(chosen.picker, false);
@@ -207,13 +210,54 @@ test('logo widths and reveal frames', () => {
   if (colorFree.kind === 'wipe') assert.equal(colorFree.bold, false);
 });
 
-test('skip ends the splash immediately', () => {
+test('an ordinary key skips the splash and ctrl-c interrupts', () => {
+  assert.equal(splashKeyAction('q'), 'skip');
+  assert.equal(splashKeyAction('\r'), 'skip');
+  assert.equal(splashKeyAction('\u0003'), 'interrupt');
   const player = createSplashPlayer({ lines: STANDARD, animate: true, bold: true });
   assert.equal(player.frame(0).done, false);
   player.skip();
   const frame = player.frame(100);
   assert.equal(frame.done, true);
   assert.deepEqual(frame.lines, []);
+});
+
+test('clear snapshots starts on No', () => {
+  const sample = ctx();
+  const start = { ...createUi(form({ action: 'clear-snapshots' })), focus: 'run' as const };
+  const opened = reduceForm(start, { type: 'key', key: '\r' }, sample);
+  assert.equal(opened.effect.type, 'none');
+  assert.equal(opened.state.confirm, true);
+  assert.equal(opened.state.confirmFocus, 'no');
+  const again = reduceForm(opened.state, { type: 'key', key: '\r' }, sample);
+  assert.equal(again.effect.type, 'none');
+  assert.equal(again.state.confirm, false);
+
+  const reopened = reduceForm(start, { type: 'key', key: '\r' }, sample).state;
+  const tabbed = reduceForm(reopened, { type: 'key', key: '\t' }, sample);
+  assert.equal(tabbed.state.confirmFocus, 'yes');
+  assert.equal(reduceForm(tabbed.state, { type: 'key', key: '\r' }, sample).effect.type, 'clear');
+
+  let typed = reduceForm(start, { type: 'key', key: '\r' }, sample).state;
+  for (const key of ['y', 'e', 's']) typed = reduceForm(typed, { type: 'key', key }, sample).state;
+  assert.equal(typed.confirmTyped, 'yes');
+  assert.equal(reduceForm(typed, { type: 'key', key: '\r' }, sample).effect.type, 'clear');
+
+  const confirming = reduceForm(start, { type: 'key', key: '\r' }, sample).state;
+  const byQ = reduceForm(confirming, { type: 'key', key: 'q' }, sample);
+  assert.equal(byQ.state.confirm, false);
+  assert.equal(byQ.effect.type, 'none');
+  const byEsc = reduceForm(confirming, { type: 'key', key: '\x1b' }, sample);
+  assert.equal(byEsc.state.confirm, false);
+  assert.equal(byEsc.effect.type, 'none');
+  assert.equal(reduceForm(confirming, { type: 'click', id: 'confirm:yes' }, sample).effect.type, 'clear');
+  assert.equal(reduceForm(confirming, { type: 'click', id: 'header-x' }, sample).effect.type, 'quit');
+  const hint = hintFor(confirming);
+  assert.match(hint, /type yes, or tab to Yes/);
+  assert.match(hint, /q \/ esc closes/);
+  assert.ok(hint.length <= 80);
+  const picker = reduceForm({ ...createUi(form({ dateMode: 'day', day: '2026-11-15' })), focus: 'day' }, { type: 'key', key: '\r' }, sample).state;
+  assert.match(hintFor(picker), /q \/ esc closes/);
 });
 
 test('settings load, drop bad fields, and save without secrets', async () => {

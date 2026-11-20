@@ -4,6 +4,7 @@
 // Team names resolve to ESPN display names with no prompt. A miss keeps the FanDuel name.
 import { readEspnCache, writeEspnCache } from '../espn/cache.js';
 import { aliasTarget, clubKey, matchKey, nameKey } from '../espn/evidence.js';
+import { bookEventId } from './direct.js';
 import { oddsStamp } from '../slate/window.js';
 
 const SPORTSBOOK_APP = 'FhMFpcPWXMeyZxOx';
@@ -818,8 +819,10 @@ export async function fanduelFetch(url: string): Promise<any> {
   const sportKey = /\/sports\/([^/]+)/.exec(parsed.pathname)?.[1];
   if (!sportKey) throw new Error(`FanDuel could not read the sport from ${parsed.pathname}.`);
   if (parsed.pathname.includes('/events/')) {
-    const eventId = /\/events\/([^/]+)/.exec(parsed.pathname)?.[1];
-    if (!eventId) throw new Error('FanDuel could not read the event.');
+    const raw = /\/events\/([^/]+)/.exec(parsed.pathname)?.[1];
+    if (!raw) throw new Error('FanDuel could not read the event.');
+    const eventId = bookEventId(raw, 'fd');
+    if (!eventId) return [];
     const wanted = new Set((parsed.searchParams.get('markets') ?? '').split(',').filter(Boolean));
     return fanduelProps(eventId, wanted);
   }
