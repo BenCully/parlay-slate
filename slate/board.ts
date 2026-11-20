@@ -5,6 +5,7 @@ import type { GameBrief } from '../espn/evidence.js';
 import { ageLabel, isDirectOddsSource, oddsGet, oddsReplayDay, oddsRequestSource, oddsSource, oddsSourceLabel } from '../odds/cache.js';
 import { loadPropBoard, type SlateGame } from '../props/board.js';
 import { scrubText } from '../scripts/scrub.js';
+import { kickoffCell } from './window.js';
 import { mapPool } from './pool.js';
 import type { SavedBoard, SavedProps } from '../ui/screen.js';
 import type { BoardSource } from '../sports/types.js';
@@ -71,7 +72,7 @@ function withCache(note: string | undefined, cachedAt: string | null, fanduelNot
   return text || undefined;
 }
 
-async function getLegs(oddsKey: string, from: string, to: string, threeWay: boolean, outright: boolean): Promise<{ legs: Leg[]; cachedAt: string | null; omitted: string[] }> {
+async function getLegs(oddsKey: string, from: string, to: string, threeWay: boolean, outright: boolean): Promise<{ legs: Leg[]; cachedAt: string | null; oddsAt: string; omitted: string[] }> {
   const url = `https://api.the-odds-api.com/v4/sports/${oddsKey}/odds` +
     `?regions=us&markets=h2h,spreads,totals&oddsFormat=american&commenceTimeFrom=${from}&commenceTimeTo=${to}`;
   const result = await oddsGet(url);
@@ -122,7 +123,7 @@ async function getLegs(oddsKey: string, from: string, to: string, threeWay: bool
       }];
     });
   });
-  return { legs, cachedAt: result.cached ? result.savedAt : null, omitted: result.omitted ?? [] };
+  return { legs, cachedAt: result.cached ? result.savedAt : null, oddsAt: result.savedAt, omitted: result.omitted ?? [] };
 }
 
 function lastWord(name: string) {
@@ -417,6 +418,7 @@ async function buildBoardInner(source: BoardSource, day: string | undefined): Pr
   const pulled = await getLegs(source.oddsKey, slate.from, slate.to, source.threeWay, outright);
   const allLegs = pulled.legs;
   const cachedAt = pulled.cachedAt;
+  const oddsAt = pulled.oddsAt;
   const legs = allLegs.filter((leg) => leg.implied >= MIN_IMPLIED);
   const propBoard = source.profile === null ? null : loadPropBoard(slateGames(allLegs), source.profile);
   propBoard?.catch(() => {});
@@ -436,7 +438,7 @@ async function buildBoardInner(source: BoardSource, day: string | undefined): Pr
   if (!legs.length) {
     const props = propBoard ? await propTab(propBoard) : skippedProps;
     console.log('No qualifying legs.');
-    return { title, groups: [], note: noteFor('No qualifying legs.'), props };
+    return { title, groups: [], note: noteFor('No qualifying legs.'), props, oddsAt };
   }
 
   const briefs = await mapPool(legs, 6, async (leg) => ({ leg, brief: await source.getBrief(leg) }));
@@ -521,8 +523,10 @@ async function buildBoardInner(source: BoardSource, day: string | undefined): Pr
 
   const groups = ordered.map(({ leg, brief }) => {
       const judgment = judgmentFor(leg.id);
+      const when = kickoffCell(leg.commence);
       const moneyline = [
         leg.phrase ? `${leg.team} ${leg.phrase}` : leg.team,
+        when,
         priceText(leg.price),
         `${(leg.implied * 100).toFixed(1)}%`,
         decisionLabel(judgment),
@@ -531,11 +535,12 @@ async function buildBoardInner(source: BoardSource, day: string | undefined): Pr
       ];
       const spreadCheck = verdict.get(`${leg.id}:spread`);
       const spread = !leg.spread
-        ? ['  Spread', 'n/a', 'n/a', 'No line', 'Pass', 'No book posted a spread.']
+        ? ['  Spread', when, 'n/a', 'n/a', 'No line', 'Pass', 'No book posted a spread.']
         : !spreadCheck
-          ? ['  Spread', signed(leg.spread.point), priceText(leg.spread.price), 'No call', 'Pass', `${atBook(`${nick(leg.team)} ${signed(leg.spread.point)} (${priceText(leg.spread.price)})`, leg.spreadBook)} Verify did not return a spread decision.`]
+          ? ['  Spread', when, signed(leg.spread.point), priceText(leg.spread.price), 'No call', 'Pass', `${atBook(`${nick(leg.team)} ${signed(leg.spread.point)} (${priceText(leg.spread.price)})`, leg.spreadBook)} Verify did not return a spread decision.`]
           : [
               '  Spread',
+              when,
               signed(leg.spread.point),
               priceText(leg.spread.price),
               sideLabel(spreadCheck),
@@ -545,7 +550,7 @@ async function buildBoardInner(source: BoardSource, day: string | undefined): Pr
       if (outright) return [moneyline];
       const overCheck = verdict.get(`${leg.id}:over`);
       const underCheck = verdict.get(`${leg.id}:under`);
-      const total = totalRow(leg, brief, overCheck, underCheck, nick);
+      const total = totalRow(leg, brief, overCheck, underCheck, nick, when);
       return [moneyline, spread, total];
     });
 
@@ -559,7 +564,7 @@ async function buildBoardInner(source: BoardSource, day: string | undefined): Pr
     const onlyName = names.length === 1 ? (source.shortNames ? names[0] : `the ${names[0]}`) : '';
     const only = onlyName ? ` Only ${onlyName} cleared 0.80.` : '';
     const note = [`No parlay. A ticket needs two legs the brief supports at 0.80 or better.${only}`, problem].filter(Boolean).join(' ');
-    return { title, groups, note: noteFor(note), props };
+    return { title, groups, note: noteFor(note), props, oddsAt };
   }
 
   const combos: Leg[][] = [];
@@ -585,14 +590,14 @@ async function buildBoardInner(source: BoardSource, day: string | undefined): Pr
     parlay.map((leg) => `${nick(leg.team)}${leg.phrase ? ` ${leg.phrase}` : ''} ${priceText(leg.price)}`).join(' + '),
     `${listNames(parlay.map((leg) => nick(leg.team)))} each cleared 0.80. The hit rate multiplies their market prices. It is not a separate prediction.`,
   ]]);
-  return { title, groups, ticketGroups, note: noteFor(problem || undefined), props };
+  return { title, groups, ticketGroups, note: noteFor(problem || undefined), props, oddsAt };
 }
 
-function totalRow(leg: Leg, brief: GameBrief, overCheck: Check | undefined, underCheck: Check | undefined, nick: Nick) {
-  if (!leg.total) return ['  Over/Under', 'n/a', 'n/a', 'No line', 'Pass', 'No book posted a total.'];
+function totalRow(leg: Leg, brief: GameBrief, overCheck: Check | undefined, underCheck: Check | undefined, nick: Nick, when: string) {
+  if (!leg.total) return ['  Over/Under', when, 'n/a', 'n/a', 'No line', 'Pass', 'No book posted a total.'];
   if (!overCheck || !underCheck) {
     const quote = atBook(`Total ${points(leg.total.point)}`, leg.totalBook);
-    return ['  Over/Under', points(leg.total.point), 'n/a', 'No call', 'Pass', `${quote} Verify did not return an over/under decision.`];
+    return ['  Over/Under', when, points(leg.total.point), 'n/a', 'No call', 'Pass', `${quote} Verify did not return an over/under decision.`];
   }
   const overLeans = supportChance(overCheck) >= supportChance(underCheck);
   const side = overLeans ? 'Over' : 'Under';
@@ -602,6 +607,7 @@ function totalRow(leg: Leg, brief: GameBrief, overCheck: Check | undefined, unde
   const price = side === 'Over' ? leg.total.overPrice : leg.total.underPrice;
   return [
     `  ${side}`,
+    when,
     points(leg.total.point),
     priceText(price),
     sideLabel(check),

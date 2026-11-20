@@ -236,25 +236,45 @@ function cornerLabel(pieces: string[], width: number) {
   return label;
 }
 
-function corner(model: string | undefined, oddsSource: string | undefined, close: boolean, width: number) {
-  if (!close) return { label: '', button: '', span: 0 };
+function cornerPieces(model?: string, oddsSource?: string, oddsDate?: string) {
   const name = (model ?? '').replace(/\s+/g, ' ').trim();
   const source = (oddsSource ?? '').replace(/\s+/g, ' ').trim();
-  const pieces = [name ? modelTitle(name) : '', source ? `Odds Source: ${source}` : ''].filter(Boolean);
-  let label = pieces.length ? cornerLabel(pieces, width) : '';
-  // A narrow row keeps the model and drops the odds source before it drops both.
-  if (!label && pieces.length > 1 && name) label = cornerLabel([modelTitle(name)], width);
+  const date = (oddsDate ?? '').replace(/\s+/g, ' ').trim();
+  return [
+    name ? modelTitle(name) : '',
+    source ? `Odds Source: ${source}` : '',
+    date ? `Odds: ${date}` : '',
+  ].filter(Boolean);
+}
+
+function corner(model: string | undefined, oddsSource: string | undefined, oddsDate: string | undefined, close: boolean, width: number) {
+  if (!close) return { label: '', button: '', span: 0 };
+  const pieces = cornerPieces(model, oddsSource, oddsDate);
+  const label = pieces.length ? cornerLabel(pieces, width) : '';
   if (!label) return { label: '', button: closeButton, span: Math.min(closeButton.length, width) };
   return { label, button: closeButton, span: label.length + closeButton.length };
 }
 
-function shownSource(nodes: ScreenPage[], model: string | undefined, oddsSource: string | undefined, close: boolean, width: number) {
-  if (!close || !oddsSource || !nodes.length) return oddsSource;
-  const span = corner(model, oddsSource, true, width).span;
-  const first = nodes[0];
-  const text = ` ${first?.short || first?.label || ''} `;
-  if (text.trim() && text.length > width - span) return undefined;
-  return oddsSource;
+function rowFits(nodes: ScreenPage[], width: number, reserved: number) {
+  if (!nodes.length) return true;
+  return usedWidth(fitLabels(nodes, width, reserved)) <= Math.max(0, width - reserved);
+}
+
+/** Drop the odds source, then the odds date, before hiding a sport. The model stays. */
+function chooseMarks(nodes: ScreenPage[], model: string | undefined, oddsSource: string | undefined, oddsDate: string | undefined, width: number) {
+  const options: [string | undefined, string | undefined][] = [
+    [oddsSource, oddsDate],
+    [undefined, oddsDate],
+    [oddsSource, undefined],
+    [undefined, undefined],
+  ];
+  for (const [source, date] of options) {
+    const pieces = cornerPieces(model, source, date);
+    const mark = corner(model, source, date, true, width);
+    if (pieces.length && !mark.label) continue;
+    if (rowFits(nodes, width, mark.span)) return { source, date };
+  }
+  return { source: undefined, date: undefined };
 }
 
 function fitLabels(nodes: ScreenPage[], width: number, reserved: number) {
@@ -264,8 +284,8 @@ function fitLabels(nodes: ScreenPage[], width: number, reserved: number) {
   return nodes.map((node) => node.short || node.label);
 }
 
-function paintHeader(labels: string[], active: number, width: number, close: boolean, model?: string, oddsSource?: string) {
-  const mark = corner(model, oddsSource, close, width);
+function paintHeader(labels: string[], active: number, width: number, close: boolean, model?: string, oddsSource?: string, oddsDate?: string) {
+  const mark = corner(model, oddsSource, oddsDate, close, width);
   const room = Math.max(0, width - mark.span);
   const hits: { start: number; end: number }[] = [];
   let column = 1;
@@ -293,22 +313,24 @@ function visibleText(line: string) {
   return line.replace(/\x1b\[[0-9;]*m/g, '');
 }
 
-export function headerText(pages: ScreenPage[], width: number, indexes: number[] = [], model?: string, oddsSource?: string) {
+function headerLine(nodes: ScreenPage[], index: number, width: number, close: boolean, model?: string, oddsSource?: string, oddsDate?: string) {
+  const marks = close ? chooseMarks(nodes, model, oddsSource, oddsDate, width) : { source: undefined, date: undefined };
+  const reserved = corner(model, marks.source, marks.date, close, width).span;
+  return paintHeader(fitLabels(nodes, width, reserved), index, width, close, model, marks.source, marks.date);
+}
+
+export function headerText(pages: ScreenPage[], width: number, indexes: number[] = [], model?: string, oddsSource?: string, oddsDate?: string) {
   const rows = tabRows(pages, indexes);
   const lines = rows.length
-    ? rows.map((row, index) => {
-      const top = index === 0;
-      const source = shownSource(row.nodes, model, oddsSource, top, width);
-      const reserved = corner(model, source, top, width).span;
-      return paintHeader(fitLabels(row.nodes, width, reserved), row.index, width, top, model, source).line;
-    })
-    : [paintHeader([], 0, width, true, model, oddsSource).line];
+    ? rows.map((row, index) => headerLine(row.nodes, row.index, width, index === 0, model, oddsSource, oddsDate).line)
+    : [headerLine([], 0, width, true, model, oddsSource, oddsDate).line];
   return lines.map(visibleText);
 }
 
-export function presentScreen(input: ScreenPage[] | ((width: number) => string[]), options?: { model?: string; oddsSource?: string }): Promise<ScreenClose> {
+export function presentScreen(input: ScreenPage[] | ((width: number) => string[]), options?: { model?: string; oddsSource?: string; oddsDate?: string }): Promise<ScreenClose> {
   const model = options?.model;
   const oddsSource = options?.oddsSource;
+  const oddsDate = options?.oddsDate;
   const pages: ScreenPage[] = typeof input === 'function' ? [{ label: 'View', render: input }] : input;
   if (!pages.length) return Promise.resolve('quit');
 
@@ -402,13 +424,8 @@ export function presentScreen(input: ScreenPage[] | ((width: number) => string[]
       const shownHint = hint.length > width ? hint.slice(0, width) : hint;
       const status = `${shownHint}${' '.repeat(Math.max(0, width - shownHint.length))}`;
       const headers = rows.length
-        ? rows.map((row, index) => {
-          const top = index === 0;
-          const source = shownSource(row.nodes, model, oddsSource, top, width);
-          const reserved = corner(model, source, top, width).span;
-          return paintHeader(fitLabels(row.nodes, width, reserved), row.index, width, top, model, source);
-        })
-        : [paintHeader([], 0, width, true, model, oddsSource)];
+        ? rows.map((row, index) => headerLine(row.nodes, row.index, width, index === 0, model, oddsSource, oddsDate))
+        : [headerLine([], 0, width, true, model, oddsSource, oddsDate)];
       rowHits = headers.map((header) => header.hits);
       const bodyLines = view.map((line, index) => pad(line, contentWidth, 'left') + bar[index]);
       paintScreen([...headers.map((header) => header.line), ...bodyLines, status]);

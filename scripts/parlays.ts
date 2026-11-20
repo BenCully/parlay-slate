@@ -39,7 +39,13 @@ export type SlateRunResult = {
 };
 
 function gamesOf(board: BuiltBoard): SavedBoard {
-  return { title: board.title, groups: board.groups, note: board.note, ticketGroups: board.ticketGroups };
+  return {
+    title: board.title,
+    groups: board.groups,
+    note: board.note,
+    ticketGroups: board.ticketGroups,
+    ...(board.oddsAt ? { oddsAt: board.oddsAt } : {}),
+  };
 }
 
 async function runLeague(league: LeagueDef, slateDay: string | undefined): Promise<{ league: SavedLeague; built: boolean }> {
@@ -64,12 +70,25 @@ async function runLeague(league: LeagueDef, slateDay: string | undefined): Promi
   }
 }
 
+function latestOddsAt(sports: SavedSport[]) {
+  let latest = '';
+  const boards = sports.flatMap((sport) => sport.leagues?.map((league) => league.games) ?? (sport.games ? [sport.games] : []));
+  for (const board of boards) {
+    const stamp = board.oddsAt;
+    if (!stamp || !Number.isFinite(Date.parse(stamp))) continue;
+    if (!latest || Date.parse(stamp) > Date.parse(latest)) latest = stamp;
+  }
+  return latest;
+}
+
 function currentSlate(sports: SavedSport[], model: SavedSlate['model'], odds: string | undefined, source: string): SavedSlate {
   const first = openedBoard(sports);
+  const oddsAt = latestOddsAt(sports);
   return {
     savedAt: new Date().toISOString(),
     model,
     oddsSource: source,
+    ...(oddsAt ? { oddsAt } : {}),
     ...(odds ? { oddsDay: odds } : {}),
     title: first?.games?.title ?? '',
     groups: first?.games?.groups ?? [],

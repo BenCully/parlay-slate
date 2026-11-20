@@ -2,6 +2,24 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-20T22:54:20Z
+
+### Odds date and kickoff column
+
+The top row shows `Odds:` and the Eastern day the prices were saved, just left of the x button. A replay uses `oddsDay`. A live save stores `oddsAt`, the latest games-odds read, and shows that day. An older save uses the Eastern day of `savedAt`. A compare screen shows both days when they differ. The odds source drops before that date, and the date drops before the model, when a sport name would not fit. Clicking the date does not close the screen.
+
+Games rows are Team, Date, Price, Market, Decision, Slip, Comment. Props rows are Team, Date, Player, Line, Decision, Slip, Comment. Date is the Eastern kickoff, with the weekday and the time, such as `Sat Nov 21, 6:00 PM`. Spread and total rows repeat it. An old save whose rows have no date cell keeps the previous columns.
+
+## 2026-11-20T22:30:25Z
+
+### MLS
+
+Soccer now has MLS after Ligue 1. The Odds key is `soccer_usa_mls` and the ESPN competition is `usa.1`. FotMob is 130. Games and Props use the same window, 3-way moneyline, and prop markets as the other domestic leagues. The empty game-log sentence says 2026 season.
+
+FanDuel reads competition 141. DraftKings reads league 89345. BetMGM matches Major League Soccer in the USA. Caesars reads the MLS competition. Los Angeles FC maps to LAFC, Los Angeles Galaxy to LA Galaxy, New York Red Bulls to Red Bull New York, DC United to D.C. United, NYC FC to New York City FC, and Sporting KC to Sporting Kansas City. Inter still maps to Internazionale, so Inter Miami stays Inter Miami.
+
+When FotMob posts conference tables beside a larger overall table, the brief uses the overall table. MLS does.
+
 ## 2026-11-20T19:26:01Z
 
 ### User manual

@@ -52,6 +52,7 @@ const SPORTS: Record<string, SportRef> = {
   soccer_italy_serie_a: { sportId: '4', name: 'Serie A', region: 'Italy', soccer: true },
   soccer_germany_bundesliga: { sportId: '4', name: 'Bundesliga', region: 'Germany', soccer: true },
   soccer_france_ligue_one: { sportId: '4', name: 'Ligue 1', region: 'France', soccer: true },
+  soccer_usa_mls: { sportId: '4', name: 'Major League Soccer', region: 'USA', soccer: true },
 };
 
 const HAPPENING: Record<string, string> = {

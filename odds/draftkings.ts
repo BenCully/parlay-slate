@@ -29,6 +29,7 @@ const LEAGUES: Record<string, League> = {
   soccer_italy_serie_a: { leagueId: '40030', subs: [{ id: '4514', kind: 'moneyline' }, { id: '13170', kind: 'spread' }, { id: '13171', kind: 'total' }] },
   soccer_germany_bundesliga: { leagueId: '40481', subs: [{ id: '4514', kind: 'moneyline' }, { id: '13170', kind: 'spread' }, { id: '13171', kind: 'total' }] },
   soccer_france_ligue_one: { leagueId: '40032', subs: [{ id: '4514', kind: 'moneyline' }, { id: '13170', kind: 'spread' }, { id: '13171', kind: 'total' }] },
+  soccer_usa_mls: { leagueId: '89345', subs: [{ id: '4514', kind: 'moneyline' }, { id: '13170', kind: 'spread' }, { id: '13171', kind: 'total' }] },
 };
 
 const PROP_NAMES: { pattern: RegExp; key: string; anytime?: boolean }[] = [

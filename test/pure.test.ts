@@ -13,7 +13,7 @@ import { attachSpreads, betMgmCacheSize, betMgmSessionOpen, holdBetMgmSport, nor
 import { caesarsDataUrl, normalizeCaesars } from '../odds/caesars.js';
 import { bookCacheSize, bookEventId, booksFetch, compositeId, mergeBookEvents, mergePropEvent, placeholderEvent, resetBookReads, splitBookId } from '../odds/direct.js';
 import { draftKingsCacheSize, draftkingsFetch, normalizeDraftKings } from '../odds/draftkings.js';
-import { buildTeamIndex, chooseDriverBets, classifyProp, eventSides, fanduelFetch, marketOutcomes, pickBalanced, propOutcomes, resolveTeamName, sidesFromName, teamResolver } from '../odds/fanduel.js';
+import { buildTeamIndex, chooseDriverBets, classifyProp, eventSides, fanduelFetch, marketOutcomes, pickBalanced, propOutcomes, resolvePostedName, resolveTeamName, sidesFromName, teamResolver } from '../odds/fanduel.js';
 import { balancedSpreads } from '../odds/lines.js';
 import { appendQuota, easternClock, quotaEntry, quotaLogFile } from '../odds/quota.js';
 import { acquireRunLock } from '../scripts/lock.js';
@@ -30,6 +30,7 @@ import { soccer } from '../sports/soccer/index.js';
 import { describeDriver, driverLine, driverLines, matchDriver } from '../sports/formula1/brief.js';
 import { realExtra as nhlRealExtra } from '../sports/hockey/index.js';
 import { absenceText, applyFotmob, matchClub, openAbsences, parseLeague, pickFixture, type FotmobLeague } from '../sports/soccer/fotmob.js';
+import { headerText, type ScreenPage } from '../ui/table.js';
 
 process.env.QUOTA_LOG ??= '0';
 import {
@@ -41,8 +42,8 @@ import {
   totalSlip,
   type Judgment,
 } from '../slate/board.js';
-import { easternDay, easternRange, oddsStamp, scoreboardEvents, upcomingWindow } from '../slate/window.js';
-import { savedOddsLabel, slateHeaders, type SavedSlate } from '../ui/screen.js';
+import { easternDay, easternRange, kickoffCell, oddsStamp, scoreboardEvents, upcomingWindow } from '../slate/window.js';
+import { oddsDayOf, renderBoard, savedOddsLabel, slateHeaders, type SavedSlate } from '../ui/screen.js';
 
 function withEnv(values: Record<string, string | undefined>, run: () => void) {
   const previous = new Map<string, string | undefined>();
@@ -123,6 +124,26 @@ function sampleLeague(): FotmobLeague {
   if (!league) throw new Error('sample league');
   return league;
 }
+
+test('fotmob keeps the overall table when a league is split', () => {
+  const row = (id: number, name: string, place: number) => ({
+    name, shortName: name, id, played: 34, wins: 20, draws: 8, losses: 6, goalConDiff: 18, idx: place,
+  });
+  const league = parseLeague({
+    table: [{
+      data: {
+        tables: [
+          { leagueName: 'Eastern', table: { all: [row(1, 'Nashville SC', 1), row(9, 'Eastern Only', 2)] } },
+          { leagueName: 'Supporters Shield', table: { all: [row(1, 'Nashville SC', 1), row(2, 'Vancouver Whitecaps', 2), row(3, 'Inter Miami CF', 3)] } },
+        ],
+      },
+    }],
+    fixtures: { allMatches: [] },
+  });
+  assert.equal(league?.teams.length, 3);
+  assert.equal(league?.teams.find((team) => team.id === '9'), undefined);
+  assert.equal(matchClub(league?.teams ?? [], 'Vancouver Whitecaps')?.place, 2);
+});
 
 test('fotmob table matches clubs and keeps the nearer fixture', () => {
   assert.equal(clubKey('AS Monaco'), 'monaco');
@@ -749,6 +770,56 @@ test('FanDuel college names match ESPN location and short name', () => {
   assert.equal(name('Los Angeles Clippers'), 'LA Clippers');
 });
 
+test('mls names resolve to the espn club, and inter stays internazionale', () => {
+  const rows: [string, string][] = [
+    ['LAFC', 'LAFC'],
+    ['LA Galaxy', 'LA Galaxy'],
+    ['Inter Miami CF', 'Miami'],
+    ['Philadelphia Union', 'Philadelphia'],
+    ['New England Revolution', 'New England'],
+    ['Chicago Fire FC', 'Chicago'],
+    ['D.C. United', 'D.C. United'],
+    ['Red Bull New York', 'Red Bull NY'],
+    ['New York City FC', 'NYCFC'],
+    ['St. Louis CITY SC', 'St. Louis'],
+    ['Columbus Crew', 'Columbus'],
+    ['Sporting Kansas City', 'Kansas City'],
+    ['Houston Dynamo FC', 'Houston'],
+    ['San Jose Earthquakes', 'San Jose'],
+    ['Portland Timbers', 'Portland'],
+  ];
+  const index = buildTeamIndex(rows.map(([displayName, shortDisplayName], id) => ({
+    id: String(id),
+    displayName,
+    shortDisplayName,
+    name: displayName,
+  })), 'club');
+  const name = (posted: string) => resolvePostedName(posted, index, 'club');
+  assert.equal(name('Los Angeles FC'), 'LAFC');
+  assert.equal(name('Los Angeles Galaxy'), 'LA Galaxy');
+  assert.equal(name('LA Galaxy'), 'LA Galaxy');
+  assert.equal(name('Inter Miami'), 'Inter Miami CF');
+  assert.equal(name('Inter'), 'Inter');
+  assert.equal(name('Philadelphia'), 'Philadelphia Union');
+  assert.equal(name('NE Revolution'), 'New England Revolution');
+  assert.equal(name('CHI Fire'), 'Chicago Fire FC');
+  assert.equal(name('DC United'), 'D.C. United');
+  assert.equal(name('New York Red Bulls'), 'Red Bull New York');
+  assert.equal(name('NY Red Bulls'), 'Red Bull New York');
+  assert.equal(name('NYC FC'), 'New York City FC');
+  assert.equal(name('NYCFC'), 'New York City FC');
+  assert.equal(name('St Louis City SC'), 'St. Louis CITY SC');
+  assert.equal(name('St. Louis City'), 'St. Louis CITY SC');
+  assert.equal(name('Columbus'), 'Columbus Crew');
+  assert.equal(name('Sporting KC'), 'Sporting Kansas City');
+  assert.equal(name('SKC'), 'Sporting Kansas City');
+  assert.equal(name('HOU Dynamo'), 'Houston Dynamo FC');
+  assert.equal(name('SJ Earthquakes'), 'San Jose Earthquakes');
+  assert.equal(name('POR Timbers'), 'Portland Timbers');
+  assert.equal(clubKey('Los Angeles Clippers'), 'la clippers');
+  assert.equal(clubKey('Inter'), 'internazionale');
+});
+
 test('a repeated soccer club name still resolves an alias', () => {
   const index = buildTeamIndex([
     { id: '160', displayName: 'Paris Saint-Germain', shortDisplayName: 'PSG', name: 'Paris Saint-Germain' },
@@ -1100,6 +1171,23 @@ test('a live odds response writes a quota line without the url or the key', asyn
   }
 });
 
+test('a game table shows the kickoff, and an old save keeps its columns', () => {
+  assert.equal(kickoffCell('2026-11-21T23:00:00Z'), 'Sat Nov 21, 6:00 PM');
+  assert.equal(kickoffCell('not-a-date'), '');
+  const dated = renderBoard({
+    title: 'NFL',
+    groups: [[['Chiefs', 'Sat Nov 21, 6:00 PM', '-150', '60.0%', 'Ready 0.82', 'Take Chiefs -150', 'note']]],
+  }, 140);
+  assert.ok(dated.some((line) => line.includes('Date')));
+  assert.ok(dated.some((line) => line.includes('Sat Nov 21, 6:00 PM')));
+  const old = renderBoard({
+    title: 'NFL',
+    groups: [[['Chiefs', '-150', '60.0%', 'Ready 0.82', 'Take Chiefs -150', 'note']]],
+  }, 120);
+  assert.equal(old.some((line) => /\bDate\b/.test(line)), false);
+  assert.ok(old.some((line) => line.includes('-150')));
+});
+
 test('the header names the odds source beside the model', () => {
   assert.equal(oddsSourceLabel('fanduel'), 'FanDuel');
   assert.equal(oddsSourceLabel('the-odds-api'), 'The Odds API');
@@ -1120,20 +1208,28 @@ test('the header names the odds source beside the model', () => {
       leagues: [{ label: 'NFL', short: 'NFL', games: board, props: { title: 'Props', groups: [] } }],
     }],
   };
+  assert.equal(oddsDayOf(saved), '2026-11-18');
+  assert.equal(oddsDayOf({ ...saved, oddsDay: '2026-11-15' }), '2026-11-15');
+  assert.equal(oddsDayOf({ ...saved, oddsAt: '2026-11-20T18:00:00Z' }), '2026-11-20');
   const wide = slateHeaders(saved, 100, [0, 0, 0]);
-  assert.match(wide[0] ?? '', /Model: Jev {2}Odds Source: FanDuel {3}x $/);
+  assert.match(wide[0] ?? '', /Model: Jev {2}Odds Source: FanDuel {2}Odds: 2026-11-18 {3}x $/);
   assert.equal((wide[0] ?? '').length, 100);
   const oddsApi = slateHeaders({ ...saved, oddsSource: 'the-odds-api' }, 120, [0, 0, 0]);
-  assert.match(oddsApi[0] ?? '', /Model: Jev {2}Odds Source: The Odds API {3}x $/);
+  assert.match(oddsApi[0] ?? '', /Model: Jev {2}Odds Source: The Odds API {2}Odds: 2026-11-18 {3}x $/);
+  const replay = slateHeaders({ ...saved, oddsDay: '2026-11-15' }, 120, [0, 0, 0]);
+  assert.match(replay[0] ?? '', /Odds: 2026-11-15 {3}x $/);
   const blank = slateHeaders({ ...saved, oddsSource: undefined }, 100, [0, 0, 0]);
   assert.equal((blank[0] ?? '').includes('Odds Source'), false);
-  assert.match(blank[0] ?? '', /Model: Jev {3}x $/);
+  assert.match(blank[0] ?? '', /Model: Jev {2}Odds: 2026-11-18 {3}x $/);
   const narrow = slateHeaders(saved, 30, [0, 0, 0]);
   assert.equal((narrow[0] ?? '').includes('Odds Source'), false);
+  assert.equal((narrow[0] ?? '').includes('Odds:'), false);
   assert.match(narrow[0] ?? '', /Model: Jev {3}x $/);
   const squeezed = slateHeaders(saved, 40, [0, 0, 0]);
-  assert.match(squeezed[0] ?? '', /^ Football /);
+  assert.match(squeezed[0] ?? '', /^ FB /);
+  assert.match(squeezed[0] ?? '', /Odds: 2026-11-18/);
   assert.equal((squeezed[0] ?? '').includes('Odds Source'), false);
+  assert.equal((squeezed[0] ?? '').includes('Football'), false);
   for (const width of [30, 40, 60, 80, 120]) {
     for (const line of slateHeaders(saved, width, [0, 0, 0])) {
       assert.equal(line.length <= width, true, `${line.length} > ${width}`);
@@ -2122,6 +2218,50 @@ test('mapPool stops starting work after a failure', async () => {
   assert.ok(started <= 3);
 });
 
+test('mls is the last soccer league and uses the domestic prop list', () => {
+  assert.equal(soccer.kind, 'leagues');
+  if (soccer.kind !== 'leagues') return;
+  const mls = soccer.leagues.at(-1);
+  assert.equal(mls?.label, 'MLS');
+  assert.equal(mls?.short, 'MLS');
+  assert.equal(mls?.source.oddsKey, 'soccer_usa_mls');
+  assert.equal(mls?.source.threeWay, true);
+  assert.equal(mls?.source.unit, 'goals');
+  assert.equal(mls?.source.shortNames, true);
+  assert.equal(mls?.source.query, 'Which team is very likely to win this match?');
+  assert.equal(mls?.source.propsNote, '');
+  assert.deepEqual(mls?.source.profile?.markets, [
+    'player_goal_scorer_anytime',
+    'player_shots',
+    'player_shots_on_target',
+    'player_assists',
+    'player_to_receive_card',
+  ]);
+  assert.equal(mls?.source.profile?.logLabel, 'MLS');
+});
+
+test('the soccer league row keeps mls inside the width', () => {
+  const labels = ['Premier League', 'Champions League', 'La Liga', 'Serie A', 'Bundesliga', 'Ligue 1', 'MLS'];
+  const shorts = ['EPL', 'UCL', 'La Liga', 'Serie A', 'Bund', 'Ligue 1', 'MLS'];
+  const pages: ScreenPage[] = [{
+    label: 'Soccer',
+    short: 'Soc',
+    children: labels.map((label, index) => ({
+      label,
+      short: shorts[index],
+      children: [
+        { label: 'Games', render: () => [''] },
+        { label: 'Props', render: () => [''] },
+      ],
+    })),
+  }];
+  for (const width of [100, 80, 70]) {
+    const lines = headerText(pages, width, [0, labels.length - 1, 0], 'jev', 'FanDuel · DraftKings · BetMGM · Caesars');
+    for (const line of lines) assert.ok(line.length <= width, `${width} ${line.length}`);
+    assert.match(lines[1] ?? '', /\bMLS\b/);
+  }
+});
+
 test('nfl, ncaa, and soccer windows start at the first game still ahead', async () => {
   const original = globalThis.fetch;
   const now = Date.now();
@@ -2289,10 +2429,11 @@ test('a featured hockey extra can be priced under 0.60', async () => {
     ], profile);
     const board = loaded.finish([]);
     const rows = board.groups.flat();
-    const saves = rows.find((row) => row[2]?.includes('Saves'));
-    assert.equal(saves?.[1], 'Jeremy Swayman');
-    assert.match(saves?.[2] ?? '', /over 24\.5/);
-    assert.ok(rows.some((row) => row[5]?.includes('No featured player had a usable extra for the Rangers.')));
+    const saves = rows.find((row) => row[3]?.includes('Saves'));
+    assert.equal(saves?.[1], 'Sat Nov 21, 6:00 PM');
+    assert.equal(saves?.[2], 'Jeremy Swayman');
+    assert.match(saves?.[3] ?? '', /over 24\.5/);
+    assert.ok(rows.some((row) => row[6]?.includes('No featured player had a usable extra for the Rangers.')));
   } finally {
     setOddsReplay(null);
     if (previousDir == null) delete process.env.ODDS_CACHE_DIR;
@@ -2364,7 +2505,7 @@ test('a supported prop under 0.80 says Lean', async () => {
     ], profile);
     const id = loaded.claims[0]?.id ?? '';
     const board = loaded.finish([{ id, verdict: 'supported', confidence: 0.7, status: 'review' }]);
-    const slip = board.groups.flat().find((row) => row[1] === 'Patrick Mahomes')?.[4] ?? '';
+    const slip = board.groups.flat().find((row) => row[2] === 'Patrick Mahomes')?.[5] ?? '';
     assert.match(slip, /^Lean /);
   } finally {
     setOddsReplay(null);

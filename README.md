@@ -1,6 +1,6 @@
 # Parlays
 
-Finds 2- and 3-leg moneyline parlays for the NFL, NCAA football, six soccer leagues, the NHL, the NBA, MLB, and Formula 1. Prices come from FanDuel, DraftKings, BetMGM, and Caesars. A decision model keeps a favorite only when the ESPN brief supports it.
+Finds 2- and 3-leg moneyline parlays for the NFL, NCAA football, seven soccer leagues, the NHL, the NBA, MLB, and Formula 1. Prices come from FanDuel, DraftKings, BetMGM, and Caesars. A decision model keeps a favorite only when the ESPN brief supports it.
 
 The [user manual](docs/user-manual.md) covers setup, the launcher, the slate screen, tickets, props, and compare.
 

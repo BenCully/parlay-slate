@@ -19,6 +19,23 @@ export function easternDay(when: Date | string | number = new Date()) {
   return date.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
 }
 
+/** Eastern kickoff for a table cell, such as `Sat Nov 21, 6:00 PM`. */
+export function kickoffCell(iso: string) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hourCycle: 'h12',
+  }).formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? '';
+  return `${part('weekday')} ${part('month')} ${part('day')}, ${part('hour')}:${part('minute')} ${part('dayPeriod')}`;
+}
+
 export function todayEastern() {
   return easternDay();
 }

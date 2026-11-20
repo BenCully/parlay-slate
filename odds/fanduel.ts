@@ -38,6 +38,7 @@ const SPORTS: Record<string, FanDuelSport> = {
   soccer_italy_serie_a: { page: 'SPORT', eventTypeId: 1, competitionId: 81, teams: 'soccer/ita.1', match: 'club' },
   soccer_germany_bundesliga: { page: 'SPORT', eventTypeId: 1, competitionId: 59, teams: 'soccer/ger.1', match: 'club' },
   soccer_france_ligue_one: { page: 'SPORT', eventTypeId: 1, competitionId: 55, teams: 'soccer/fra.1', match: 'club' },
+  soccer_usa_mls: { page: 'SPORT', eventTypeId: 1, competitionId: 141, teams: 'soccer/usa.1', match: 'club' },
   // Motor Sport event type 8. Competition 12433415 is Formula 1, not NASCAR on the same page.
   motorsport_f1: { page: 'SPORT', eventTypeId: 8, competitionId: 12433415, teams: 'racing/f1', match: 'football', outright: true },
 };

@@ -1,4 +1,5 @@
 import { oddsSourceLabel } from '../odds/cache.js';
+import { easternDay } from '../slate/window.js';
 import { headerText, presentScreen, renderTable, wrapParagraph, type ScreenPage } from './table.js';
 
 export type SavedProps = {
@@ -12,6 +13,8 @@ export type SavedBoard = {
   groups: string[][][];
   note?: string;
   ticketGroups?: string[][][];
+  /** When these games prices were read. Absent on an older save. */
+  oddsAt?: string;
 };
 
 export type SavedLeague = {
@@ -35,6 +38,8 @@ export type SavedSlate = {
   oddsSource?: string;
   /** Eastern day whose saved odds were replayed. Absent on a live run. */
   oddsDay?: string;
+  /** Latest games-odds read across the sports in this save. Absent on an older save. */
+  oddsAt?: string;
   title: string;
   groups: string[][][];
   note?: string;
@@ -44,15 +49,25 @@ export type SavedSlate = {
 };
 
 const slateAligns = ['left', 'right', 'right', 'left', 'left', 'left'] as const;
+const slateAlignsDated = ['left', 'left', 'right', 'right', 'left', 'left', 'left'] as const;
 const propAligns = ['left', 'left', 'left', 'left', 'left', 'left'] as const;
+const propAlignsDated = ['left', 'left', 'left', 'left', 'left', 'left', 'left'] as const;
+
+/** A row saved with a kickoff cell. Older rows stay six cells and keep the previous headers. */
+export function rowsHaveDate(groups: string[][][]) {
+  return groups.some((group) => group.some((row) => row.length >= 7));
+}
 
 export function renderBoard(board: SavedBoard, width: number) {
   const lines = [...wrapParagraph(board.title, width), ''];
   if (board.groups.length) {
+    const dated = rowsHaveDate(board.groups);
     lines.push(...renderTable(
-      ['Team', 'Price', 'Market', 'Decision', 'Slip', 'Comment'],
+      dated
+        ? ['Team', 'Date', 'Price', 'Market', 'Decision', 'Slip', 'Comment']
+        : ['Team', 'Price', 'Market', 'Decision', 'Slip', 'Comment'],
       board.groups,
-      [...slateAligns],
+      [...(dated ? slateAlignsDated : slateAligns)],
       width,
     ));
   }
@@ -74,10 +89,13 @@ export function renderProps(props: SavedBoard | undefined, width: number) {
   }
   const lines = [...wrapParagraph(props.title, width), ''];
   if (props.groups.length) {
+    const dated = rowsHaveDate(props.groups);
     lines.push(...renderTable(
-      ['Team', 'Player', 'Line', 'Decision', 'Slip', 'Comment'],
+      dated
+        ? ['Team', 'Date', 'Player', 'Line', 'Decision', 'Slip', 'Comment']
+        : ['Team', 'Player', 'Line', 'Decision', 'Slip', 'Comment'],
       props.groups,
-      [...propAligns],
+      [...(dated ? propAlignsDated : propAligns)],
       width,
     ));
   }
@@ -184,10 +202,30 @@ export function savedOddsLabel(...sources: (string | undefined)[]) {
   return names.join(' · ');
 }
 
+/** Eastern day the prices were saved. A replay uses that day. An older save uses `savedAt`. */
+export function oddsDayOf(saved: Pick<SavedSlate, 'savedAt' | 'oddsDay' | 'oddsAt'>) {
+  if (saved.oddsDay) return saved.oddsDay;
+  return easternDay(saved.oddsAt || saved.savedAt);
+}
+
+/** One day when every save shares it. A compare with two days shows both. */
+export function savedOddsDate(...saves: Pick<SavedSlate, 'savedAt' | 'oddsDay' | 'oddsAt'>[]) {
+  const days: string[] = [];
+  for (const saved of saves) {
+    const day = oddsDayOf(saved);
+    if (day && !days.includes(day)) days.push(day);
+  }
+  return days.join(' · ');
+}
+
 export function showSlate(saved: SavedSlate) {
-  return presentScreen(slatePages(saved), { model: saved.model, oddsSource: savedOddsLabel(saved.oddsSource) });
+  return presentScreen(slatePages(saved), {
+    model: saved.model,
+    oddsSource: savedOddsLabel(saved.oddsSource),
+    oddsDate: savedOddsDate(saved),
+  });
 }
 
 export function slateHeaders(saved: SavedSlate, width: number, indexes: number[] = []) {
-  return headerText(slatePages(saved), width, indexes, saved.model, savedOddsLabel(saved.oddsSource));
+  return headerText(slatePages(saved), width, indexes, saved.model, savedOddsLabel(saved.oddsSource), savedOddsDate(saved));
 }

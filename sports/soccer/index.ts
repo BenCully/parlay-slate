@@ -12,6 +12,8 @@ type SoccerLeague = {
   espn: string;
   fotmob: number;
   props: boolean;
+  /** Empty game-log sentence. MLS is one calendar year. The others span two. */
+  season?: string;
 };
 
 const LEAGUES: SoccerLeague[] = [
@@ -21,6 +23,7 @@ const LEAGUES: SoccerLeague[] = [
   { label: 'Serie A', short: 'Serie A', oddsKey: 'soccer_italy_serie_a', espn: 'ita.1', fotmob: 55, props: true },
   { label: 'Bundesliga', short: 'Bund', oddsKey: 'soccer_germany_bundesliga', espn: 'ger.1', fotmob: 54, props: true },
   { label: 'Ligue 1', short: 'Ligue 1', oddsKey: 'soccer_france_ligue_one', espn: 'fra.1', fotmob: 53, props: true },
+  { label: 'MLS', short: 'MLS', oddsKey: 'soccer_usa_mls', espn: 'usa.1', fotmob: 130, props: true, season: '2026 season' },
 ];
 
 const goalYes = {
@@ -42,7 +45,7 @@ function profileFor(league: SoccerLeague): PropProfile | null {
     rosterBase: `https://site.api.espn.com/apis/site/v2/sports/soccer/${league.espn}`,
     gamelogBase: `https://site.web.api.espn.com/apis/common/v3/sports/soccer/${league.espn}/athletes`,
     teamPath: evidence.teamPath,
-    seasonLabel: '2026-27 season',
+    seasonLabel: league.season ?? '2026-27 season',
   });
   return {
     sport: league.oddsKey,

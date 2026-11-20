@@ -1,6 +1,6 @@
 # Parlay Slate user manual
 
-Parlay Slate finds 2-leg and 3-leg moneyline parlays for the NFL, NCAA football, six soccer leagues, the NHL, the NBA, MLB, and Formula 1. Each league has a Games page and a Props page.
+Parlay Slate finds 2-leg and 3-leg moneyline parlays for the NFL, NCAA football, seven soccer leagues, the NHL, the NBA, MLB, and Formula 1. Each league has a Games page and a Props page.
 
 Prices come from FanDuel, DraftKings, BetMGM, and Caesars. The slate keeps a moneyline when the book already prices that side at 60% or better. It writes a short brief from ESPN, then asks a decision model whether the brief supports the pick. The default model is [jev-recipes](https://github.com/agencyenterprise/jev-recipes) on TypeSafe. `model=tail-jev` asks Autojev on the tailnet instead.
 
@@ -117,9 +117,9 @@ A second slate exits while the first is still running, including while its scree
 
 ![NFL Games for the week of 2026-11-20. Football, NFL, and Games are selected. The odds source is FanDuel, DraftKings, BetMGM, and Caesars. The Bills are -1600, Review 0.38, and the stored slip still says Take.](screenshots/nfl-games.png)
 
-The top row is the sport: Football, Soccer, Hockey, Basketball, Baseball, Formula 1. The model sits just left of the odds source, and the odds source sits just left of the x button. That label names the book or books that filled the slate. An old save from The Odds API still says `Odds Source: The Odds API`. A save with no model or no odds source leaves that spot blank.
+The top row is the sport: Football, Soccer, Hockey, Basketball, Baseball, Formula 1. The model sits just left of the odds source. The odds source names the book or books that filled the slate. Just left of the x button, `Odds:` is the Eastern day those prices were saved. A replay shows the `odds=` day. An old save from The Odds API still says `Odds Source: The Odds API`. A save with no model or no odds source leaves that spot blank. The odds date drops when the sport names would not fit, and the model stays.
 
-Football then shows NFL and NCAA. Soccer shows Premier League, Champions League, La Liga, Serie A, Bundesliga, and Ligue 1. Hockey shows NHL, Basketball shows NBA, Baseball shows MLB, and Formula 1 shows F1. A parent with one league still shows that league. Each league has Games and Props. Games stays first.
+Football then shows NFL and NCAA. Soccer shows Premier League, Champions League, La Liga, Serie A, Bundesliga, Ligue 1, and MLS. Hockey shows NHL, Basketball shows NBA, Baseball shows MLB, and Formula 1 shows F1. A parent with one league still shows that league. Each league has Games and Props. Games stays first. The Games table adds a Date column after Team. Props adds Date after Team. That cell is the Eastern kickoff, with the weekday and the time. An older save without the cell keeps the columns it was stored with.
 
 Click a tab, or use the keys:
 
@@ -174,7 +174,7 @@ Hit is the product of the moneyline implied probabilities. Payout is the decimal
 
 Fewer than two cleared legs prints `No parlay. A ticket needs two legs the brief supports at 0.80 or better.` No favorite at 60% prints `No qualifying legs.`
 
-The note under the 2026-11-15 board says the prices came from the odds cache and that the replay kept games that have since kicked off. That save has five soccer leagues. A current run adds Ligue 1 after Bundesliga, as the 2026-11-20 La Liga picture shows.
+The note under the 2026-11-15 board says the prices came from the odds cache and that the replay kept games that have since kicked off. That save has five soccer leagues. A current run adds Ligue 1 after Bundesliga, as the 2026-11-20 La Liga picture shows, and MLS after Ligue 1.
 
 ## Props
 

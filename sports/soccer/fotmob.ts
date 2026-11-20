@@ -98,11 +98,28 @@ function byId(rows: any[] | undefined) {
   return map;
 }
 
+/** One standings block. A split league posts conference tables beside a larger overall table. */
+function standings(block: any) {
+  const data = block?.data;
+  if (data?.table?.all?.length) return data.table;
+  let best: any = null;
+  let bestCount = 0;
+  const tables = Array.isArray(data?.tables) ? data.tables : [];
+  for (const entry of tables) {
+    const count = entry?.table?.all?.length ?? 0;
+    if (count > bestCount) {
+      best = entry.table;
+      bestCount = count;
+    }
+  }
+  return best ?? data?.table;
+}
+
 export function parseLeague(body: any): FotmobLeague | null {
   const teams: Team[] = [];
   const seen = new Set<string>();
   for (const block of body?.table ?? []) {
-    const table = block?.data?.table;
+    const table = standings(block);
     const home = byId(table?.home);
     const away = byId(table?.away);
     const xg = byId(table?.xg);

@@ -58,6 +58,7 @@ const COMPETITIONS: Record<string, Competition> = {
   soccer_italy_serie_a: { sportId: 'football', id: 'e36a8c54-4451-418e-9842-118d8523a421', names: ['Italian Serie A'], soccer: true },
   soccer_germany_bundesliga: { sportId: 'football', id: '5cda9342-5f65-4483-af53-4a7b786832e2', names: ['German Bundesliga'], soccer: true },
   soccer_france_ligue_one: { sportId: 'football', id: 'c06e1f2d-c704-47f7-9949-63c536db2b7d', names: ['French Ligue 1'], soccer: true },
+  soccer_usa_mls: { sportId: 'football', id: '51ad2d73-982e-4dd0-ae99-f786cd5bd7d5', names: ['MLS'], soccer: true },
   motorsport_f1: { sportId: 'motorsport', id: '79b3567a-c9b7-4ba8-ac72-4b4580357bda', names: ['Formula 1'], empty: true },
 };
 

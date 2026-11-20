@@ -1,6 +1,6 @@
 // Side-by-side decisions from two saved slates. No network calls.
 import { presentScreen, renderTable, wrapParagraph, type ScreenPage } from './table.js';
-import { savedOddsLabel, sportsOf, type SavedBoard, type SavedLeague, type SavedSlate, type SavedSport } from './screen.js';
+import { rowsHaveDate, savedOddsDate, savedOddsLabel, sportsOf, type SavedBoard, type SavedLeague, type SavedSlate, type SavedSport } from './screen.js';
 
 const sportShort: Record<string, string> = {
   Football: 'FB',
@@ -12,10 +12,20 @@ const sportShort: Record<string, string> = {
 };
 
 const gameHeaders = ['Team', 'Price', 'Market', 'jev', 'tail-jev', 'Agree', 'Slips'];
+const gameHeadersDated = ['Team', 'Date', 'Price', 'Market', 'jev', 'tail-jev', 'Agree', 'Slips'];
 const propHeaders = ['Team', 'Player', 'Line', 'jev', 'tail-jev', 'Agree', 'Slips'];
+const propHeadersDated = ['Team', 'Date', 'Player', 'Line', 'jev', 'tail-jev', 'Agree', 'Slips'];
 const ticketHeaders = ['Hit', 'Payout', 'Ticket', 'Models', 'Agree'];
 const gameAligns = ['left', 'right', 'right', 'left', 'left', 'left', 'left'] as const;
+const gameAlignsDated = ['left', 'left', 'right', 'right', 'left', 'left', 'left', 'left'] as const;
 const propAligns = ['left', 'left', 'left', 'left', 'left', 'left', 'left'] as const;
+const propAlignsDated = ['left', 'left', 'left', 'left', 'left', 'left', 'left', 'left'] as const;
+
+function readRow(row: string[] | undefined) {
+  if (!row) return { team: '', date: '', cells: [] as string[] };
+  if (row.length >= 7) return { team: row[0] ?? '', date: row[1] ?? '', cells: row.slice(2) };
+  return { team: row[0] ?? '', date: '', cells: row.slice(1) };
+}
 
 function slipCell(left?: string, right?: string) {
   if (!left && !right) return '';
@@ -93,20 +103,24 @@ function gameRowKey(row: string[]) {
 }
 
 function propRowKey(row: string[]) {
-  const line = row[2] ?? '';
+  const read = readRow(row);
+  const line = read.cells[1] ?? '';
   const label = line.split(/\s+(?:over|under)\s+/i)[0]?.replace(/\s+[+-]?\d.*$/, '') ?? line;
-  return `${row[0] ?? ''}|${row[1] ?? ''}|${label}`;
+  return `${read.team}|${read.cells[0] ?? ''}|${label}`;
 }
 
-function gameJoin(left?: string[], right?: string[]) {
+function gameJoin(left?: string[], right?: string[], withDate = false) {
+  const a = readRow(left);
+  const b = readRow(right);
   return [
-    left?.[0] || right?.[0] || '',
-    left?.[1] || right?.[1] || '',
-    left?.[2] || right?.[2] || '',
-    left?.[3] ?? '—',
-    right?.[3] ?? '—',
-    agreeCell(left?.[4], right?.[4]),
-    slipCell(left?.[4], right?.[4]),
+    a.team || b.team,
+    ...(withDate ? [a.date || b.date] : []),
+    a.cells[0] || b.cells[0] || '',
+    a.cells[1] || b.cells[1] || '',
+    a.cells[2] ?? '—',
+    b.cells[2] ?? '—',
+    agreeCell(a.cells[3], b.cells[3]),
+    slipCell(a.cells[3], b.cells[3]),
   ];
 }
 
@@ -121,13 +135,13 @@ function ticketJoin(left?: string[], right?: string[]) {
   ];
 }
 
-function agreeCounts(groups: string[][][]) {
+function agreeCounts(groups: string[][][], agreeIndex: number) {
   let agreed = 0;
   let disagreed = 0;
   for (const group of groups) {
     for (const row of group) {
-      if (row[5] === agreedLabel) agreed += 1;
-      else if (row[5] === disagreedLabel) disagreed += 1;
+      if (row[agreeIndex] === agreedLabel) agreed += 1;
+      else if (row[agreeIndex] === disagreedLabel) disagreed += 1;
     }
   }
   return { agreed, disagreed };
@@ -148,16 +162,17 @@ function notes(left: SavedBoard | undefined, right: SavedBoard | undefined, widt
 }
 
 function renderGames(left: SavedBoard | undefined, right: SavedBoard | undefined, jev: SavedSlate, tail: SavedSlate, width: number) {
-  const groups = alignGroups(left?.groups ?? [], right?.groups ?? [], gameRowKey, gameJoin);
+  const dated = rowsHaveDate(left?.groups ?? []) || rowsHaveDate(right?.groups ?? []);
+  const groups = alignGroups(left?.groups ?? [], right?.groups ?? [], gameRowKey, (a, b) => gameJoin(a, b, dated));
   const tickets = alignGroups(left?.ticketGroups ?? [], right?.ticketGroups ?? [], (row) => row[2] ?? '', ticketJoin);
-  const calls = agreeCounts(groups);
+  const calls = agreeCounts(groups, dated ? 6 : 5);
   const lines = [
     ...wrapParagraph(left?.title || right?.title || 'Games', width),
     '',
     ...wrapParagraph(`${stamp(jev, 'jev')} · ${stamp(tail, 'tail-jev')}. ${agreeSentence(calls.agreed, calls.disagreed)}`, width),
     '',
   ];
-  if (groups.length) lines.push(...renderTable(gameHeaders, groups, [...gameAligns], width));
+  if (groups.length) lines.push(...renderTable(dated ? gameHeadersDated : gameHeaders, groups, [...(dated ? gameAlignsDated : gameAligns)], width));
   lines.push(...notes(left, right, width));
   if (tickets.length) {
     lines.push('', ...renderTable(ticketHeaders, tickets, ['right', 'right', 'left', 'left', 'left'], width));
@@ -166,8 +181,9 @@ function renderGames(left: SavedBoard | undefined, right: SavedBoard | undefined
 }
 
 function renderProps(left: SavedBoard | undefined, right: SavedBoard | undefined, width: number) {
-  const groups = alignGroups(left?.groups ?? [], right?.groups ?? [], propRowKey, gameJoin);
-  const calls = agreeCounts(groups);
+  const dated = rowsHaveDate(left?.groups ?? []) || rowsHaveDate(right?.groups ?? []);
+  const groups = alignGroups(left?.groups ?? [], right?.groups ?? [], propRowKey, (a, b) => gameJoin(a, b, dated));
+  const calls = agreeCounts(groups, dated ? 6 : 5);
   const title = left?.title || right?.title || 'Player props';
   const lines = [
     ...wrapParagraph(title, width),
@@ -175,7 +191,7 @@ function renderProps(left: SavedBoard | undefined, right: SavedBoard | undefined
     ...wrapParagraph(agreeSentence(calls.agreed, calls.disagreed), width),
     '',
   ];
-  if (groups.length) lines.push(...renderTable(propHeaders, groups, [...propAligns], width));
+  if (groups.length) lines.push(...renderTable(dated ? propHeadersDated : propHeaders, groups, [...(dated ? propAlignsDated : propAligns)], width));
   lines.push(...notes(left, right, width));
   return lines;
 }
@@ -221,5 +237,9 @@ export function showComparison(jev: SavedSlate, tail: SavedSlate) {
   const left = jev.model?.trim() || 'jev';
   const right = tail.model?.trim() || 'tail-jev';
   const model = left === right ? left : `${left} · ${right}`;
-  return presentScreen(comparisonPages(jev, tail), { model, oddsSource: savedOddsLabel(jev.oddsSource, tail.oddsSource) });
+  return presentScreen(comparisonPages(jev, tail), {
+    model,
+    oddsSource: savedOddsLabel(jev.oddsSource, tail.oddsSource),
+    oddsDate: savedOddsDate(jev, tail),
+  });
 }

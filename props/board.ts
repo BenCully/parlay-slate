@@ -6,6 +6,7 @@ import { nameKey } from '../espn/evidence.js';
 import { isDirectOddsSource, oddsGet, oddsReplayDay, oddsSource, oddsSourceLabel, type OddsBook, type OddsOutcome } from '../odds/cache.js';
 import { scrubText } from '../scripts/scrub.js';
 import { mapPool } from '../slate/pool.js';
+import { kickoffCell } from '../slate/window.js';
 import type { PlayerRef } from '../espn/players.js';
 
 export type YesCopy = {
@@ -94,6 +95,7 @@ type MissingRow = {
   team: string;
   label: string;
   reason: string;
+  commence: string;
 };
 
 type Built = YardRow | SingleRow | MissingRow;
@@ -426,7 +428,7 @@ async function coreRow(
     return player ? [{ line, player }] : [];
   });
   if (!matched.length) {
-    return { kind: 'missing', team: team.name, label: info.label, reason: `No ${info.label.toLowerCase()} line was posted for a ${label(team.name)} player.` };
+    return { kind: 'missing', team: team.name, label: info.label, reason: `No ${info.label.toLowerCase()} line was posted for a ${label(team.name)} player.`, commence: game.commence };
   }
   if (info.yes) {
     const priced = matched.flatMap((row) => {
@@ -440,7 +442,7 @@ async function coreRow(
       const reason = info.market === 'player_anytime_td'
         ? `No anytime touchdown price was posted for ${namedTeam(team.name, label, profile)}.`
         : `No ${info.label.toLowerCase()} price was posted for ${namedTeam(team.name, label, profile)}.`;
-      return { kind: 'missing', team: team.name, label: info.label, reason };
+      return { kind: 'missing', team: team.name, label: info.label, reason, commence: game.commence };
     }
     const price = best.price;
     return {
@@ -494,7 +496,7 @@ async function coreRow(
       };
     }
   }
-  if (!best) return { kind: 'missing', team: team.name, label: info.label, reason: `No ${info.label.toLowerCase()} over/under was posted for ${namedTeam(team.name, label, profile)}.` };
+  if (!best) return { kind: 'missing', team: team.name, label: info.label, reason: `No ${info.label.toLowerCase()} over/under was posted for ${namedTeam(team.name, label, profile)}.`, commence: game.commence };
   const [overBrief, underBrief] = await Promise.all([
     describe(best.player, info, 'over', best.line.point, team.name, team.opponent, team.home, game.commence, profile),
     describe(best.player, info, 'under', best.line.point, team.name, team.opponent, team.home, game.commence, profile),
@@ -582,7 +584,7 @@ async function extraRow(
   const tiers = profile.extraFallback ? [featuredReal, real, options] : [featuredReal];
   const picked = pickLayeredExtra(team.name, tiers);
   if (!picked) {
-    return { kind: 'missing', team: team.name, label: 'Extra', reason: `No featured player had a usable extra for ${namedTeam(team.name, label, profile)}.` };
+    return { kind: 'missing', team: team.name, label: 'Extra', reason: `No featured player had a usable extra for ${namedTeam(team.name, label, profile)}.`, commence: game.commence };
   }
   const sideWord = picked.side === 'Over' ? 'over' : picked.side === 'Under' ? 'under' : 'yes';
   return {
@@ -620,7 +622,8 @@ function finishBoard(groups: Built[][], verdicts: Map<string, PropCheck>, notes:
 
 function paint(row: Built, verdicts: Map<string, PropCheck>, shorts: Map<string, string>): string[] {
   const team = shorts.get(row.team) ?? nick(row.team);
-  if (row.kind === 'missing') return [team, '', row.label, 'No line', 'Pass', row.reason];
+  const when = kickoffCell(row.commence);
+  if (row.kind === 'missing') return [team, when, '', row.label, 'No line', 'Pass', row.reason];
   if (row.kind === 'yard') {
     const over = verdicts.get(row.overId);
     const under = verdicts.get(row.underId);
@@ -631,6 +634,7 @@ function paint(row: Built, verdicts: Map<string, PropCheck>, shorts: Map<string,
     const blurb = underWins ? row.underBrief.blurb : row.overBrief.blurb;
     return [
       team,
+      when,
       row.player.name,
       lineText(row.info.label, side, row.point, price),
       sideLabel(check),
@@ -642,6 +646,7 @@ function paint(row: Built, verdicts: Map<string, PropCheck>, shorts: Map<string,
   const chance = row.extra ? ` Priced at ${(row.implied * 100).toFixed(1)}%, the extra stat for the ${team}.` : '';
   return [
     team,
+    when,
     row.player.name,
     lineText(row.info.label, row.side, row.point, row.price),
     sideLabel(check),
