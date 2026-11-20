@@ -12,6 +12,8 @@ import {
   commandPreview,
   defaultForm,
   formIssues,
+  persistsForm,
+  settleForm,
   type FormContext,
   type SlateForm,
 } from '../ui/tui/commands.js';
@@ -53,6 +55,11 @@ test('slate args bypass the launcher and a default model does not', () => {
   assert.equal(isSlateArg('model=jev'), true);
   assert.equal(isSlateArg('jev'), false);
   assert.equal(classifyStart(['--']).mode, 'tui');
+  assert.deepEqual(classifyStart(['test/fixtures/slate.json']), {
+    mode: 'tui',
+    splash: true,
+    prefill: ['test/fixtures/slate.json'],
+  });
 });
 
 test('command preview uses npm run slate and the odds source prefix', () => {
@@ -101,6 +108,26 @@ test('prefill keeps settings and normalizes autojev', () => {
   const both = applyPrefill(base, ['odds=2026-11-15', '2026-11-16']);
   assert.match(both.error ?? '', /not both/);
   assert.equal(both.form.model, 'tail-jev');
+});
+
+test('a json path prefills view and is not saved as a snapshot name', () => {
+  const base = form({ model: 'tail-jev', oddsSource: 'betmgm' });
+  const filled = applyPrefill(base, ['test/fixtures/slate.json']);
+  assert.equal(filled.error, undefined);
+  assert.equal(filled.form.action, 'view-snapshot');
+  assert.equal(filled.form.model, 'tail-jev');
+  assert.equal(filled.form.oddsSource, 'betmgm');
+  assert.equal(filled.form.fresh, false);
+  assert.equal(filled.form.snapshot.endsWith('/test/fixtures/slate.json'), true);
+  const empty = ctx({ snapshots: [] });
+  const settled = settleForm(filled.form, empty);
+  assert.equal(settled.snapshot, filled.form.snapshot);
+  assert.deepEqual(formIssues(settled, empty), []);
+  const kept = settleForm(filled.form, ctx());
+  assert.equal(kept.snapshot, filled.form.snapshot);
+  assert.equal(persistsForm(settled), false);
+  assert.equal(persistsForm(form({ action: 'view-snapshot', snapshot: '2026-11-15-jev' })), true);
+  assert.equal(commandPreview(settled, 'books'), `npm run view -- ${settled.snapshot}`);
 });
 
 test('keyboard reaches every action and esc closes only the open dialog', () => {

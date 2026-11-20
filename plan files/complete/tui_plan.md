@@ -675,7 +675,7 @@ Manual checks, because mouse bytes and animation need a real TTY: run `npm start
 
 ## Out of scope for v1
 
-- Changing gates, ticket rules, or adding a paid odds source ([FUTURE-IDEAS.md](https://github.com/BenCully/parlay-slate/blob/main/FUTURE-IDEAS.md) leave-alone list).
+- Changing gates, ticket rules, or adding a paid odds source ([FUTURE-IDEAS.md](../wip/FUTURE-IDEAS.md) leave-alone list).
 - Editing `.env` or `.env.settings` from the TUI.
 - Spawning a browser or any GUI.
 - Making `npm test` / `typecheck` items in the menu.

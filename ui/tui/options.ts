@@ -4,6 +4,7 @@ import {
   SOURCE_ORDER,
   commandPreview,
   formIssues,
+  isViewFile,
   keyStatus,
   settleForm,
   type FormContext,
@@ -483,8 +484,11 @@ export function layoutScreen(state: UiState, ctx: FormContext, width: number): L
     addLine(layout, '', width);
   }
   if (state.action === 'view-snapshot') {
-    const items = ctx.snapshots.length
-      ? ctx.snapshots.map((name) => ({ id: `snap:${name}`, text: radio(state.snapshot === name, name) }))
+    const names = isViewFile(state.snapshot) && !ctx.snapshots.includes(state.snapshot)
+      ? [state.snapshot, ...ctx.snapshots]
+      : ctx.snapshots;
+    const items = names.length
+      ? names.map((name) => ({ id: `snap:${name}`, text: radio(state.snapshot === name, name) }))
       : [{ id: 'snap:none', text: '(no snapshots)' }];
     addFlow(layout, ' Snapshot   ', items, width);
     addLine(layout, '', width);

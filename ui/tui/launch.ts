@@ -1,5 +1,5 @@
 import { scrubError } from '../../scripts/scrub.js';
-import { applyPrefill, formFromSettings, loadContext, savesSettings, settingsFromForm, settleForm } from './commands.js';
+import { applyPrefill, formFromSettings, loadContext, persistsForm, settingsFromForm, settleForm } from './commands.js';
 import { createUi, type UiState } from './options.js';
 import { showOptions } from './session.js';
 import { loadTuiSettings, saveTuiSettings } from './settings.js';
@@ -59,6 +59,6 @@ export async function launchTui(input: { splash: boolean; prefill: string[] }) {
     process.exitCode = undefined;
     if (result.interrupt) process.exit(130);
     state = { ...outcome.state, message: result.message, picker: false, confirm: false, list: false, scroll: 0 };
-    if (result.ok && savesSettings(state.action)) await saveTuiSettings(settingsFromForm(state));
+    if (result.ok && persistsForm(state)) await saveTuiSettings(settingsFromForm(state));
   }
 }

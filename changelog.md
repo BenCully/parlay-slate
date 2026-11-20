@@ -2,6 +2,14 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-20T16:48:48Z
+
+### Terminal screen tests
+
+`npm test` drives the alt screen with `@microsoft/tui-test` 0.1.1, pinned, backend Alacritty. `test/screen.test.ts` opens the committed `test/fixtures/slate.json` through `scripts/view.ts`. It checks a league click, the Props tab, the close button, `]` and `2`, the wheel, a scrollbar drag, and the sport names at 100 columns and at 70. `q` on the launcher exits. Opening that file from the launcher, then `q`, returns to the options screen, and a second `q` exits. Ctrl-C on that slate exits. This version of the driver does not report a `run()` exit code, so the tests wait until the process is gone. Koffi loads from its optional prebuild, so `allowScripts` stays limited to esbuild and fsevents.
+
+`npm run tui -- path.json` selects View snapshot for that file. The path is not written to `runs/tui-settings.json`.
+
 ## 2026-11-20T01:46:30Z
 
 ### Launcher click no longer flickers or sticks

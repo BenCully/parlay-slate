@@ -20,6 +20,7 @@
     "jev-recipes": "^0.9.17"
   },
   "devDependencies": {
+    "@microsoft/tui-test": "0.1.1",
     "@types/node": "^24.10.1",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3"

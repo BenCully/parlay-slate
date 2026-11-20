@@ -1,4 +1,5 @@
 import { access, readdir } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { normalizeModelName, readStartArgs } from '../../decisions/judge.js';
 import { listSavedOdds, oddsReplayCommand, oddsSourceLabel, type SavedOddsDay } from '../../odds/cache.js';
@@ -97,6 +98,18 @@ export function savesSettings(action: TuiAction) {
   return action === 'start' || action === 'replay' || action === 'view-last' || action === 'view-snapshot' || action === 'compare';
 }
 
+/** A `.json` argument is a one-off slate file, same as `npm run view -- file.json`. */
+export function isViewFile(snapshot: string) {
+  return snapshot.endsWith('.json');
+}
+
+/** Skip the settings file when the snapshot is a path, so a one-off view does not replace the saved name. */
+export function persistsForm(form: SlateForm) {
+  if (!savesSettings(form.action)) return false;
+  if (form.action === 'view-snapshot' && isViewFile(form.snapshot)) return false;
+  return true;
+}
+
 export function keyStatus(model: 'jev' | 'tail-jev') {
   if (model === 'jev') {
     return process.env.TYPESAFE_API_KEY?.trim()
@@ -148,7 +161,9 @@ export function formIssues(form: SlateForm, ctx: FormContext) {
   if (form.action === 'view-last' && !ctx.lastRun) issues.push(missingSlateLines(ctx.lastRunPath).join(' '));
   if (form.action === 'view-snapshot') {
     if (!form.snapshot) issues.push('Pick a snapshot.');
-    else if (!ctx.snapshots.includes(form.snapshot)) issues.push(missingSlateLines(`snapshots/${form.snapshot}.json`).join(' '));
+    else if (!ctx.snapshots.includes(form.snapshot) && !isViewFile(form.snapshot)) {
+      issues.push(missingSlateLines(`snapshots/${form.snapshot}.json`).join(' '));
+    }
   }
   if (form.action === 'compare' && !ctx.compareDays.includes(form.compareDay)) {
     const day = DAY.test(form.compareDay) ? form.compareDay : 'YYYY-MM-DD';
@@ -195,6 +210,12 @@ export function applyPrefill(form: SlateForm, argv: string[]): { form: SlateForm
     next.fresh = true;
     next.action = 'start';
   }
+  const view = argv.find((arg) => isViewFile(arg));
+  if (view) {
+    next.action = 'view-snapshot';
+    next.snapshot = resolve(view);
+    next.fresh = false;
+  }
   return { form: next };
 }
 
@@ -208,7 +229,9 @@ export function settleForm(form: SlateForm, ctx: FormContext): SlateForm {
       next.oddsSource = match.source;
     }
   }
-  if (next.action === 'view-snapshot' && !ctx.snapshots.includes(next.snapshot)) next.snapshot = ctx.snapshots[0] ?? '';
+  if (next.action === 'view-snapshot' && !ctx.snapshots.includes(next.snapshot) && !isViewFile(next.snapshot)) {
+    next.snapshot = ctx.snapshots[0] ?? '';
+  }
   if (next.action === 'compare' && !ctx.compareDays.includes(next.compareDay)) next.compareDay = ctx.compareDays[0] ?? '';
   return next;
 }
