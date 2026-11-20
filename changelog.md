@@ -2,6 +2,12 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-20T19:26:01Z
+
+### User manual
+
+`docs/user-manual.md` is the guide for the launcher, the slate screen, tickets, props, and compare. The README keeps one picture of the NFL Games page and points at that manual. The new pictures are in `docs/screenshots/`, including the splash. Saved slips from before Lean still say `Take` in those pictures. A run today says `Lean` for a supported pick under 0.80.
+
 ## 2026-11-20T19:06:54Z
 
 ### Review 2
