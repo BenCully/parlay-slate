@@ -76,7 +76,7 @@ Each ID matches the tag in that finding's heading below.
 | O-L4 | Low | Odds type-safety holes | Partial | `odds/direct.ts`, `odds/caesars.ts`, `odds/fanduel.ts`. Not committed. | Same run as PR-5. | Each book's body is parsed before the merge. A bad body is a failed book. `menuId` checks `Array.isArray`. Exported team and price helpers are typed. The FanDuel slate attachment parser still uses `any`. |
 | O-L5 | Low | `QUOTA_LOG` doubles as a path | Done | `odds/quota.ts`, `.env.settings.example`, `AGENTS.md`, `test/pure.test.ts`. Not committed. | Same run as PR-5. `QUOTA_LOG=1` does not name a file `1`. `QUOTA_LOG_PATH` is the custom file. | |
 | O-L6 | Low | Dead code | Done | `odds/cache.ts`, `props/board.ts`, `odds/draftkings.ts`, `.env.settings.example`, `AGENTS.md`, `test/pure.test.ts`. Not committed. | Same run as PR-5. | `oddsCreditFloor` is removed. Live reads no longer return a credit header, so the floor never fired. The repeated DraftKings points and assists patterns are gone. |
-| O-L7 | Low | Caesars spread sign unverified | Blocked | | | No `caesars-` file in `odds-cache/`. The sign was not compared to FanDuel. |
+| O-L7 | Low | Caesars spread sign unverified | Not a bug | | Compared the `williamhill_us` spreads in the saved `books-` files to FanDuel, DraftKings, or BetMGM. | 264 of 266 have the same sign. The other two are one soccer game where Caesars posted a different handicap line. See `review2.md` Decisions. |
 
 ### Work log
 
@@ -132,6 +132,7 @@ YYYY-MM-DDTHH:MM:SSZ  ID  Status  What changed, or why it stopped
 2026-11-20T18:26:31Z  O-L5  Done  QUOTA_LOG=1 uses the default file. QUOTA_LOG_PATH picks another file.
 2026-11-20T18:26:31Z  O-L6  Done  The unused credit floor is gone, and the repeated DraftKings prop patterns are gone.
 2026-11-20T18:26:31Z  O-L7  Blocked  odds-cache has no caesars- file, so the spread sign was not checked.
+2026-11-20T18:40:00Z  O-L7  Not a bug  The merged books- files hold Caesars lines. 264 of 266 spreads match the other books' sign.
 
 ### Status line under each finding
 
