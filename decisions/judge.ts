@@ -74,14 +74,21 @@ export function readStartArgs(argv: string[]) {
   }
   if (odds && fresh) throw new Error('odds= reads saved prices only. Leave off --fresh.');
   if (odds && positional[0]) throw new Error('Pass a slate date or odds=YYYY-MM-DD, not both.');
-  return { day: positional[0], model, odds };
+  return { day: positional[0], model, odds, fresh };
+}
+
+/** `autojev` is tail-jev. An unknown name returns null and does not change the active model. */
+export function normalizeModelName(name: string): DecisionModel | null {
+  const key = name.trim().toLowerCase();
+  if (key === 'jev') return 'jev';
+  if (key === 'tail-jev' || key === 'autojev') return 'tail-jev';
+  return null;
 }
 
 export function selectDecisionModel(name: string): DecisionModel {
-  const key = name.trim().toLowerCase();
-  if (key === 'jev') active = 'jev';
-  else if (key === 'tail-jev' || key === 'autojev') active = 'tail-jev';
-  else throw new Error(`Unknown model "${name}". Use model=jev or model=tail-jev.`);
+  const key = normalizeModelName(name);
+  if (!key) throw new Error(`Unknown model "${name}". Use model=jev or model=tail-jev.`);
+  active = key;
   return active;
 }
 

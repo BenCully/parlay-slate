@@ -5,7 +5,39 @@
       "type": "node",
       "request": "launch",
       "name": "Start slate",
+      "program": "${workspaceFolder}/scripts/start.ts",
+      "cwd": "${workspaceFolder}",
+      "runtimeArgs": [
+        "--env-file-if-exists=${workspaceFolder}/.env.settings",
+        "--env-file-if-exists=${workspaceFolder}/.env",
+        "--import",
+        "tsx"
+      ],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Run slate",
       "program": "${workspaceFolder}/scripts/parlays.ts",
+      "cwd": "${workspaceFolder}",
+      "runtimeArgs": [
+        "--env-file-if-exists=${workspaceFolder}/.env.settings",
+        "--env-file-if-exists=${workspaceFolder}/.env",
+        "--import",
+        "tsx"
+      ],
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Open TUI",
+      "program": "${workspaceFolder}/scripts/tui.ts",
       "cwd": "${workspaceFolder}",
       "runtimeArgs": [
         "--env-file-if-exists=${workspaceFolder}/.env.settings",

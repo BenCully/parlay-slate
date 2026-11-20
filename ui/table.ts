@@ -1,3 +1,5 @@
+import { theme, withAltScreen, type ScreenClose } from './term.js';
+
 type Align = 'left' | 'right';
 
 // Terminal columns, not string length. ❌ is one code unit and two columns. 🤝 is two code units and two columns.
@@ -167,8 +169,6 @@ function scrollbarColumn(height: number, total: number, scroll: number) {
   return Array.from({ length: height }, (_, index) => (index >= top && index < top + thumb ? '█' : '░'));
 }
 
-const theme = '\x1b[40m\x1b[97m\x1b[48;2;0;0;0m\x1b[38;2;255;255;255m';
-
 export type ScreenPage = {
   label: string;
   short?: string;
@@ -306,11 +306,11 @@ export function headerText(pages: ScreenPage[], width: number, indexes: number[]
   return lines.map(visibleText);
 }
 
-export function presentScreen(input: ScreenPage[] | ((width: number) => string[]), options?: { model?: string; oddsSource?: string }): Promise<void> {
+export function presentScreen(input: ScreenPage[] | ((width: number) => string[]), options?: { model?: string; oddsSource?: string }): Promise<ScreenClose> {
   const model = options?.model;
   const oddsSource = options?.oddsSource;
   const pages: ScreenPage[] = typeof input === 'function' ? [{ label: 'View', render: input }] : input;
-  if (!pages.length) return Promise.resolve();
+  if (!pages.length) return Promise.resolve('quit');
 
   if (!process.stdout.isTTY || !process.stdin.isTTY) {
     const width = Math.max(20, process.stdout.columns || 100);
@@ -320,17 +320,16 @@ export function presentScreen(input: ScreenPage[] | ((width: number) => string[]
       for (const line of item.render(width)) console.log(line);
       console.log('');
     }
-    return Promise.resolve();
+    return Promise.resolve('quit');
   }
 
-  return new Promise((resolve) => {
+  let reason: ScreenClose = 'quit';
+  return withAltScreen((session) => {
     let scroll = 0;
     let sport = 0;
     let league = 0;
     let leaf = 0;
-    let closed = false;
     let dragging = false;
-    let pending = Buffer.alloc(0);
     let totalLines = 0;
     let viewHeight = 1;
     let bodyTop = 1;
@@ -338,9 +337,6 @@ export function presentScreen(input: ScreenPage[] | ((width: number) => string[]
     let headerCount = 1;
     let rows: TabRow[] = [];
     let rowHits: { start: number; end: number }[][] = [];
-    const stdin = process.stdin;
-    const enableMouse = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
-    const disableMouse = '\x1b[?1002l\x1b[?1000l\x1b[?1006l';
 
     const nestedNow = () => {
       const node = pages[Math.max(0, Math.min(pages.length - 1, sport))];
@@ -349,15 +345,9 @@ export function presentScreen(input: ScreenPage[] | ((width: number) => string[]
 
     const cursor = () => (nestedNow() ? [sport, league, leaf] : [sport, leaf]);
 
-    const restore = () => {
-      if (closed) return;
-      closed = true;
-      process.stdout.off('resize', draw);
-      stdin.off('data', onData);
-      if (stdin.isTTY) stdin.setRawMode(false);
-      stdin.pause();
-      process.stdout.write(`\x1b[0m${disableMouse}\x1b[?25h\x1b[?1049l`);
-      resolve();
+    const restore = (next: ScreenClose) => {
+      reason = next;
+      session.restore();
     };
 
     const select = (depth: number, index: number) => {
@@ -440,7 +430,7 @@ export function presentScreen(input: ScreenPage[] | ((width: number) => string[]
       }
       if (!motion && y >= 1 && y <= headerCount) {
         if (y === 1 && x >= screenWidth - 2) {
-          restore();
+          restore('quit');
           return;
         }
         const row = rows[y - 1];
@@ -461,8 +451,12 @@ export function presentScreen(input: ScreenPage[] | ((width: number) => string[]
       const page = Math.max(1, viewHeight - 1);
       const current = tabRows(pages, cursor());
       const leafRow = current.at(-1);
-      if (key === '\u0003' || key === 'q' || key === 'Q') {
-        restore();
+      if (key === '\u0003') {
+        restore('interrupt');
+        return;
+      }
+      if (key === 'q' || key === 'Q') {
+        restore('quit');
         return;
       }
       if (leafRow && leafRow.nodes.length > 1 && (key === '\t' || key === '\x1b[C')) {
@@ -497,52 +491,10 @@ export function presentScreen(input: ScreenPage[] | ((width: number) => string[]
       draw();
     };
 
-    const dropByte = (): { key: string } => {
-      const key = String.fromCharCode(pending[0]);
-      pending = pending.subarray(1);
-      return { key };
+    return {
+      draw,
+      onKey,
+      onMouse: (mouse) => onMouse(mouse.button, mouse.x, mouse.y, mouse.release),
     };
-
-    const takeInput = (): { key: string; mouse?: [number, number, number, boolean] } | null => {
-      if (!pending.length) return null;
-      if (pending[0] !== 0x1b) return dropByte();
-      if (pending.length < 3) return null;
-      if (pending[1] === 0x5b && pending[2] === 0x3c) {
-        const match = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])/.exec(pending.toString('utf8'));
-        if (!match) return pending.length > 64 ? dropByte() : null;
-        pending = pending.subarray(Buffer.byteLength(match[0]));
-        return { key: '', mouse: [Number(match[1]), Number(match[2]), Number(match[3]), match[4] === 'm'] };
-      }
-      if (pending[1] === 0x5b && pending[2] === 0x4d) {
-        if (pending.length < 6) return null;
-        const pb = pending[3] - 32;
-        const x = pending[4] - 32;
-        const y = pending[5] - 32;
-        pending = pending.subarray(6);
-        return { key: '', mouse: [pb, x, y, (pb & 3) === 3 && (pb & 64) === 0] };
-      }
-      const match = /^\x1b\[[\d;]*[A-Za-z~]/.exec(pending.toString('utf8'));
-      if (!match) return pending.length > 16 ? dropByte() : null;
-      pending = pending.subarray(Buffer.byteLength(match[0]));
-      return { key: match[0] };
-    };
-
-    const onData = (chunk: Buffer) => {
-      pending = Buffer.concat([pending, chunk]);
-      for (;;) {
-        const next = takeInput();
-        if (!next) return;
-        if (next.mouse) onMouse(...next.mouse);
-        else onKey(next.key);
-        if (closed) return;
-      }
-    };
-
-    process.stdout.write(`\x1b[?1049h\x1b[?25l${enableMouse}${theme}`);
-    stdin.setRawMode(true);
-    stdin.resume();
-    process.stdout.on('resize', draw);
-    stdin.on('data', onData);
-    draw();
-  });
+  }).then(() => reason);
 }

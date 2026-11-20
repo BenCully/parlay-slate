@@ -5,12 +5,18 @@ Parlay finder for football, soccer, hockey, basketball, baseball, and Formula 1.
 ## Commands
 
 ```bash
-npm start                  # current ESPN week, skip games that already kicked off
-npm start -- YYYY-MM-DD   # one America/New_York calendar day
-npm start -- YYYY-MM-DD model=jev       # TypeSafe through jev-recipes (also the default)
-npm start -- YYYY-MM-DD model=tail-jev  # Autojev on the tailnet; model=autojev is the same
-npm start -- odds=YYYY-MM-DD model=jev  # replay odds saved that Eastern day; no Odds API call
-npm start -- --fresh      # ignore the odds cache and spend credits
+npm start                  # terminal: launcher. Pipe: current slate, no launcher
+npm start -- --no-splash   # launcher, skip the logo
+npm run tui                # launcher. Exits 1 when stdout is not a terminal
+npm run slate              # current slate, skip games that already kicked off
+npm run slate -- YYYY-MM-DD            # one America/New_York calendar day
+npm start -- YYYY-MM-DD                # same dated run; a slate arg bypasses the launcher
+npm start -- YYYY-MM-DD model=jev      # TypeSafe through jev-recipes (also the default)
+npm start -- YYYY-MM-DD model=tail-jev # Autojev on the tailnet; model=autojev is the same
+npm start -- odds=YYYY-MM-DD model=jev # replay odds saved that Eastern day; no live fetch
+npm start -- --fresh       # ignore the odds cache and read the books again
+npm start -- --tui 2026-11-15          # launcher with that date filled in
+npm start -- --slate       # force a direct run; wins over --tui
 npm run odds               # list saved odds days, no API calls
 npm run compare -- YYYY-MM-DD  # jev beside tail-jev for that day, no API calls
 npm run clear-snapshots    # delete snapshots/, leave runs/ and odds-cache/
@@ -20,17 +26,19 @@ npm test                   # node:test, no network
 npm run typecheck          # tsc --noEmit
 ```
 
+Bare `npm start` in a terminal plays the Parlay Slate logo, then the options screen. `PARLAY_SLATE_NO_ANIM` set to anything but `0` holds a still logo. `--no-splash` skips it. After a slate, compare, or saved-odds list closes, the options screen comes back. `q` on that screen returns to the options. `q`, Esc with no dialog open, Quit, or the x button leaves the launcher. Ctrl-C restores the terminal and exits. The options screen does not hold `runs/slate.lock`. Last-used options are `runs/tui-settings.json`. A direct `npm run slate` still closes the slate and exits. A pipe running `npm start` with no slate args runs the current slate and prints text. `npm run tui` with no terminal prints one line and exits 1.
+
 `model=` can sit before or after the date. `odds=` is the America/New_York day the prices were saved, not the kickoff day. `npm run odds` lists those days. When the saved source differs from `ODDS_SOURCE`, the printed command sets `ODDS_SOURCE=` so a value in `.env` does not hide that day. A replay reads `odds-cache/` even after `ODDS_CACHE_HOURS`, keeps games that have since kicked off, and throws instead of fetching when that day has no save for the active source. The error names that source, and names the other source when that day was saved there. Do not combine `odds=` with a slate date or with `--fresh`. `model=tail-jev` does not call TypeSafe. `AUTOJEV_URL` in `.env` is the `/v1` base. The client posts one `noul` or `choice` to `systemone` on that base and sends `AUTOJEV_API_KEY` as a bearer token. Do not put that address in the repo, and do not print it or a key. A choice response can include a separate confidence. The 0.80 gate reads the chosen option's probability, not that field. Relevance is the yes probability. Do not lower either gate.
 
 `npm start` rewrites `runs/last-run.json` after each sport once a board exists, writes `snapshots/<day>-<model>.json` when the run finishes, then opens the screen. The snapshot day is `odds=`, or the slate date, or today's Eastern date. A later run of the same day and model copies the previous file to `snapshots/archive/<day>-<model>-<savedAt>.json`, then replaces `snapshots/<day>-<model>.json`. Compare still reads that current name. An identical rewrite does not add another archive file. `npm run compare` reads the jev and tail-jev snapshots and does not call the Odds API, ESPN, TypeSafe, or Autojev. `npm run clear-snapshots` deletes every entry in `snapshots/`, including `snapshots/archive/`, and leaves the folder. It does not touch `runs/` or `odds-cache/`. A non-TTY prints every sport, league, and page as text and exits. That is expected in an agent shell. Do not treat that as a mouse test.
 
-Run and Debug configs are in `.vscode/launch.json`: Start slate, Start slate for an Eastern day, Replay saved odds, Compare decision snapshots, and View saved slate. They launch `node` with `--import tsx`, same as the npm scripts. Keep `console` set to `integratedTerminal`. The Debug Console is not a TTY, so the screen, mouse, and x button will not work there. `.npmrc` sets `engine-strict=true`.
+Run and Debug configs are in `.vscode/launch.json`: Start slate (the launcher, `scripts/start.ts`), Run slate (`scripts/parlays.ts`), Open TUI (`scripts/tui.ts`), Start slate for an Eastern day, Replay saved odds, Compare decision snapshots, and View saved slate. Configs that pass a date, `odds=`, or `model=` stay direct runs. They launch `node` with `--import tsx`, same as the npm scripts. Keep `console` set to `integratedTerminal`. The Debug Console is not a TTY, so the screen, mouse, and x button will not work there. `.npmrc` sets `engine-strict=true`.
 
 ## Files
 
 `scripts/` holds the npm entry files. Saved output stays outside that folder.
 
-- `scripts/parlays.ts` walks `sports/index.ts`. Once any board has been built, it rewrites `runs/last-run.json` after each sport, by writing a temp file and renaming it. `runs/slate.lock` holds the process id for the whole run, including the screen. A second `npm start` exits and names that pid. A lock whose process is gone is taken over. The lock is removed when the process finishes. The snapshot is written when the run finishes, so a kill mid-run keeps the finished sports and leaves the previous snapshot in place. It then opens the screen. A failed decision call leaves that row as `No call` and keeps the board. The error is in the board note. Tail-jev stops after three failures in a row. ESPN reads time out after 10 seconds. A failed team, injury, or schedule read becomes "no recent games" and "no significant injuries listed". A failed scoreboard uses the empty-board window. The Odds API times out after 30 seconds. `scripts/view.ts` reads `runs/last-run.json`, or `snapshots/<name>.json` when given a name. `scripts/compare.ts` reads the jev and tail-jev snapshots for one day. `scripts/clear-snapshots.ts` empties `snapshots/`. `scripts/odds-days.ts` lists saved odds days. None of those four call an API. `runs/last-run.json` is the latest slate.
+- `scripts/start.ts` is `npm start`. It opens the launcher, or calls `runSlate` when the arguments are a slate run or stdout is not a terminal. `scripts/tui.ts` is `npm run tui` and always opens the launcher. `scripts/parlays.ts` exports `runSlate` and is the `npm run slate` entry. It walks `sports/index.ts`. Once any board has been built, it rewrites `runs/last-run.json` after each sport, by writing a temp file and renaming it. `runs/slate.lock` holds the process id for the whole run, including the screen. A second slate run exits and names that pid. A lock whose process is gone is taken over. The lock is removed when the process finishes. The snapshot is written when the run finishes, so a kill mid-run keeps the finished sports and leaves the previous snapshot in place. It then opens the screen. A failed decision call leaves that row as `No call` and keeps the board. The error is in the board note. Tail-jev stops after three failures in a row. ESPN reads time out after 10 seconds. A failed team, injury, or schedule read becomes "no recent games" and "no significant injuries listed". A failed scoreboard uses the empty-board window. The Odds API times out after 30 seconds. `scripts/view.ts` reads `runs/last-run.json`, or `snapshots/<name>.json` when given a name. `scripts/compare.ts` reads the jev and tail-jev snapshots for one day. `scripts/clear-snapshots.ts` empties `snapshots/`. `scripts/odds-days.ts` lists saved odds days. None of those four call an API. `runs/last-run.json` is the latest slate. `runs/tui-settings.json` is the launcher's last options. It is not the saved slate.
 - `slate/board.ts` builds one Games board: moneylines, spreads, totals, and moneyline tickets. `slate/window.ts` is the Eastern day and the scoreboard fetch.
 - `decisions/judge.ts` is `model=jev` or `model=tail-jev`. It parses those args and runs rerank and verify.
 - `props/board.ts` builds a Props tab from a `PropProfile`.

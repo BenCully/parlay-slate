@@ -2,6 +2,16 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-20T01:14:10Z
+
+### Terminal launcher
+
+Bare `npm start` in a terminal plays a Parlay Slate logo, then opens the options screen. `npm run slate` is the direct run. `npm start --` with a date, `model=`, `odds=`, or `--fresh` still runs the slate and skips the launcher. `--no-splash` skips the logo. `--tui` opens the launcher and can prefill those arguments. `--slate` forces a direct run and wins over `--tui`. A pipe running `npm start` with no slate arguments still prints the slate as text. `npm run tui` needs a terminal and exits 1 without one.
+
+After a slate, a compare, or the saved-odds list closes, the options screen comes back. `q` on those screens returns to the options. Quit, Esc when no dialog is open, `q`, or the x button leaves the launcher. Ctrl-C restores the terminal and exits. The options screen does not hold `runs/slate.lock`. Last-used options are `runs/tui-settings.json`. That file is not the saved slate.
+
+The odds source choices are All books, FanDuel, DraftKings, BetMGM, Caesars, and The Odds API. The Odds API only opens saved files, so a live start cannot use it. Fresh rereads the books and ignores `odds-cache/`. `readStartArgs` returns `fresh`. `setOddsFresh` bypasses the cache for that run without putting `--fresh` on `process.argv`, and the flag is cleared when the run finishes. `PARLAY_SLATE_NO_ANIM` set to anything other than `0` holds a still logo.
+
 ## 2026-11-20T00:35:31Z
 
 ### The Odds API is no longer called

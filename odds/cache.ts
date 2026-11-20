@@ -206,6 +206,7 @@ export type SavedOddsDay = {
 };
 
 let replayDay: string | null = null;
+let oddsFresh = false;
 let catalog: Promise<CacheRecord[]> | null = null;
 let catalogDir: string | null = null;
 
@@ -218,12 +219,17 @@ export function oddsReplayDay() {
   return replayDay;
 }
 
+/** Ignore odds-cache until this is set back to false. A direct `--fresh` argument and `ODDS_CACHE=0` still bypass on their own. */
+export function setOddsFresh(fresh: boolean) {
+  oddsFresh = fresh;
+}
+
 function cacheDir() {
   return process.env.ODDS_CACHE_DIR || fileURLToPath(new URL('../odds-cache/', import.meta.url));
 }
 
-function cacheBypass() {
-  return process.argv.includes('--fresh') || process.env.ODDS_CACHE === '0';
+export function cacheBypass() {
+  return oddsFresh || process.argv.includes('--fresh') || process.env.ODDS_CACHE === '0';
 }
 
 function maxAgeMs() {

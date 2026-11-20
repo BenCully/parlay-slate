@@ -172,11 +172,19 @@ test('start args accept model before or after the day', () => {
     day: '2026-11-15',
     model: 'tail-jev',
     odds: undefined,
+    fresh: false,
   });
   assert.deepEqual(readStartArgs(['model=autojev', 'odds=2026-11-15']), {
     day: undefined,
     model: 'autojev',
     odds: '2026-11-15',
+    fresh: false,
+  });
+  assert.deepEqual(readStartArgs(['--fresh', 'model=jev']), {
+    day: undefined,
+    model: 'jev',
+    odds: undefined,
+    fresh: true,
   });
   assert.throws(() => readStartArgs(['odds=2026-11-15', '--fresh']), /fresh/);
   assert.throws(() => readStartArgs(['odds=2026-11-15', '2026-11-16']), /not both/);
