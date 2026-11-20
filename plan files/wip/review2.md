@@ -90,6 +90,7 @@ YYYY-MM-DDTHH:MM:SSZ  ID  Status  What changed, or why it stopped
 2026-11-20T19:06:54Z  R2-15  Done  A path in QUOTA_LOG warns once and is still used.
 2026-11-20T19:06:54Z  R2-16  Done  NHL, NBA, MLB, and Formula 1 say the first game still ahead.
 2026-11-20T19:06:54Z  R2-17  Done  review.md names 455ec7e. PR #5 has no alt-screen sentence to replace.
+2026-11-20T19:09:45Z  R2-1  Done  Committed with the rest of this review as 8d368c5.
 
 ---
 
