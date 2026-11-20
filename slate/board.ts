@@ -58,7 +58,7 @@ function cacheSentence(cachedAt: string | null, fanduelBoard: boolean) {
     return `${when} npm start -- --fresh reads ${label} again.`;
   }
   if (fanduelBoard) return `${when} npm start -- --fresh reads FanDuel again.`;
-  return `${when} npm start -- --fresh spends credits on new lines.`;
+  return `${when} These lines were saved from The Odds API. A run without that source reads the books.`;
 }
 
 function withCache(note: string | undefined, cachedAt: string | null, fanduelNote?: string) {
@@ -70,15 +70,14 @@ function withCache(note: string | undefined, cachedAt: string | null, fanduelNot
 }
 
 async function getLegs(oddsKey: string, from: string, to: string, threeWay: boolean, outright: boolean): Promise<{ legs: Leg[]; cachedAt: string | null; omitted: string[] }> {
-  const url = `https://api.the-odds-api.com/v4/sports/${oddsKey}/odds?apiKey=${process.env.ODDS_API_KEY}` +
-    `&regions=us&markets=h2h,spreads,totals&oddsFormat=american&commenceTimeFrom=${from}&commenceTimeTo=${to}`;
+  const url = `https://api.the-odds-api.com/v4/sports/${oddsKey}/odds` +
+    `?regions=us&markets=h2h,spreads,totals&oddsFormat=american&commenceTimeFrom=${from}&commenceTimeTo=${to}`;
   const result = await oddsGet(url);
   const body = result.body;
   if (!Array.isArray(body)) throw new Error('Odds API returned an unexpected payload.');
   const label = oddsSourceLabel(oddsRequestSource(url));
   if (result.cached) console.log(`Odds cache hit for ${oddsKey} (${ageLabel(result.savedAt)}).`);
-  else if (label && oddsRequestSource(url) !== 'the-odds-api') console.log(`Fetched ${oddsKey} odds from ${label}.`);
-  else console.log(`Fetched ${oddsKey} odds.${result.remaining == null ? '' : ` Credits remaining: ${result.remaining}.`}`);
+  else console.log(`Fetched ${oddsKey} odds from ${label}.`);
   const legs = body.flatMap((game) => {
     if (!oddsReplayDay() && Date.parse(game.commence_time) <= Date.now()) return [];
     const books = game.bookmakers;

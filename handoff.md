@@ -1,6 +1,6 @@
 # Direct odds sources — handoff
 
-`ODDS_SOURCE=fanduel` reads FanDuel instead of The Odds API. `draftkings`, `betmgm`, and `caesars` do the same for those Illinois sportsbooks. `books` reads all four and puts each book on `bookmakers`, so `postedMarket` still prefers FanDuel, then DraftKings, then BetMGM, then Caesars. No Odds API key and no credits for any of those. Set the name in `.env`. `.env.example` documents it. The Odds API stays the default until the exit checklist in `DIRECT-BOOKS.md` is true. Formula 1 stays on FanDuel even when the source is `books`.
+`ODDS_SOURCE=fanduel` reads FanDuel instead of The Odds API. `draftkings`, `betmgm`, and `caesars` do the same for those Illinois sportsbooks. `books` reads all four and puts each book on `bookmakers`, so `postedMarket` still prefers FanDuel, then DraftKings, then BetMGM, then Caesars. No Odds API key and no credits for any of those. Set the name in `.env`. `.env.example` documents it. Leave `ODDS_SOURCE` unset and the run reads all four. The live Odds API call is gone. `ODDS_SOURCE=the-odds-api` only replays files saved before that. Formula 1 stays on FanDuel.
 
 ## What FanDuel does
 

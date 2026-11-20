@@ -216,14 +216,15 @@ test('a top-8 cut is not described as a failed 0.60 gate', () => {
   assert.doesNotMatch(droppedCall(null, 'gate'), /clears 0\.60/);
 });
 
-test('keys are required before a run, and a replay does not need the odds key', () => {
+test('keys are required before a run, and the odds key is not one of them', () => {
   withEnv({
     ODDS_API_KEY: undefined,
+    ODDS_SOURCE: undefined,
     TYPESAFE_API_KEY: 'present',
     AUTOJEV_URL: 'http://example.test',
     AUTOJEV_API_KEY: 'present',
   }, () => {
-    assert.throws(() => requireRunKeys('jev', false), /ODDS_API_KEY/);
+    requireRunKeys('jev', false);
     requireRunKeys('jev', true);
   });
   withEnv({ ODDS_API_KEY: 'present', TYPESAFE_API_KEY: undefined }, () => {
@@ -423,9 +424,11 @@ test('family lookup skips an empty slate when a fresh sibling has games', async 
   const previousHours = process.env.ODDS_CACHE_HOURS;
   const previousCache = process.env.ODDS_CACHE;
   const original = globalThis.fetch;
+  const previousSource = process.env.ODDS_SOURCE;
   process.env.ODDS_CACHE_DIR = dir;
   process.env.ODDS_CACHE_HOURS = '24';
   process.env.ODDS_CACHE = '1';
+  process.env.ODDS_SOURCE = 'the-odds-api';
   setOddsReplay(null);
   globalThis.fetch = async () => {
     throw new Error('odds fetch should not run');
@@ -469,6 +472,8 @@ test('family lookup skips an empty slate when a fresh sibling has games', async 
     else process.env.ODDS_CACHE_HOURS = previousHours;
     if (previousCache == null) delete process.env.ODDS_CACHE;
     else process.env.ODDS_CACHE = previousCache;
+    if (previousSource == null) delete process.env.ODDS_SOURCE;
+    else process.env.ODDS_SOURCE = previousSource;
     await rm(dir, { recursive: true, force: true });
   }
 });
@@ -513,10 +518,12 @@ test('a cached odds body with the wrong shape throws and does not fetch', async 
   const dir = await mkdtemp(`${tmpdir()}/parlay-odds-`);
   const previousDir = process.env.ODDS_CACHE_DIR;
   const previousCache = process.env.ODDS_CACHE;
+  const previousSource = process.env.ODDS_SOURCE;
   const original = globalThis.fetch;
   let fetched = 0;
   process.env.ODDS_CACHE_DIR = dir;
   process.env.ODDS_CACHE = '1';
+  process.env.ODDS_SOURCE = 'the-odds-api';
   setOddsReplay(null);
   globalThis.fetch = async () => {
     fetched += 1;
@@ -534,6 +541,8 @@ test('a cached odds body with the wrong shape throws and does not fetch', async 
     else process.env.ODDS_CACHE_DIR = previousDir;
     if (previousCache == null) delete process.env.ODDS_CACHE;
     else process.env.ODDS_CACHE = previousCache;
+    if (previousSource == null) delete process.env.ODDS_SOURCE;
+    else process.env.ODDS_SOURCE = previousSource;
     await rm(dir, { recursive: true, force: true });
   }
 });
@@ -848,7 +857,11 @@ test('replay commands override a different active source', () => {
     assert.equal(oddsReplayCommand('2026-11-17', 'fanduel', 'tail-jev'), 'npm start -- odds=2026-11-17 model=tail-jev');
   });
   withEnv({ ODDS_SOURCE: undefined }, () => {
-    assert.equal(oddsReplayCommand('2026-11-17', 'the-odds-api', 'jev'), 'npm start -- odds=2026-11-17 model=jev');
+    assert.equal(
+      oddsReplayCommand('2026-11-17', 'the-odds-api', 'jev'),
+      'ODDS_SOURCE=the-odds-api npm start -- odds=2026-11-17 model=jev',
+    );
+    assert.equal(oddsReplayCommand('2026-11-17', 'books', 'jev'), 'npm start -- odds=2026-11-17 model=jev');
     assert.equal(
       oddsReplayCommand('2026-11-17', 'fanduel', 'jev'),
       'ODDS_SOURCE=fanduel npm start -- odds=2026-11-17 model=jev',
@@ -890,18 +903,16 @@ test('a replay miss names the source, and a live save updates the day list', asy
       assert.doesNotMatch(error.message, /ODDS_SOURCE=/);
       return true;
     });
-    delete process.env.ODDS_SOURCE;
+    process.env.ODDS_SOURCE = 'the-odds-api';
     const replay = await oddsGet(savedUrl);
     assert.equal(replay.cached, true);
     assert.ok(Array.isArray(replay.body));
     assert.equal(replay.body[0]?.id, 'odds-api');
     setOddsReplay(null);
-    await listSavedOdds();
-    const live = await oddsGet(liveUrl);
-    assert.equal(live.cached, false);
+    await assert.rejects(oddsGet(liveUrl), /no longer called/);
     const days = await listSavedOdds();
     const nhl = days.flatMap((day) => day.slates).find((slate) => slate.sport === 'icehockey_nhl');
-    assert.equal(nhl?.games, 1);
+    assert.equal(nhl, undefined);
   } finally {
     globalThis.fetch = original;
     setOddsReplay(null);
@@ -978,11 +989,13 @@ test('a live odds response writes a quota line without the url or the key', asyn
   const previousLog = process.env.QUOTA_LOG;
   const previousDir = process.env.ODDS_CACHE_DIR;
   const previousCache = process.env.ODDS_CACHE;
+  const previousSource = process.env.ODDS_SOURCE;
   const original = globalThis.fetch;
   const log = `${dir}/quota.jsonl`;
   process.env.QUOTA_LOG = log;
   process.env.ODDS_CACHE_DIR = dir;
   process.env.ODDS_CACHE = '1';
+  process.env.ODDS_SOURCE = 'the-odds-api';
   setOddsReplay(null);
   const slate = 'https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds?apiKey=secret-key&regions=us&markets=h2h';
   const prop = 'https://api.the-odds-api.com/v4/sports/icehockey_nhl/events/evt-9/odds?apiKey=secret-key&regions=us&markets=player_goal_scorer_anytime';
@@ -1011,22 +1024,16 @@ test('a live odds response writes a quota line without the url or the key', asyn
     assert.equal(JSON.stringify(shaped).includes('http'), false);
     assert.equal(JSON.stringify(shaped).includes('apiKey'), false);
 
-    const live = await oddsGet(slate);
-    assert.equal(live.cached, false);
-    assert.equal(live.remaining, 42);
+    await assert.rejects(oddsGet(slate), /no longer called/);
     await writeOdds(dir, prop, new Date().toISOString(), game);
     const cached = await oddsGet(prop);
     assert.equal(cached.cached, true);
     const lines = (await readFile(log, 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as { sport: string; event?: string; source: string; remaining: number | null });
-    assert.equal(lines.length, 2);
-    assert.equal(lines[0]?.sport, 'americanfootball_nfl');
-    assert.equal(lines[0]?.event, undefined);
-    assert.equal(lines[0]?.source, 'live');
-    assert.equal(lines[0]?.remaining, 42);
-    assert.equal(lines[1]?.sport, 'icehockey_nhl');
-    assert.equal(lines[1]?.event, 'evt-9');
-    assert.equal(lines[1]?.source, 'cached');
-    assert.equal(lines[1]?.remaining, null);
+    assert.equal(lines.length, 1);
+    assert.equal(lines[0]?.sport, 'icehockey_nhl');
+    assert.equal(lines[0]?.event, 'evt-9');
+    assert.equal(lines[0]?.source, 'cached');
+    assert.equal(lines[0]?.remaining, null);
     const text = await readFile(log, 'utf8');
     assert.equal(text.includes('secret-key'), false);
     assert.equal(text.includes('apiKey'), false);
@@ -1041,6 +1048,8 @@ test('a live odds response writes a quota line without the url or the key', asyn
     else process.env.ODDS_CACHE_DIR = previousDir;
     if (previousCache == null) delete process.env.ODDS_CACHE;
     else process.env.ODDS_CACHE = previousCache;
+    if (previousSource == null) delete process.env.ODDS_SOURCE;
+    else process.env.ODDS_SOURCE = previousSource;
     await rm(dir, { recursive: true, force: true });
   }
 });
@@ -1132,6 +1141,10 @@ test('Formula 1 prices stay on FanDuel when the run uses The Odds API', async ()
       assert.equal(oddsRequestSource(url), 'fanduel');
     });
     assert.equal(oddsRequestSource('https://api.the-odds-api.com/v4/sports/icehockey_nhl/odds'), 'the-odds-api');
+    withEnv({ ODDS_SOURCE: undefined }, () => {
+      assert.equal(oddsRequestSource('https://api.the-odds-api.com/v4/sports/icehockey_nhl/odds'), 'books');
+      assert.equal(oddsRequestSource(url), 'fanduel');
+    });
     const { hash, request } = oddsRequestKey(url);
     await writeFile(`${dir}/${oddsCacheName(hash, 'fanduel')}`, `${JSON.stringify({
       savedAt: new Date().toISOString(),

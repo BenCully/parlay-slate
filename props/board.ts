@@ -227,10 +227,10 @@ export type PropProfile = {
   featureExtra: (option: { market: string; ref: PlayerRef }, featured: Set<string>) => boolean;
 };
 
-async function fetchEvent(eventId: string, apiKey: string, profile: PropProfile, cacheOnly: boolean) {
+async function fetchEvent(eventId: string, profile: PropProfile, cacheOnly: boolean) {
   const url = `https://api.the-odds-api.com/v4/sports/${profile.sport}/events/${eventId}/odds` +
     `?regions=us&oddsFormat=american&markets=${profile.markets.join(',')}`;
-  const result = await oddsGet(url, { headers: { 'x-api-key': apiKey } }, { cacheOnly });
+  const result = await oddsGet(url, undefined, { cacheOnly });
   if (result.skipped) return { skipped: true as const };
   if (!result.body || Array.isArray(result.body)) throw new Error('Odds API returned an unexpected payload.');
   return {
@@ -281,8 +281,6 @@ function thingFor(info: MarketInfo, side: SideName) {
 }
 
 export async function loadPropBoard(games: SlateGame[], profile: PropProfile) {
-  const apiKey = process.env.ODDS_API_KEY;
-  if (!apiKey && !isDirectOddsSource()) throw new Error('ODDS_API_KEY is not set.');
   const notes: string[] = [];
   let remaining: number | null = null;
   let cachedGames = 0;
@@ -303,7 +301,7 @@ export async function loadPropBoard(games: SlateGame[], profile: PropProfile) {
   const events = await mapPool(games, 3, async (game) => {
     const cacheOnly = remaining != null && remaining < floor;
     try {
-      const result = await fetchEvent(game.eventId, apiKey ?? '', profile, cacheOnly);
+      const result = await fetchEvent(game.eventId, profile, cacheOnly);
       if (result.skipped) {
         skipped += 1;
         return { game, books: [] as OddsBook[], error: '', skipped: true };
@@ -373,7 +371,7 @@ export async function loadPropBoard(games: SlateGame[], profile: PropProfile) {
       ? `${cachedGames} of ${games.length} prop boards used odds saved on ${replay}.`
       : isDirectOddsSource(source)
         ? `${cachedGames} of ${games.length} prop boards used cached ${label} prices. npm start -- --fresh reads ${label} again.`
-        : `${cachedGames} of ${games.length} prop boards used cached Odds API prices. npm start -- --fresh spends credits on new lines.`);
+        : `${cachedGames} of ${games.length} prop boards used saved Odds API prices. A run without that source reads the books.`);
   }
   return {
     claims,

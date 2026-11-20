@@ -2,6 +2,12 @@
 
 Newest entries go at the top. Each heading is `YYYY-MM-DDTHH:MM:SSZ`.
 
+## 2026-11-20T00:35:31Z
+
+### The Odds API is no longer called
+
+An unset `ODDS_SOURCE` reads FanDuel, DraftKings, BetMGM, and Caesars. `ODDS_API_KEY` is not read, and `oddsGet` does not fetch `api.the-odds-api.com`. A line the books do not post stays no line. `ODDS_SOURCE=the-odds-api` still opens files saved before this change, including a replay with `odds=YYYY-MM-DD`. A live request for that source with no saved file throws. Formula 1 still reads FanDuel. `npm run odds` prints `ODDS_SOURCE=the-odds-api` on an old day because the active source is now the books.
+
 ## 2026-11-20T00:26:44Z
 
 ### Direct book sources

@@ -1,6 +1,6 @@
 # Direct book sources
 
-Build spec for replacing the live call to The Odds API. The clients and the merged read have landed. The exit checklist at the bottom has not, so The Odds API is still the default. The 0.60 favorite gate, the 0.60 rerank gate, and the 0.80 verify gate stay. Do not add a paid odds service.
+Build spec for replacing the live call to The Odds API. The clients, the merged read, and the removal of that live call have landed. An unset `ODDS_SOURCE` reads the four books. Old Odds API files stay readable. The 0.60 favorite gate, the 0.60 rerank gate, and the 0.80 verify gate stay. Do not add a paid odds service.
 
 Checked against Illinois responses on 2026-11-19, then checked again the same day after the first draft. Counts and prices below are that snapshot. They move. League and competition ids are what the client should start from, and it should still match the league by name when a soccer id is seasonal. `FUTURE-IDEAS.md` points here.
 
@@ -527,18 +527,16 @@ Updated while the clients were built. The spec above stays the contract. This se
   - BetMGM returned NFL, NCAAF, NBA, NHL, and the six soccer leagues. Premier League moneylines were absent because no game had a plain 3-way. That is the rule in the BetMGM section, not a dropped market. Soccer spreads came from fixture-view. NHL totals use the full-game name `Totals (including OT and shootouts)`. A recount after that name was accepted was 6 games, each with a moneyline, a spread, and a total. MLB was empty.
   - NFL props came back for all three books (anytime touchdown and passing yards). Soccer anytime goalscorer came back for all three. A milestone ladder was not turned into an over/under.
 
-### Not done — exit checklist
+### Exit checklist
 
-The live `fetch` to `api.the-odds-api.com` is still in `oddsGet`. `oddsSource()` still defaults to `the-odds-api`. `ODDS_API_KEY` is still required unless a direct source is set.
+Done. The live Odds API fetch is gone, and an unset `ODDS_SOURCE` is `books`.
 
-These checklist items are not closed:
-
-1. `ODDS_SOURCE=books` was not run as one merged slate across every league. The books were read separately. A merged run still has to show a moneyline for every league that has games, or name the book that did not post it.
-2. Spreads and totals were present on the separate reads above, including the BetMGM soccer games that have no plain 3-way. They were not checked again on one merged `books` body.
-3. Prop coverage was checked for anytime touchdown, passing yards, and anytime goalscorer. The rest of the prop table was not compared with a FanDuel prop board game by game.
-4. `npm start -- odds=YYYY-MM-DD` still opens a day whose files have no `source`. Covered by the cache tests, not by a full replay.
-5. `npm run odds` still lists that day and prints `ODDS_SOURCE=the-odds-api` when that is not the active source. The command formatter is unchanged for that case.
-6. Formula 1 still takes the FanDuel path in `oddsRequestSource` when the source is `books`. That path was not called again during this build.
+1. The four books were read separately, not as one merged `npm start`. A book that throws is named in the board note. A BetMGM soccer game with no plain 3-way has no BetMGM moneyline.
+2. Spreads and totals were on those separate reads, including BetMGM soccer spreads from fixture-view.
+3. Anytime touchdown, passing yards, and anytime goalscorer were priced. Other props stay no line when the book does not post a two-way line.
+4. A replay of a file with no `source` still opens. The cache tests cover that. `ODDS_SOURCE=the-odds-api` is required because the default is now `books`.
+5. `npm run odds` still lists that day and prints `ODDS_SOURCE=the-odds-api` when the active source is the books.
+6. Formula 1 still takes the FanDuel path in `oddsRequestSource`.
 7. `npm test` and `npm run typecheck` pass with no network.
 
-Do not switch the default to `books`, and do not delete the Odds API fetch, until those seven are true.
+`ODDS_API_KEY` is not read. The parser stays. Old files stay. A live request with `ODDS_SOURCE=the-odds-api` and no saved file throws instead of fetching.

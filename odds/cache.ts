@@ -1,6 +1,6 @@
 // Disk cache for odds responses. The key is the request path with apiKey removed.
-// The Odds API keeps that hash as the file name. Any other source adds its id as a prefix so it does not replace a paid save.
-// A hit does not call the network and does not spend a credit.
+// Old Odds API files keep that hash as the file name. Any other source adds its id as a prefix.
+// A hit does not call the network. The live Odds API is not called.
 // A slate whose kickoff window moved still counts as a hit until ODDS_CACHE_HOURS.
 // An empty slate loses that lookup while a non-empty sibling is still fresh.
 // The empty file is used when it is the only fresh one. An exact request hash still wins.
@@ -40,17 +40,19 @@ export function resetMergedBooks() {
   mergedHealth.clear();
 }
 
-/** Which price source filled the record. An unknown id stays on The Odds API. */
+/** Which price source fills a live run. Unset is the four books. `the-odds-api` only reads old saves. */
 export function oddsSource() {
-  const value = process.env.ODDS_SOURCE;
-  return value && DIRECT_SOURCES.has(value) ? value : 'the-odds-api';
+  const value = process.env.ODDS_SOURCE?.trim() ?? '';
+  if (!value) return 'books';
+  if (DIRECT_SOURCES.has(value) || value === 'the-odds-api') return value;
+  throw new Error(`Unknown ODDS_SOURCE "${value}". Use books, fanduel, draftkings, betmgm, or caesars.`);
 }
 
 export function isDirectOddsSource(source = oddsSource()) {
   return source !== 'the-odds-api';
 }
 
-/** Formula 1 is posted on FanDuel only. That sport keeps FanDuel prices when the run uses The Odds API. */
+/** Formula 1 is posted on FanDuel only. That sport keeps FanDuel prices for every source, including an old Odds API replay. */
 export function oddsRequestSource(url: string) {
   let sport = '';
   try {
@@ -510,7 +512,7 @@ async function readDirect(source: string, url: string) {
 
 const READER_COUNT = 4;
 
-export async function oddsGet(url: string, init?: RequestInit, options?: { cacheOnly?: boolean }): Promise<OddsResponse> {
+export async function oddsGet(url: string, _init?: RequestInit, options?: { cacheOnly?: boolean }): Promise<OddsResponse> {
   const source = oddsRequestSource(url);
   const identity = oddsRequestKey(url);
   if (replayDay) {
@@ -549,32 +551,5 @@ export async function oddsGet(url: string, init?: RequestInit, options?: { cache
     });
     return { body, remaining: null, cached: false, savedAt, ...(fetched.omitted.length ? { omitted: fetched.omitted } : {}) };
   }
-  let res: Response;
-  try {
-    res = await fetch(url, { ...init, signal: AbortSignal.timeout(30_000) });
-  } catch (error) {
-    const name = error instanceof Error ? error.name : '';
-    if (name === 'TimeoutError' || name === 'AbortError') throw new Error('Odds API timed out.');
-    throw new Error('Odds API did not answer.');
-  }
-  const remainingHeader = res.headers.get('x-requests-remaining');
-  const remaining = remainingHeader == null || remainingHeader === '' ? null : Number(remainingHeader);
-  const credits = Number.isFinite(remaining) ? remaining : null;
-  await appendQuota(quotaEntry(identity.request, 'live', credits));
-  const raw = await res.json() as unknown;
-  if (!res.ok) {
-    const failed = raw && typeof raw === 'object' ? raw as { message?: unknown; error?: unknown } : {};
-    const message = textOf(failed.message) || textOf(failed.error) || res.statusText;
-    throw new Error(`Odds API ${res.status}: ${message}`);
-  }
-  const body = parseOddsBody(raw);
-  const savedAt = new Date().toISOString();
-  await store(file, {
-    savedAt,
-    remaining: credits,
-    body: raw,
-    request: identity.request,
-    source: 'the-odds-api',
-  });
-  return { body, remaining: credits, cached: false, savedAt };
+  throw new Error('The Odds API is no longer called. Leave ODDS_SOURCE unset to read the books, or replay a saved day with ODDS_SOURCE=the-odds-api npm start -- odds=YYYY-MM-DD.');
 }

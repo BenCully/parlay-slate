@@ -1,5 +1,5 @@
 // Builds every sport in sports/index.ts, saves runs/last-run.json and a snapshot, and opens the screen.
-// env: TYPESAFE_API_KEY, ODDS_API_KEY, plus cache settings in .env.settings
+// env: TYPESAFE_API_KEY, plus cache settings in .env.settings. Prices come from the books.
 // run: npm start                              current slate, games that have not kicked off
 //      npm start -- 2026-11-15                one Eastern calendar day
 //      npm start -- 2026-11-15 model=jev      TypeSafe through jev-recipes (also the default)
