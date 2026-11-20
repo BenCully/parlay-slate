@@ -64,6 +64,12 @@ export function takeEvents(input: Buffer): { pending: Buffer; events: InputEvent
       pending = pending.subarray(1);
       continue;
     }
+    // Alt+key is one event. No screen binds it, so it is ignored. A lone Esc waits for the timer.
+    if (pending.length >= 2 && pending[1] !== 0x5b && pending[1] !== 0x4f) {
+      events.push({ key: `\x1b${String.fromCharCode(pending[1]!)}` });
+      pending = pending.subarray(2);
+      continue;
+    }
     if (pending.length < 3) break;
     if (pending[1] === 0x5b && pending[2] === 0x3c) {
       const text = pending.toString('utf8');

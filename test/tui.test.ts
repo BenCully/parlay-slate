@@ -11,6 +11,7 @@ import {
   applyPrefill,
   commandPreview,
   defaultForm,
+  formFromSettings,
   formIssues,
   persistsForm,
   settleForm,
@@ -19,7 +20,7 @@ import {
 } from '../ui/tui/commands.js';
 import { pickLogo, SMALL, STANDARD } from '../ui/tui/logo.js';
 import { createUi, headerLine, hintFor, layoutScreen, reduceForm, type UiState } from '../ui/tui/options.js';
-import { loadTuiSettings, parseSettings, saveTuiSettings } from '../ui/tui/settings.js';
+import { loadTuiSettings, parseSettings, saveTuiSettings, type TuiSettings } from '../ui/tui/settings.js';
 import { createSplashPlayer, planSplash, sliceLogo, splashKeyAction, visibleColumns } from '../ui/tui/splash.js';
 import { takeEvents } from '../ui/term.js';
 
@@ -366,6 +367,29 @@ test('mouse reports stay mouse reports when a click is split', () => {
 
   const typed = takeEvents(Buffer.from('q1'));
   assert.deepEqual(typed.events.map((event) => event.key), ['q', '1']);
+
+  const alt = takeEvents(Buffer.from('\x1bq'));
+  assert.deepEqual(alt.events.map((event) => event.key), ['\x1bq']);
+  assert.equal(alt.pending.length, 0);
+  assert.equal(reduceForm(createUi(form()), { type: 'key', key: '\x1bq' }, ctx()).effect.type, 'none');
+});
+
+test('a saved Eastern day in the past returns to today', () => {
+  const settings: TuiSettings = {
+    version: 1,
+    action: 'start',
+    dateMode: 'day',
+    day: '2026-11-18',
+    model: 'jev',
+    oddsSource: 'books',
+    fresh: false,
+  };
+  const past = formFromSettings(settings, '2026-11-20');
+  assert.equal(past.day, '2026-11-20');
+  assert.equal(past.dateMode, 'current');
+  const later = formFromSettings({ ...settings, day: '2026-11-22' }, '2026-11-20');
+  assert.equal(later.day, '2026-11-22');
+  assert.equal(later.dateMode, 'day');
 });
 
 test('npm run tui without a terminal exits 1', async () => {

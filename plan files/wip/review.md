@@ -35,48 +35,48 @@ Each ID matches the tag in that finding's heading below.
 
 | ID | Sev | Finding | Status | Change | Check | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| PR-1 | High | Ctrl-C during the splash doesn't exit | Done | `ui/tui/splash.ts`, `ui/tui/launch.ts`, `test/screen.test.ts`, `test/tui.test.ts`. Not committed. | `npm test` 68/68, `npm run typecheck` clean. Splash test asserts exit 130. tui-test 0.1.1 does not report a `run()` code, so a wrapper writes the child's code. | |
-| PR-2 | High | Clear snapshots is two Enters away | Done | `ui/tui/options.ts`, `test/tui.test.ts`. Not committed. | Same run as PR-1. Enter, Enter stays `effect: none` and `confirm: false`. Tab, Enter and `y` `e` `s` Enter return `clear`. | Hint now says to type yes or tab to Yes. |
-| PR-3 | Low | PR description: "one alt-screen session" | Blocked | | | `gh` is installed and logged in as BenCully. `gh pr list` shows no open pull request, and no pull request for `clickability`. The replacement sentence is in the work log. |
-| PR-4 | Medium | `q` inside a dialog quits the launcher | Done | `ui/tui/options.ts`, `test/tui.test.ts`. Not committed. | Same run as PR-1. `q` closes the picker and the confirm. Header x still returns `quit`. | |
-| PR-5 | Low | Saved Eastern day goes stale | Open | | | |
-| PR-6 | Low | Alt-key press waits for the next key | Open | | | |
-| PR-7 | Low | Ctrl-C during a launcher run leaves the lock | Open | | | Optional |
-| PR-8 | Low | Screen can flash between the splash and options | Open | | | Optional |
-| B-1 | Medium | Gate and ticket pipeline has no test | Open | | | Land before the board fixes |
-| B-2 | Medium | `Take` printed under 0.80 | Done | `slate/board.ts`, `props/board.ts`, `AGENTS.md`, `README.md`, `test/pure.test.ts`. Not committed. | `npm test` 78/78, `npm run typecheck` clean. Review moneyline is `Lean Chiefs -150`. Ready stays `Take`. A contradicted spread under 0.80 is `Lean Bills +3.5`. | Ben chose Lean. `Lean` is the same width as `Take`. A save already written keeps its stored slip. |
-| B-3 | Low | `readStartArgs` treats a stray word as the date | Done | `decisions/judge.ts`, `test/pure.test.ts`. Not committed. | `npm test` 78/78, `npm run typecheck` clean. | A `.json` path is still a view file, so `npm run tui -- path.json` keeps working. |
-| B-4 | Low | `requireRunKeys` unused parameter | Done | `decisions/judge.ts`, `scripts/parlays.ts`, `test/pure.test.ts`. Not committed. | Same run as B-3. | |
-| B-5 | Low | `teamShorts` module-level state | Open | | | |
-| B-6 | Low | Favorite gate includes the vig | Open | | | Docs only |
-| S-1 | Medium | `scrubError` only strips `apiKey=` | Open | | | |
-| S-2 | Low | `writeAtomic` defined twice | Done | `scripts/snapshot.ts`, `scripts/parlays.ts`. Not committed. | Same run as B-3. | |
-| S-3 | Low | Run lock is a pid file | Open | | | Optional |
-| W-1 | Medium | `scoreboardEvents` bad JSON throws | Done | `slate/window.ts`, `test/pure.test.ts`. Not committed. | Same run as B-3. HTML body returns `stamps: []`. | |
-| C-1 | Low | CI Node version doesn't match local | Open | | | |
-| C-2 | Low | Pseudoterminal tests unconfirmed on Linux CI | Open | | | Check the PR's Check run |
-| P-1 | High | Extra prop picks a tiny under or an off-block player | Done | `props/board.ts`, `sports/soccer/index.ts`, `test/pure.test.ts`. Not committed. | Same run as B-3. | Non-soccer extras must be featured and at least 0.60. The missing-row copy already says there is no other short-priced prop. Soccer still falls through. |
-| P-2 | Medium | Tiny-under filters miss rare stats | Done | `sports/basketball/index.ts`, `sports/baseball/index.ts`, `sports/hockey/index.ts`, `test/pure.test.ts`. Not committed. | Same run as B-3. | |
-| P-3 | Medium | No ESPN concurrency limit | Open | | | |
-| P-4 | Medium | NFL, NCAA, and soccer windows copied, keep finished games | Open | | | |
-| O-1 | High | FanDuel props never read in a merged run | Done | `odds/direct.ts`, `odds/fanduel.ts`, `odds/draftkings.ts`, `odds/betmgm.ts`, `odds/caesars.ts`, `test/pure.test.ts`. Not committed. | `npm test` 69/69, `npm run typecheck` clean. `bookEventId` covers a combined id, a plain id, an empty FanDuel part, and an encoded id. Empty FanDuel part makes no fetch. | Also covers the combined-id half of O-L3. |
-| O-2 | High | Merged props read keeps one book's event | Done | `odds/direct.ts`, `test/pure.test.ts`. Not committed. | Same run as B-3. FanDuel and DraftKings props both come back when the names differ. | |
-| O-3 | High | Dated run can show another day's games | Done | `odds/cache.ts`, `AGENTS.md`, `README.md`, `test/pure.test.ts`. Not committed. | Same run as B-3. An 11-22 `cacheOnly` read of an 11-21 save is `skipped`. | |
-| O-4 | High | Partial and empty merged reads cached 168 hours | Done | `odds/cache.ts`, `test/pure.test.ts`. Not committed. | Same run as B-3. A partial file 31 minutes old is `skipped`. The same file 5 minutes old hits. | |
-| O-5 | High | BetMGM puts every baseball league in MLB | Done | `odds/betmgm.ts`, `test/pure.test.ts`. Not committed. | Same run as B-3. MLB name kept, LIDOM dropped. | No `betmgm-` baseball file in `odds-cache/`, so the filter is competition name `MLB` until an id can be read in season. |
-| O-6 | Medium | In-memory book caches never expire | Done | `odds/draftkings.ts`, `odds/betmgm.ts`, `odds/direct.ts`, `scripts/parlays.ts`, `test/pure.test.ts`. Not committed. | Same run as PR-1. Second DraftKings read does not fetch; after `resetBookReads` it does. BetMGM session and caches drop to empty. Spread copy does not mutate the cached fixture. | FanDuel and Caesars keep no in-memory price cache, so `resetBookReads` only clears DraftKings, BetMGM, and `resetMergedBooks`. |
-| O-7 | Medium | Doubleheader merges into one game | Open | | | |
-| O-8 | Medium | One-sided market beats a complete one | Done | `odds/books.ts`, `slate/board.ts`, `test/pure.test.ts`. Not committed. | Same run as B-3. A one-outcome FanDuel moneyline loses to a two-outcome DraftKings line. | |
-| O-9 | Medium | `pickBalanced` prefers an alternate line | Done | `odds/fanduel.ts`, `test/pure.test.ts`. Not committed. | Same run as B-3. `-110/-110` beats `+100/-125`. | |
-| O-10 | Medium | Spread pairing drops PK and self-pairs | Done | `odds/lines.ts`, `test/pure.test.ts`. Not committed. | Same run as B-3. | |
-| O-11 | Medium | FanDuel bypasses the shared HTTP code | Open | | | |
-| O-L1 | Low | BetMGM curl arguments | Open | | | |
-| O-L2 | Low | Caesars `dataPath` unchecked | Open | | | |
-| O-L3 | Low | Duplicated odds code | Partial | Combined-id parsing now uses `bookEventId` (O-1). | | Placeholder events and FanDuel's own price parser are still open. |
-| O-L4 | Low | Odds type-safety holes | Open | | | |
-| O-L5 | Low | `QUOTA_LOG` doubles as a path | Open | | | |
-| O-L6 | Low | Dead code | Open | | | |
-| O-L7 | Low | Caesars spread sign unverified | Open | | | Needs a saved Caesars file |
+| PR-1 | High | Ctrl-C during the splash doesn't exit | Done | `ui/tui/splash.ts`, `ui/tui/launch.ts`, `test/screen.test.ts`, `test/tui.test.ts`. 455ec7e. | `npm test` 68/68, `npm run typecheck` clean. Splash test asserts exit 130. tui-test 0.1.1 does not report a `run()` code, so a wrapper writes the child's code. | |
+| PR-2 | High | Clear snapshots is two Enters away | Done | `ui/tui/options.ts`, `test/tui.test.ts`. 455ec7e. | Same run as PR-1. Enter, Enter stays `effect: none` and `confirm: false`. Tab, Enter and `y` `e` `s` Enter return `clear`. | Hint now says to type yes or tab to Yes. |
+| PR-3 | Low | PR description: "one alt-screen session" | Done | PR #5 description. 2026-11-20. | The current body does not contain the alt-screen sentence. It describes the direct-book read, so there was no sentence to replace. | |
+| PR-4 | Medium | `q` inside a dialog quits the launcher | Done | `ui/tui/options.ts`, `test/tui.test.ts`. 455ec7e. | Same run as PR-1. `q` closes the picker and the confirm. Header x still returns `quit`. | |
+| PR-5 | Low | Saved Eastern day goes stale | Done | `ui/tui/commands.ts`, `test/tui.test.ts`. 455ec7e. | `npm test` 89/89, `npm run typecheck` clean. A saved day before today opens on Current. A later day stays. | |
+| PR-6 | Low | Alt-key press waits for the next key | Done | `ui/term.ts`, `test/tui.test.ts`. 455ec7e. | Same run as PR-5. `\x1bq` is escape, then q. | |
+| PR-7 | Low | Ctrl-C during a launcher run leaves the lock | Done | `scripts/parlays.ts`. 455ec7e. | Same run as PR-5. The handler is removed before the slate screen. | Optional. Ctrl-C during the walk removes `runs/slate.lock` and exits 130. |
+| PR-8 | Low | Screen can flash between the splash and options | Done | `ui/tui/session.ts`. 455ec7e. | Same run as PR-5. | Optional. View, View snapshot, and Compare restore with `leaveAlt: false`. Start and Replay still leave the alternate screen. |
+| B-1 | Medium | Gate and ticket pipeline has no test | Done | `test/board.test.ts`. 455ec7e. | Same run as PR-5. 0.55 is absent, 0.59 is Dropped, the ninth is the cap, 0.79 is Review and off the ticket, two Ready legs make one ticket. | The board fixes had already landed. The test pins the current gates. |
+| B-2 | Medium | `Take` printed under 0.80 | Done | `slate/board.ts`, `props/board.ts`, `AGENTS.md`, `README.md`, `test/pure.test.ts`. 455ec7e. | `npm test` 78/78, `npm run typecheck` clean. Review moneyline is `Lean Chiefs -150`. Ready stays `Take`. A contradicted spread under 0.80 is `Lean Bills +3.5`. | Ben chose Lean. `Lean` is the same width as `Take`. A save already written keeps its stored slip. |
+| B-3 | Low | `readStartArgs` treats a stray word as the date | Done | `decisions/judge.ts`, `test/pure.test.ts`. 455ec7e. | `npm test` 78/78, `npm run typecheck` clean. | A `.json` path is still a view file, so `npm run tui -- path.json` keeps working. |
+| B-4 | Low | `requireRunKeys` unused parameter | Done | `decisions/judge.ts`, `scripts/parlays.ts`, `test/pure.test.ts`. 455ec7e. | Same run as B-3. | |
+| B-5 | Low | `teamShorts` module-level state | Done | `slate/board.ts`. 455ec7e. | Same run as PR-5. | Short names are a map inside one board. Slip helpers take an optional nick. |
+| B-6 | Low | Favorite gate includes the vig | Done | `AGENTS.md`, `README.md`. 455ec7e. | Docs only. The math did not change. | The 0.60 gate reads the posted price, vig included. |
+| S-1 | Medium | `scrubError` only strips `apiKey=` | Done | `scripts/scrub.ts`, `slate/board.ts`, `test/pure.test.ts`. 455ec7e. | Same run as PR-5. A fake URL and key come back as the variable names. Bearer tokens become `Bearer ***`. | Book error notes are scrubbed in review 2. |
+| S-2 | Low | `writeAtomic` defined twice | Done | `scripts/snapshot.ts`, `scripts/parlays.ts`. 455ec7e. | Same run as B-3. | |
+| S-3 | Low | Run lock is a pid file | Done | `scripts/lock.ts`, `AGENTS.md`, `test/pure.test.ts`. 455ec7e. | Same run as PR-5. A 13-hour lock with a live pid is taken over. A fresh lock is not. | Optional. |
+| W-1 | Medium | `scoreboardEvents` bad JSON throws | Done | `slate/window.ts`, `test/pure.test.ts`. 455ec7e. | Same run as B-3. HTML body returns `stamps: []`. | |
+| C-1 | Low | CI Node version doesn't match local | Done | `.nvmrc`, `.github/workflows/check.yml`. 455ec7e. | Same run as PR-5. The workflow reads `.nvmrc`, which is `24`. | Local Node is v24.22.1. The 22 floor is no longer a CI job. |
+| C-2 | Low | Pseudoterminal tests unconfirmed on Linux CI | Done | | Check run 44789610117 on `ubuntu-latest` succeeded for the clickability merge (`dff3e25`). That job runs `npm test`, which includes `test/screen.test.ts`. | No code change. The Linux run passed. |
+| P-1 | High | Extra prop picks a tiny under or an off-block player | Done | `props/board.ts`, `sports/soccer/index.ts`, `test/pure.test.ts`. 455ec7e. | Same run as B-3. | Soccer still falls through. Review 2 lets a featured extra sit under 0.60. See R2-2. |
+| P-2 | Medium | Tiny-under filters miss rare stats | Done | `sports/basketball/index.ts`, `sports/baseball/index.ts`, `sports/hockey/index.ts`, `test/pure.test.ts`. 455ec7e. | Same run as B-3. | |
+| P-3 | Medium | No ESPN concurrency limit | Done | `slate/pool.ts`, `slate/board.ts`, `props/board.ts`, `odds/http.ts`, `test/pure.test.ts`. 455ec7e. | Same run as PR-5. `mapPool` of 5 items with size 2 peaks at 2 and keeps order. | Briefs run six at a time. The book clients use the same helper. |
+| P-4 | Medium | NFL, NCAA, and soccer windows copied, keep finished games | Done | `slate/window.ts`, `sports/football/nfl.ts`, `sports/football/ncaa.ts`, `sports/soccer/index.ts`, `AGENTS.md`, `test/pure.test.ts`. 455ec7e. | Same run as PR-5. A game two days ago is left out. The window starts an hour before the first game still ahead. | Soccer still uses a four-day tail, and an empty soccer board is four Eastern days. NFL and NCAA keep the week label. |
+| O-1 | High | FanDuel props never read in a merged run | Done | `odds/direct.ts`, `odds/fanduel.ts`, `odds/draftkings.ts`, `odds/betmgm.ts`, `odds/caesars.ts`, `test/pure.test.ts`. 455ec7e. | `npm test` 69/69, `npm run typecheck` clean. `bookEventId` covers a combined id, a plain id, an empty FanDuel part, and an encoded id. Empty FanDuel part makes no fetch. | Also covers the combined-id half of O-L3. |
+| O-2 | High | Merged props read keeps one book's event | Done | `odds/direct.ts`, `test/pure.test.ts`. 455ec7e. | Same run as B-3. FanDuel and DraftKings props both come back when the names differ. | |
+| O-3 | High | Dated run can show another day's games | Done | `odds/cache.ts`, `AGENTS.md`, `README.md`, `test/pure.test.ts`. 455ec7e. | Same run as B-3. An 11-22 `cacheOnly` read of an 11-21 save is `skipped`. | Review 2 requires the saved window to cover the request. |
+| O-4 | High | Partial and empty merged reads cached 168 hours | Done | `odds/cache.ts`, `test/pure.test.ts`. 455ec7e. | Same run as B-3. A partial file 31 minutes old is `skipped`. The same file 5 minutes old hits. | |
+| O-5 | High | BetMGM puts every baseball league in MLB | Done | `odds/betmgm.ts`, `test/pure.test.ts`. 455ec7e. | Same run as B-3. MLB name kept, LIDOM dropped. | No `betmgm-` baseball file in `odds-cache/`, so the filter is competition name `MLB` until an id can be read in season. |
+| O-6 | Medium | In-memory book caches never expire | Done | `odds/draftkings.ts`, `odds/betmgm.ts`, `odds/direct.ts`, `scripts/parlays.ts`, `test/pure.test.ts`. 455ec7e. | Same run as PR-1. Second DraftKings read does not fetch; after `resetBookReads` it does. BetMGM session and caches drop to empty. Spread copy does not mutate the cached fixture. | FanDuel and Caesars keep no in-memory price cache, so `resetBookReads` only clears DraftKings, BetMGM, and `resetMergedBooks`. |
+| O-7 | Medium | Doubleheader merges into one game | Done | `odds/direct.ts`, `test/pure.test.ts`. 455ec7e. | Same run as PR-5. 13:05 and 19:10 come back as two events, each with both books. A DraftKings line an hour from FanDuel is dropped. | |
+| O-8 | Medium | One-sided market beats a complete one | Done | `odds/books.ts`, `slate/board.ts`, `test/pure.test.ts`. 455ec7e. | Same run as B-3. A one-outcome FanDuel moneyline loses to a two-outcome DraftKings line. | Review 2 keeps a one-outcome outright moneyline. |
+| O-9 | Medium | `pickBalanced` prefers an alternate line | Done | `odds/fanduel.ts`, `test/pure.test.ts`. 455ec7e. | Same run as B-3. `-110/-110` beats `+100/-125`. | |
+| O-10 | Medium | Spread pairing drops PK and self-pairs | Done | `odds/lines.ts`, `test/pure.test.ts`. 455ec7e. | Same run as B-3. | |
+| O-11 | Medium | FanDuel bypasses the shared HTTP code | Done | `odds/http.ts`, `odds/fanduel.ts`, `test/pure.test.ts`. 455ec7e. | Same run as PR-5. A 403 with an HTML body throws `FanDuel 403` and the message has no `<html`. | `fetchJson` accepts a POST body for the price call. An unreadable ESPN team list is empty. |
+| O-L1 | Low | BetMGM curl arguments | Done | `odds/betmgm.ts`. 455ec7e. | Same run as PR-5. | The URL goes to curl on stdin with `-K -`. `cdsApiUrl` must be `https`. The access id stays in the query, which is what the client already sent. |
+| O-L2 | Low | Caesars `dataPath` unchecked | Done | `odds/caesars.ts`, `odds/direct.ts`, `test/pure.test.ts`. 455ec7e. | Same run as PR-5. `/v4/events/abc-1` stays under the Illinois prefix. `..` and another host throw. | A leading slash is resolved under `BASE`, so the region prefix stays. Competition pages are reused until `resetBookReads`. |
+| O-L3 | Low | Duplicated odds code | Done | `odds/direct.ts`, `odds/fanduel.ts`, `odds/draftkings.ts`, `odds/betmgm.ts`, `odds/caesars.ts`, `test/pure.test.ts`. 455ec7e. | Same run as PR-5. `placeholderEvent` is Home at Away with no markets. A unicode minus prices as -110. | Combined-id parsing was already `bookEventId`. |
+| O-L4 | Low | Odds type-safety holes | Partial | `odds/direct.ts`, `odds/caesars.ts`, `odds/fanduel.ts`. 455ec7e. | Same run as PR-5. | Each book's body is parsed before the merge. A bad body is a failed book. `menuId` checks `Array.isArray`. Exported team and price helpers are typed. The FanDuel slate attachment parser still uses `any`. |
+| O-L5 | Low | `QUOTA_LOG` doubles as a path | Done | `odds/quota.ts`, `.env.settings.example`, `AGENTS.md`, `test/pure.test.ts`. 455ec7e. | Same run as PR-5. `QUOTA_LOG=1` does not name a file `1`. `QUOTA_LOG_PATH` is the custom file. | |
+| O-L6 | Low | Dead code | Done | `odds/cache.ts`, `props/board.ts`, `odds/draftkings.ts`, `.env.settings.example`, `AGENTS.md`, `test/pure.test.ts`. 455ec7e. | Same run as PR-5. | `oddsCreditFloor` is removed. Live reads no longer return a credit header, so the floor never fired. The repeated DraftKings points and assists patterns are gone. |
+| O-L7 | Low | Caesars spread sign unverified | Not a bug | | Compared the `williamhill_us` spreads in the saved `books-` files to FanDuel, DraftKings, or BetMGM. | 264 of 266 have the same sign. The other two are one soccer game where Caesars posted a different handicap line. See `review2.md` Decisions. |
 
 ### Work log
 
@@ -109,6 +109,30 @@ YYYY-MM-DDTHH:MM:SSZ  ID  Status  What changed, or why it stopped
 2026-11-20T17:59:57Z  B-3  Done  A bad date or unknown flag throws. A .json path is still a view file.
 2026-11-20T17:59:57Z  B-4  Done  requireRunKeys no longer takes the unused replay flag.
 2026-11-20T17:59:57Z  S-2  Done  writeAtomic is exported from scripts/snapshot.ts.
+2026-11-20T18:26:31Z  PR-3  Blocked  PR #5 is merged. The description was not edited from this branch. Use: "The splash, the options screen, and the slate use one terminal layer in ui/term.ts. Progress from a run prints on the normal screen between the options and the slate."
+2026-11-20T18:26:31Z  PR-5  Done  A saved Eastern day before today opens on Current slate.
+2026-11-20T18:26:31Z  PR-6  Done  Escape plus a key that is not CSI or SS3 is delivered as two keys.
+2026-11-20T18:26:31Z  PR-7  Done  Ctrl-C during the slate walk removes the lock and exits 130. The handler is off before the screen.
+2026-11-20T18:26:31Z  PR-8  Done  View, View snapshot, and Compare keep the alternate screen up.
+2026-11-20T18:26:31Z  B-1  Done  An offline board test pins the 0.60 gate, the top 8, verify at 0.80, and the tickets.
+2026-11-20T18:26:31Z  B-5  Done  Short names live in the board that is being built.
+2026-11-20T18:26:31Z  B-6  Done  The docs say the 0.60 gate reads the posted price, vig included.
+2026-11-20T18:26:31Z  S-1  Done  scrubText replaces keys, a bearer token, and AUTOJEV_URL before a note is saved.
+2026-11-20T18:26:31Z  S-3  Done  A lock older than 12 hours is taken over even when the pid is alive.
+2026-11-20T18:26:31Z  C-1  Done  CI reads Node 24 from .nvmrc.
+2026-11-20T18:26:31Z  C-2  Done  The Check run on the clickability merge passed on ubuntu-latest, including the screen tests.
+2026-11-20T18:26:31Z  P-3  Done  Briefs run six at a time through mapPool.
+2026-11-20T18:26:31Z  P-4  Done  NFL, NCAA, and soccer use upcomingWindow, so a finished game does not set the window.
+2026-11-20T18:26:31Z  O-7  Done  Kickoffs more than two hours apart stay separate games.
+2026-11-20T18:26:31Z  O-11  Done  FanDuel uses fetchJson. A 403 does not include the response body.
+2026-11-20T18:26:31Z  O-L1  Done  BetMGM passes the curl URL on stdin, and the host must be https.
+2026-11-20T18:26:31Z  O-L2  Done  A Caesars dataPath must match a safe path on the Illinois host. Competition pages are reused for the run.
+2026-11-20T18:26:31Z  O-L3  Done  Placeholder events share one helper, and a unicode minus is a price.
+2026-11-20T18:26:31Z  O-L4  Partial  Book bodies are parsed before the merge, and menuId checks for an array. The FanDuel slate parser still uses any.
+2026-11-20T18:26:31Z  O-L5  Done  QUOTA_LOG=1 uses the default file. QUOTA_LOG_PATH picks another file.
+2026-11-20T18:26:31Z  O-L6  Done  The unused credit floor is gone, and the repeated DraftKings prop patterns are gone.
+2026-11-20T18:26:31Z  O-L7  Blocked  odds-cache has no caesars- file, so the spread sign was not checked.
+2026-11-20T18:40:00Z  O-L7  Not a bug  The merged books- files hold Caesars lines. 264 of 266 spreads match the other books' sign.
 
 ### Status line under each finding
 
@@ -185,7 +209,7 @@ In `ui/tui/splash.ts`, `onKey()` calls `finish()` for every key, so Ctrl-C only 
 
 #### [PR-3] The description says the slate and launcher "share one alt-screen session"
 
-> **Status:** Blocked, 2026-11-20T17:59:57Z. See tracker.
+> **Status:** Done, 2026-11-20T19:06:54Z. See tracker. The current PR #5 body does not contain the alt-screen sentence.
 
 They don't. Each `withAltScreen` call enters and leaves the alternate screen. Only the splash passes `leaveAlt: false` to keep it up for the options screen. Between the options and the slate, the run's progress lines print on the normal screen, which is a reasonable behavior.
 
@@ -228,6 +252,8 @@ Severity is High, Medium, or Low. File references are on the `clickability` bran
 ### Decisions and the board (`decisions/judge.ts`, `slate/board.ts`)
 
 #### [B-1] Medium. The gate and ticket pipeline has no test
+
+> **Status:** Done, 2026-11-20T18:26:31Z. See tracker.
 
 `test/pure.test.ts` covers `implied`, `toDecimal`, the slip helpers, and `droppedCall`, but not `buildBoardInner` (`slate/board.ts:403`). That function enforces:
 - the 0.60 favorite gate
@@ -291,6 +317,8 @@ Those are the rules `AGENTS.md` says must not change, and nothing pins them.
 
 #### [B-5] Low. `teamShorts` is module-level mutable state
 
+> **Status:** Done, 2026-11-20T18:26:31Z. See tracker.
+
 `slate/board.ts:125`. It's set in `buildBoardInner` and cleared in `finally`. That's safe while boards build one at a time, but two `buildBoard` calls running together would mix up short names.
 
 **Fix path**
@@ -300,6 +328,8 @@ Those are the rules `AGENTS.md` says must not change, and nothing pins them.
 
 #### [B-6] Low. The favorite gate uses the raw price, with the vig still in
 
+> **Status:** Done, 2026-11-20T18:26:31Z. See tracker.
+
 `implied()` doesn't remove the vig, so a -150/+130 market counts as 0.600 for the favorite against a no-vig price of about 0.58. That nudges more favorites over the 0.60 line.
 
 **Fix path:** document it. Add one sentence to the gate section of `README.md` and `AGENTS.md` saying the 0.60 gate reads the posted price, vig included. Changing the math would move the gate, which `AGENTS.md` forbids without asking, so don't change the math unless you decide to.
@@ -307,6 +337,8 @@ Those are the rules `AGENTS.md` says must not change, and nothing pins them.
 ### Run scripts (`scripts/`)
 
 #### [S-1] Medium. `scrubError` only removes `apiKey=` query values
+
+> **Status:** Done, 2026-11-20T18:26:31Z. See tracker.
 
 `scripts/scrub.ts`. The Autojev client scrubs its own key, but errors that come up through `jev-recipes` (TypeSafe) or a direct-book client aren't scrubbed for a bearer token or a tailnet address. Those errors also land in board notes, which are saved into `runs/last-run.json` and the snapshots. `AGENTS.md` says never to print `AUTOJEV_URL` or a key.
 
@@ -327,6 +359,8 @@ It's in both `scripts/parlays.ts` and `scripts/snapshot.ts`.
 **Fix path:** export `writeAtomic` from `scripts/snapshot.ts`, or a new `scripts/files.ts`, and import it in `scripts/parlays.ts`. No behavior change.
 
 #### [S-3] Low. The run lock is a pid file
+
+> **Status:** Done, 2026-11-20T18:26:31Z. See tracker.
 
 `scripts/lock.ts`. If a run is killed and the OS reuses its pid, the next run sees the lock as live and refuses to start. That's rare, and the message tells you what to remove.
 
@@ -350,11 +384,15 @@ The Eastern-midnight math (`startOfEasternDay`) iterates on wall-clock time and 
 
 #### [C-1] Low. CI's Node version doesn't match local
 
+> **Status:** Done, 2026-11-20T18:26:31Z. See tracker.
+
 CI uses `node-version: '22'`, while `engines` requires `>=22.23.4` and `.npmrc` sets `engine-strict=true`. Local development is Node 24. The `'22'` alias resolves to the newest 22.x, so this passes today.
 
 **Fix path:** add `.nvmrc` with the version you develop on (`24`), and change the workflow step to `node-version-file: .nvmrc`. If you want to keep proving the 22 floor, use a matrix of `22.23.4` and `24` instead.
 
 #### [C-2] Low. The pseudoterminal tests are new on Linux CI
+
+> **Status:** Done, 2026-11-20T18:26:31Z. See tracker.
 
 They pass on this Mac. This review couldn't confirm they pass on `ubuntu-latest`, because `gh` isn't installed here.
 
@@ -394,6 +432,8 @@ The `realExtra` filters (`sports/basketball/index.ts:28`, `sports/baseball/index
 
 #### [P-3] Medium. ESPN requests have no concurrency limit
 
+> **Status:** Done, 2026-11-20T18:26:31Z. See tracker.
+
 `buildBoardInner` runs `Promise.all(legs.map(getBrief))` (`slate/board.ts:431`), and each brief fetches team, schedule, and injuries. On a full NCAA Saturday that's about 80 schedule reads at once against ESPN's public API, which invites 429s and timeouts. These are written up as "no recent games", which quietly weakens the brief.
 
 **Fix path**
@@ -402,6 +442,8 @@ The `realExtra` filters (`sports/basketball/index.ts:28`, `sports/baseball/index
 3. Optional: add a test that `mapPool` never runs more than `size` at once and returns results in order.
 
 #### [P-4] Medium. The NFL, NCAA, and soccer windows are copied three times, and none of them drops finished games
+
+> **Status:** Done, 2026-11-20T18:26:31Z. See tracker.
 
 Hockey, basketball, baseball, and Formula 1 use `upcomingWindow` in `slate/window.ts`, which keeps only kickoffs after an hour ago. `sports/football/nfl.ts`, `sports/football/ncaa.ts`, and `sports/soccer/index.ts` each build their own window from the full scoreboard, using `scoreboardEvents`. If ESPN's scoreboard still lists last week, the window can start in the past or be empty. The empty-slate case depends on when ESPN rolls its scoreboard forward, so it's a guess.
 
@@ -500,6 +542,8 @@ These are the DraftKings `cache` (`odds/draftkings.ts:94`) and BetMGM's `sportCa
 
 ##### [O-7] A doubleheader merges into one game
 
+> **Status:** Done, 2026-11-20T18:26:31Z. See tracker.
+
 The merge key is day plus team names (`odds/direct.ts:56`), so two MLB games between the same teams on the same day collapse together. Prices from different games can be mixed.
 
 **Fix path**
@@ -542,6 +586,8 @@ The merge key is day plus team names (`odds/direct.ts:56`), so two MLB games bet
 
 ##### [O-11] FanDuel doesn't use the shared HTTP code
 
+> **Status:** Done, 2026-11-20T18:26:31Z. See tracker.
+
 `odds/fanduel.ts:65-77` has its own fetch, with no retry. Its error message includes 200 characters of the response body, which can be an HTML block page, and that text goes into `omitted`, the cache file, and the board note. `AGENTS.md` says errors should be status and API message only. Also, `espnTeams` (`:115`) calls `res.json()` without a try.
 
 **Fix path**
@@ -559,7 +605,7 @@ The merge key is day plus team names (`odds/direct.ts:56`), so two MLB games bet
 
 - **[O-L3] Duplicated code:**
 
-  > **Status:** Partial, 2026-11-20T17:34:27Z. See tracker.
+  > **Status:** Done, 2026-11-20T18:26:31Z. See tracker.
 
   - Combined-id parsing is copied into three clients (`odds/draftkings.ts:415`, `odds/betmgm.ts:540`, `odds/caesars.ts:387`) while `splitBookId` goes unused.
   - Each client repeats the `Home`/`Away` placeholder event.

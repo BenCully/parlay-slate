@@ -2,7 +2,7 @@ import { evidenceFor, nameKey } from '../../espn/evidence.js';
 import { createPlayers } from '../../espn/players.js';
 import type { PropProfile } from '../../props/board.js';
 import type { LeagueDef, Sport } from '../types.js';
-import { easternRange, oddsStamp, scoreboardEvents, todayEastern, type OddsWindow } from '../../slate/window.js';
+import { upcomingWindow } from '../../slate/window.js';
 import { createFotmob } from './fotmob.js';
 
 type SoccerLeague = {
@@ -76,25 +76,6 @@ function profileFor(league: SoccerLeague): PropProfile | null {
   };
 }
 
-async function windowFor(espn: string, label: string, day: string | undefined): Promise<OddsWindow> {
-  if (day) {
-    const range = easternRange(day);
-    return { ...range, label: `${label} ${day} (Eastern)` };
-  }
-  const url = `https://site.api.espn.com/apis/site/v2/sports/soccer/${espn}/scoreboard`;
-  const { stamps } = await scoreboardEvents(url, (status) => `ESPN ${label} scoreboard returned ${status}`);
-  if (!stamps.length) {
-    const today = todayEastern();
-    const range = easternRange(today, 4);
-    return { ...range, label };
-  }
-  return {
-    from: oddsStamp(new Date(Math.min(...stamps) - 60 * 60 * 1000).toISOString()),
-    to: oddsStamp(new Date(Math.max(...stamps) + 4 * 24 * 60 * 60 * 1000).toISOString()),
-    label,
-  };
-}
-
 function leagueDef(league: SoccerLeague): LeagueDef {
   const evidence = evidenceFor(league.espn);
   const fotmob = createFotmob(league.fotmob);
@@ -107,7 +88,13 @@ function leagueDef(league: SoccerLeague): LeagueDef {
       query: 'Which team is very likely to win this match?',
       threeWay: true,
       shortNames: true,
-      window: (day) => windowFor(league.espn, league.label, day),
+      window: (day) => upcomingWindow(
+        `https://site.api.espn.com/apis/site/v2/sports/soccer/${league.espn}/scoreboard`,
+        league.label,
+        day,
+        (status) => `ESPN ${league.label} scoreboard returned ${status}`,
+        { tailMs: 4 * 24 * 60 * 60 * 1000, emptyDays: 4 },
+      ),
       getBrief: (leg) => fotmob.enrich(leg, evidence.getBrief),
       profile: profileFor(league),
       propsNote: league.props ? '' : 'US books do not post player props for the Champions League.',

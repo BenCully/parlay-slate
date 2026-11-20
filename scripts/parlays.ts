@@ -6,8 +6,9 @@
 //      npm run slate -- 2026-11-15 model=tail-jev Autojev on the tailnet (model=autojev is the same)
 //      npm run slate -- odds=2026-11-15 model=jev prices saved that Eastern day, no live fetch
 // npm start with those same arguments does this too. Bare npm start opens the launcher.
+import { rmSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readStartArgs, requireRunKeys, selectDecisionModel } from '../decisions/judge.js';
 import { oddsSource, setOddsFresh, setOddsReplay } from '../odds/cache.js';
@@ -92,11 +93,19 @@ export async function runSlate(options: RunSlateOptions = {}): Promise<SlateRunR
   resetBookReads();
   if (odds) setOddsReplay(odds);
   let release: (() => Promise<void>) | undefined;
+  const lockFile = join(dirname(savedPath), 'slate.lock');
+  const onSigint = () => {
+    rmSync(lockFile, { force: true });
+    process.exit(130);
+  };
+  let listening = false;
   try {
     const source = oddsSource();
     const chosen = selectDecisionModel(options.model ?? 'jev');
     requireRunKeys(chosen);
     release = await acquireRunLock(dirname(savedPath));
+    process.once('SIGINT', onSigint);
+    listening = true;
     console.log(odds ? `Decisions: ${chosen}. Odds saved on ${odds}.` : `Decisions: ${chosen}.`);
     const sports: SavedSport[] = [];
     let built = false;
@@ -144,9 +153,12 @@ export async function runSlate(options: RunSlateOptions = {}): Promise<SlateRunR
     const saved = currentSlate(sports, chosen, odds, source);
     await saveRun(saved);
     await saveSnapshot(saved, label);
+    process.off('SIGINT', onSigint);
+    listening = false;
     const close = await showSlate(saved);
     return { built: true, close, message: '' };
   } finally {
+    if (listening) process.off('SIGINT', onSigint);
     setOddsFresh(false);
     setOddsReplay(null);
     if (sourceSet) {
@@ -179,7 +191,13 @@ async function saveSnapshot(saved: SavedSlate, label: string) {
 }
 
 if (isDirectRun(import.meta.url)) {
-  const args = readStartArgs(process.argv.slice(2));
+  let args: ReturnType<typeof readStartArgs>;
+  try {
+    args = readStartArgs(process.argv.slice(2));
+  } catch (error) {
+    console.error(scrubError(error, 'Bad arguments.'));
+    process.exit(1);
+  }
   runSlate({ day: args.day, model: args.model, odds: args.odds, fresh: args.fresh }).catch((error) => {
     console.error(scrubError(error, 'The slate failed.'));
     process.exit(1);

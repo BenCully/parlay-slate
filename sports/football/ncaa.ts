@@ -2,7 +2,7 @@ import { createEvidence, NCAA_EVIDENCE } from '../../espn/evidence.js';
 import { createPlayers } from '../../espn/players.js';
 import type { LeagueDef } from '../types.js';
 import { footballProfile } from './props.js';
-import { easternRange, oddsStamp, scoreboardEvents, todayEastern, type OddsWindow } from '../../slate/window.js';
+import { upcomingWindow } from '../../slate/window.js';
 
 const BASE = 'https://site.api.espn.com/apis/site/v2/sports/football/college-football';
 const SCOREBOARD = `${BASE}/scoreboard`;
@@ -25,21 +25,6 @@ const profile = footballProfile('americanfootball_ncaaf', {
   teamShort: evidence.teamShort,
 });
 
-async function windowFor(day: string | undefined): Promise<OddsWindow> {
-  if (day) {
-    const range = easternRange(day);
-    return { ...range, label: `NCAA ${day} (Eastern)` };
-  }
-  const { board, stamps } = await scoreboardEvents(SCOREBOARD, (status) => `ESPN college football scoreboard returned ${status}`);
-  if (!stamps.length) return windowFor(todayEastern());
-  const week = board.week?.number;
-  return {
-    from: oddsStamp(new Date(Math.min(...stamps) - 60 * 60 * 1000).toISOString()),
-    to: oddsStamp(new Date(Math.max(...stamps) + 6 * 60 * 60 * 1000).toISOString()),
-    label: week ? `NCAA week ${week}` : 'NCAA current week',
-  };
-}
-
 export const ncaaLeague: LeagueDef = {
   label: 'NCAA',
   short: 'NCAA',
@@ -49,7 +34,10 @@ export const ncaaLeague: LeagueDef = {
     query: 'Which college football team is very likely to win this game?',
     threeWay: false,
     shortNames: true,
-    window: windowFor,
+    window: (day) => upcomingWindow(SCOREBOARD, 'NCAA', day, (status) => `ESPN college football scoreboard returned ${status}`, {
+      datedEmpty: true,
+      label: (board) => (board.week?.number ? `NCAA week ${board.week.number}` : 'NCAA current week'),
+    }),
     getBrief: evidence.getBrief,
     profile,
     propsNote: '',

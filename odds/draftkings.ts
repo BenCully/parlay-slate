@@ -1,6 +1,6 @@
 // DraftKings Illinois sportsbook JSON, normalized into the event shape the boards already read.
 // No login and no client id. Node fetch with a browser User-Agent. A 403 stops. There is no paid fallback.
-import { bookEventId, decodedEventId } from './direct.js';
+import { bookEventId, decodedEventId, placeholderEvent } from './direct.js';
 import { teamResolver } from './fanduel.js';
 import { americanPrice, fetchJson, inWindow, trimStamp, BROWSER } from './http.js';
 import { balancedSpreads, balancedTotals } from './lines.js';
@@ -49,8 +49,6 @@ const PROP_NAMES: { pattern: RegExp; key: string; anytime?: boolean }[] = [
   { pattern: /^blocks o\/u$/i, key: 'player_blocks' },
   { pattern: /^steals o\/u$/i, key: 'player_steals' },
   { pattern: /shots on goal o\/u/i, key: 'player_shots_on_goal' },
-  { pattern: /^points o\/u$/i, key: 'player_points' },
-  { pattern: /^assists o\/u$/i, key: 'player_assists' },
   { pattern: /^saves o\/u$/i, key: 'player_total_saves' },
   { pattern: /^power play points o\/u$/i, key: 'player_power_play_points' },
   { pattern: /anytime goalscorer/i, key: 'player_goal_scorer_anytime', anytime: true },
@@ -396,7 +394,7 @@ async function slate(sportKey: string, from: string, to: string) {
 async function props(sportKey: string, eventId: string, wanted: Set<string>) {
   const league = LEAGUES[sportKey];
   if (!league || league.empty || !wanted.size) {
-    return bookEvent(eventId, new Date().toISOString(), 'Home', 'Away', 'draftkings', []);
+    return placeholderEvent(eventId, 'draftkings');
   }
   const leagueBody = await load(`${SITE}/v1/leagues/${league.leagueId}`);
   const subs = propSubs(leagueBody).filter((sub) => wanted.has(sub.key));
@@ -409,7 +407,7 @@ async function props(sportKey: string, eventId: string, wanted: Set<string>) {
     merged.selections?.push(...(body.selections ?? []));
   }
   const found = normalizeDraftKings(merged, { from: '', to: '', resolve, wanted, eventId, props: true });
-  return found[0] ?? bookEvent(eventId, new Date().toISOString(), 'Home', 'Away', 'draftkings', []);
+  return found[0] ?? placeholderEvent(eventId, 'draftkings');
 }
 
 /** Read a slate URL or an events URL and answer from DraftKings. */
@@ -422,7 +420,7 @@ export async function draftkingsFetch(url: string): Promise<unknown> {
     if (!raw) throw new Error('DraftKings could not read the event.');
     const eventId = decodedEventId(raw);
     const segment = bookEventId(raw, 'dk');
-    if (!segment) return bookEvent(eventId, new Date().toISOString(), 'Home', 'Away', 'draftkings', []);
+    if (!segment) return placeholderEvent(eventId, 'draftkings');
     const wanted = new Set((parsed.searchParams.get('markets') ?? '').split(',').filter(Boolean));
     return props(sportKey, segment, wanted);
   }

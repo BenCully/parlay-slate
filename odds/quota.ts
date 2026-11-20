@@ -19,6 +19,7 @@ export type QuotaEntry = {
 const defaultFile = fileURLToPath(new URL('../runs/quota.jsonl', import.meta.url));
 
 let chain: Promise<void> = Promise.resolve();
+let warnedLegacyPath = false;
 
 /** America/New_York wall time as YYYY-MM-DDTHH:MM:SS. */
 export function easternClock(when: Date) {
@@ -52,16 +53,28 @@ export function quotaEntry(request: string, source: QuotaSource, remaining: numb
   };
 }
 
-function quotaFile() {
-  if (process.env.QUOTA_LOG === '0') return '';
-  if (process.env.QUOTA_LOG) return process.env.QUOTA_LOG;
+/** `0` is off. `1` or `true` uses the default file, or `QUOTA_LOG_PATH` when that is set. A path in `QUOTA_LOG` still writes there and warns once. */
+export function quotaLogFile() {
+  const flag = process.env.QUOTA_LOG?.trim();
+  if (flag === '0') return '';
+  if (flag && (flag.includes('/') || flag.endsWith('.jsonl'))) {
+    if (!warnedLegacyPath) {
+      warnedLegacyPath = true;
+      console.error('QUOTA_LOG is a file path. Use QUOTA_LOG_PATH for that file, and set QUOTA_LOG=1.');
+    }
+    return flag;
+  }
+  const custom = process.env.QUOTA_LOG_PATH?.trim();
+  const on = flag === '1' || flag === 'true' || flag == null || flag === '';
+  if (!on && flag) return custom || (process.env.NODE_TEST_CONTEXT ? '' : defaultFile);
+  if (custom) return custom;
   if (process.env.NODE_TEST_CONTEXT) return '';
   return defaultFile;
 }
 
-/** Append one line. QUOTA_LOG=0 turns it off. Tests stay quiet unless they set QUOTA_LOG. */
+/** Append one line. QUOTA_LOG=0 turns it off. QUOTA_LOG=1 uses the default file. QUOTA_LOG_PATH picks another file. */
 export async function appendQuota(entry: QuotaEntry) {
-  const file = quotaFile();
+  const file = quotaLogFile();
   if (!file) return;
   const line = `${JSON.stringify(entry)}\n`;
   const run = chain.then(async () => {

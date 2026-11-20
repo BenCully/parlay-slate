@@ -3,13 +3,11 @@
 // Node fetch is blocked on the fixtures host from this machine, so those calls use curl HTTP/1.1.
 // Do not print the command or the access id. A non-200 stops. There is no paid fallback.
 import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { bookEventId, decodedEventId } from './direct.js';
+import { bookEventId, decodedEventId, placeholderEvent } from './direct.js';
 import { pickBalanced, teamResolver, type LineQuote } from './fanduel.js';
 import { americanPrice, BookError, fetchJson, inWindow, mapPool, textValue, BROWSER } from './http.js';
 import { bookEvent, outcome, type Market, type Outcome } from './shape.js';
 
-const exec = promisify(execFile);
 const CONFIG = 'https://www.il.betmgm.com/en/api/clientconfig?browserUrl=http%3A%2F%2Fwww.il.betmgm.com%2Fen%2Fsports';
 
 type Param = { key?: string; value?: string };
@@ -127,18 +125,39 @@ function configHeaders() {
   };
 }
 
+function curlConfig(url: string) {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new BookError('BetMGM', null, false);
+  }
+  if (parsed.protocol !== 'https:' || /[\r\n"]/.test(url)) throw new BookError('BetMGM', null, false);
+  return `url = "${url}"\n`;
+}
+
+function runCurl(args: string[], input: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = execFile('curl', args, { maxBuffer: 64 * 1024 * 1024, timeout: 35_000 }, (error, stdout) => {
+      if (error) reject(error);
+      else resolve(stdout);
+    });
+    child.stdin?.end(input);
+  });
+}
+
 async function curlJson(url: string): Promise<unknown> {
   let stdout = '';
   try {
-    const result = await exec('curl', [
+    stdout = await runCurl([
       '--http1.1', '-sS', '-w', '\n%{http_code}',
       '-H', `User-Agent: ${BROWSER}`,
       '-H', 'Accept: application/json',
       '--max-time', '30',
-      url,
-    ], { maxBuffer: 64 * 1024 * 1024, timeout: 35_000 });
-    stdout = result.stdout;
-  } catch {
+      '-K', '-',
+    ], curlConfig(url));
+  } catch (error) {
+    if (error instanceof BookError) throw error;
     throw new BookError('BetMGM', null, false);
   }
   const lines = stdout.trimEnd().split('\n');
@@ -169,6 +188,13 @@ async function clientConfig(force = false) {
   const access = body.msConnection?.publicAccessId;
   const base = body.msConnection?.cdsApiUrl?.replace(/\/$/, '');
   if (!access || !base) throw new BookError('BetMGM', null, true);
+  let parsed: URL;
+  try {
+    parsed = new URL(base);
+  } catch {
+    throw new BookError('BetMGM', null, true);
+  }
+  if (parsed.protocol !== 'https:') throw new BookError('BetMGM', null, true);
   session = { access, base };
   return session;
 }
@@ -551,9 +577,9 @@ async function slate(sportKey: string, from: string, to: string) {
 
 async function props(sportKey: string, eventId: string, wanted: Set<string>) {
   const sport = SPORTS[sportKey];
-  if (!sport || !wanted.size) return bookEvent(eventId, new Date().toISOString(), 'Home', 'Away', 'betmgm', []);
+  if (!sport || !wanted.size) return placeholderEvent(eventId, 'betmgm');
   const view = await loadView(eventId);
-  if (!view) return bookEvent(eventId, new Date().toISOString(), 'Home', 'Away', 'betmgm', []);
+  if (!view) return placeholderEvent(eventId, 'betmgm');
   const resolve = await teamResolver(sportKey);
   const normalized = normalizeBetMgm([view], {
     from: '',
@@ -563,7 +589,7 @@ async function props(sportKey: string, eventId: string, wanted: Set<string>) {
     mode: 'props',
     wanted,
   });
-  return normalized[0] ?? bookEvent(eventId, view.startDate ?? new Date().toISOString(), 'Home', 'Away', 'betmgm', []);
+  return normalized[0] ?? placeholderEvent(eventId, 'betmgm', view.startDate);
 }
 
 /** Read a slate URL or an events URL and answer from BetMGM. */
@@ -576,7 +602,7 @@ export async function betmgmFetch(url: string): Promise<unknown> {
     if (!raw) throw new Error('BetMGM could not read the event.');
     const eventId = decodedEventId(raw);
     const segment = bookEventId(raw, 'mgm');
-    if (!segment) return bookEvent(eventId, new Date().toISOString(), 'Home', 'Away', 'betmgm', []);
+    if (!segment) return placeholderEvent(eventId, 'betmgm');
     const wanted = new Set((parsed.searchParams.get('markets') ?? '').split(',').filter(Boolean));
     return props(sportKey, segment, wanted);
   }

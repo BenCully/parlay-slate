@@ -1,10 +1,12 @@
 // Merged read of FanDuel, DraftKings, BetMGM, and Caesars.
 // Games match on the two team names and the America/New_York date. A book that throws is left off.
 import { betMgmCacheSize, betmgmFetch, resetBetMgm } from './betmgm.js';
-import { resetMergedBooks, type OddsEvent } from './cache.js';
-import { caesarsFetch } from './caesars.js';
+import { parseOddsBody, resetMergedBooks, type OddsEvent } from './cache.js';
+import { caesarsFetch, resetCaesars } from './caesars.js';
+import { bookEvent } from './shape.js';
 import { draftKingsCacheSize, draftkingsFetch, resetDraftKings } from './draftkings.js';
 import { fanduelFetch } from './fanduel.js';
+import { scrubText } from '../scripts/scrub.js';
 import { easternDay } from '../slate/window.js';
 
 export type BookId = 'fd' | 'dk' | 'mgm' | 'czr';
@@ -64,10 +66,14 @@ export function bookEventId(raw: string, book: BookId): string {
   return parts[book];
 }
 
-function asEvents(body: unknown): OddsEvent[] {
-  if (Array.isArray(body)) return body as OddsEvent[];
-  if (body && typeof body === 'object') return [body as OddsEvent];
-  return [];
+/** A props row with no prices. Every book uses this instead of building its own. */
+export function placeholderEvent(id: string, bookKey: string, commence?: string) {
+  return bookEvent(id, commence ?? new Date().toISOString(), 'Home', 'Away', bookKey, []);
+}
+
+function eventsOf(body: unknown): OddsEvent[] {
+  const parsed = parseOddsBody(body);
+  return Array.isArray(parsed) ? parsed : [parsed];
 }
 
 function matchKey(event: OddsEvent) {
@@ -123,6 +129,62 @@ export function mergePropEvent(requestId: string, rows: { source: string; events
   };
 }
 
+const CLUSTER_MS = 2 * 60 * 60 * 1000;
+
+/** Split a same-day matchup when one book lists it twice and the kickoffs are more than two hours apart. */
+function clustersOf(list: { source: string; event: OddsEvent }[]) {
+  const counts = new Map<string, number>();
+  for (const row of list) counts.set(row.source, (counts.get(row.source) ?? 0) + 1);
+  const doubled = [...counts.values()].some((count) => count >= 2);
+  if (!doubled) return [list];
+  const sorted = [...list].sort((a, b) => Date.parse(a.event.commence_time) - Date.parse(b.event.commence_time));
+  const clusters: { source: string; event: OddsEvent }[][] = [];
+  for (const row of sorted) {
+    const time = Date.parse(row.event.commence_time);
+    const current = clusters.at(-1);
+    const first = current?.[0] ? Date.parse(current[0].event.commence_time) : Number.NaN;
+    if (!current || !Number.isFinite(time) || time - first > CLUSTER_MS) clusters.push([row]);
+    else current.push(row);
+  }
+  return clusters;
+}
+
+/** One row per book. A second listing in the same cluster keeps the time closest to FanDuel. */
+function onePerBook(rows: { source: string; event: OddsEvent }[]) {
+  const fanduel = rows.find((row) => row.source === 'fanduel');
+  const anchor = Date.parse((fanduel ?? rows[0])!.event.commence_time);
+  const bySource = new Map<string, { source: string; event: OddsEvent }>();
+  for (const row of rows) {
+    const held = bySource.get(row.source);
+    if (!held) {
+      bySource.set(row.source, row);
+      continue;
+    }
+    const heldGap = Math.abs(Date.parse(held.event.commence_time) - anchor);
+    const gap = Math.abs(Date.parse(row.event.commence_time) - anchor);
+    if (gap < heldGap) bySource.set(row.source, row);
+  }
+  return [...bySource.values()];
+}
+
+function mergedEvent(rows: { source: string; event: OddsEvent }[]): OddsEvent | null {
+  const ranked = [...rows].sort((a, b) => BOOK_ORDER.indexOf(a.source) - BOOK_ORDER.indexOf(b.source));
+  const first = ranked[0]?.event;
+  if (!first) return null;
+  const ids: Partial<Record<BookId, string>> = {};
+  for (const row of ranked) {
+    const slot = ID_SLOT[row.source];
+    if (slot && !ids[slot]) ids[slot] = row.event.id;
+  }
+  return {
+    id: compositeId(ids),
+    commence_time: first.commence_time,
+    home_team: first.home_team,
+    away_team: first.away_team,
+    bookmakers: booksInOrder(ranked).bookmakers,
+  };
+}
+
 /** One event per game. Each book keeps its own bookmaker. The id carries every book's event id. */
 export function mergeBookEvents(groups: { source: string; events: OddsEvent[] }[]): OddsEvent[] {
   const buckets = new Map<string, { source: string; event: OddsEvent }[]>();
@@ -137,21 +199,10 @@ export function mergeBookEvents(groups: { source: string; events: OddsEvent[] }[
   }
   const merged: OddsEvent[] = [];
   for (const list of buckets.values()) {
-    const ranked = [...list].sort((a, b) => BOOK_ORDER.indexOf(a.source) - BOOK_ORDER.indexOf(b.source));
-    const first = ranked[0]?.event;
-    if (!first) continue;
-    const ids: Partial<Record<BookId, string>> = {};
-    for (const row of ranked) {
-      const slot = ID_SLOT[row.source];
-      if (slot && !ids[slot]) ids[slot] = row.event.id;
+    for (const cluster of clustersOf(list)) {
+      const event = mergedEvent(onePerBook(cluster));
+      if (event) merged.push(event);
     }
-    merged.push({
-      id: compositeId(ids),
-      commence_time: first.commence_time,
-      home_team: first.home_team,
-      away_team: first.away_team,
-      bookmakers: booksInOrder(ranked).bookmakers,
-    });
   }
   return merged;
 }
@@ -171,6 +222,7 @@ export function bookCacheSize() {
 export function resetBookReads() {
   resetDraftKings();
   resetBetMgm();
+  resetCaesars();
   resetMergedBooks();
 }
 
@@ -179,9 +231,18 @@ export async function booksFetch(url: string): Promise<MergedRead> {
   const settled = await Promise.all(READERS.map(async (reader) => {
     try {
       const body = await reader.run(url);
-      return { source: BOOK_KEY[reader.id], label: reader.label, events: asEvents(body), error: '' };
+      try {
+        return { source: BOOK_KEY[reader.id], label: reader.label, events: eventsOf(body), error: '' };
+      } catch {
+        return {
+          source: BOOK_KEY[reader.id],
+          label: reader.label,
+          events: [] as OddsEvent[],
+          error: `${reader.label} returned an unexpected payload.`,
+        };
+      }
     } catch (error) {
-      const message = error instanceof Error ? error.message : `${reader.label} did not answer.`;
+      const message = scrubText(error instanceof Error ? error.message : `${reader.label} did not answer.`);
       return { source: BOOK_KEY[reader.id], label: reader.label, events: [] as OddsEvent[], error: message };
     }
   }));
